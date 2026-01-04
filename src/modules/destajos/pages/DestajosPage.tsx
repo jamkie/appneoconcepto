@@ -2,7 +2,10 @@ import { ArrowLeft, Hammer } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 
-export default function Destajos() {
+// TODO: Replace this placeholder with your actual Destajos app code
+// Paste your main page component here
+
+export default function DestajosPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="container max-w-6xl mx-auto px-4 py-8">
@@ -27,9 +30,13 @@ export default function Destajos() {
           </div>
         </div>
 
+        {/* TODO: Paste your Destajos app content here */}
         <div className="neo-card p-12 text-center">
           <p className="text-muted-foreground">
-            El contenido del módulo de Destajos se mostrará aquí.
+            ⏳ Esperando código del módulo Destajos...
+          </p>
+          <p className="text-sm text-muted-foreground mt-2">
+            Comparte tu código del proyecto Destajos para integrarlo aquí.
           </p>
         </div>
       </div>

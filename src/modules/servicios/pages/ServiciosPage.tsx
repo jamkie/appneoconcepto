@@ -2,7 +2,10 @@ import { ArrowLeft, Headphones } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 
-export default function Servicios() {
+// TODO: Replace this placeholder with your actual Servicios app code
+// Paste your main page component here
+
+export default function ServiciosPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="container max-w-6xl mx-auto px-4 py-8">
@@ -27,9 +30,13 @@ export default function Servicios() {
           </div>
         </div>
 
+        {/* TODO: Paste your Servicios app content here */}
         <div className="neo-card p-12 text-center">
           <p className="text-muted-foreground">
-            El contenido del módulo de Servicios al Cliente se mostrará aquí.
+            ⏳ Esperando código del módulo Servicios...
+          </p>
+          <p className="text-sm text-muted-foreground mt-2">
+            Comparte tu código del proyecto Servicios para integrarlo aquí.
           </p>
         </div>
       </div>

@@ -4,10 +4,12 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
-import Comisiones from "./pages/Comisiones";
-import Destajos from "./pages/Destajos";
-import Servicios from "./pages/Servicios";
 import NotFound from "./pages/NotFound";
+
+// Module imports
+import { ComisionesPage } from "./modules/comisiones";
+import { DestajosPage } from "./modules/destajos";
+import { ServiciosPage } from "./modules/servicios";
 
 const queryClient = new QueryClient();
 
@@ -20,9 +22,12 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/comisiones" element={<Comisiones />} />
-          <Route path="/destajos" element={<Destajos />} />
-          <Route path="/servicios" element={<Servicios />} />
+          
+          {/* Module Routes */}
+          <Route path="/comisiones/*" element={<ComisionesPage />} />
+          <Route path="/destajos/*" element={<DestajosPage />} />
+          <Route path="/servicios/*" element={<ServiciosPage />} />
+          
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
