@@ -13,35 +13,53 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    
+
     // Get the authorization header to verify the caller is an admin
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(
         JSON.stringify({ error: "No authorization header" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    // Create client with user's token to verify they're admin
-    const supabaseUser = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-      global: { headers: { Authorization: authHeader } },
+    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
+
+    // Admin client with service role (used for verifying caller + creating user)
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    const { data: { user: callerUser }, error: userError } = await supabaseUser.auth.getUser();
-    if (userError || !callerUser) {
+    const {
+      data: { user: callerUser },
+      error: callerError,
+    } = await supabaseAdmin.auth.getUser(jwt);
+
+    if (callerError || !callerUser) {
       return new Response(
         JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
     // Check if caller is admin
-    const { data: roleData } = await supabaseUser.from("user_roles").select("role").eq("user_id", callerUser.id).single();
+    const { data: roleData, error: roleError } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", callerUser.id)
+      .maybeSingle();
+
+    if (roleError) {
+      return new Response(
+        JSON.stringify({ error: "Error checking permissions" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     if (roleData?.role !== "admin") {
       return new Response(
         JSON.stringify({ error: "Only admins can create users" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -51,14 +69,9 @@ Deno.serve(async (req) => {
     if (!email || !password || !fullName) {
       return new Response(
         JSON.stringify({ error: "Missing required fields" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
-
-    // Create admin client with service role
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
 
     // Create user with admin API (doesn't affect caller's session)
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -77,14 +90,14 @@ Deno.serve(async (req) => {
 
     const newUserId = authData.user.id;
 
-    // Assign role if admin
-    if (role === "admin") {
-      await supabaseAdmin.from("user_roles").insert({
-        user_id: newUserId,
-        role: "admin",
-      });
-    } else if (moduleIds && moduleIds.length > 0) {
-      // Assign module permissions
+    // Assign role
+    await supabaseAdmin.from("user_roles").insert({
+      user_id: newUserId,
+      role: role === "admin" ? "admin" : "user",
+    });
+
+    // Assign module permissions (non-admin)
+    if (role !== "admin" && moduleIds && moduleIds.length > 0) {
       const insertData = moduleIds.map((moduleId: string) => ({
         user_id: newUserId,
         module_id: moduleId,

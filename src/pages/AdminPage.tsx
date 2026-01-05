@@ -237,37 +237,30 @@ export default function AdminPage() {
 
     setCreating(true);
     try {
-      // Get current session for auth header
-      const session = await supabase.auth.getSession();
-      
       // Call edge function to create user (doesn't switch session)
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.data.session?.access_token}`,
-          },
-          body: JSON.stringify({
-            email: newUserEmail.trim(),
-            password: newUserPassword,
-            fullName: newUserName.trim(),
-            role: newUserRole,
-            moduleIds: newUserRole !== 'admin' ? newUserModules : [],
-            isSeller: newUserIsSeller && newUserRole !== 'admin',
-          }),
-        }
-      );
+      const { data, error } = await supabase.functions.invoke('create-user', {
+        body: {
+          email: newUserEmail.trim(),
+          password: newUserPassword,
+          fullName: newUserName.trim(),
+          role: newUserRole,
+          moduleIds: newUserRole !== 'admin' ? newUserModules : [],
+          isSeller: newUserIsSeller && newUserRole !== 'admin',
+        },
+      });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        if (result.error?.includes('already') || result.error?.includes('exists')) {
+      if (error) {
+        const message = error.message || 'Error al crear usuario';
+        if (message.toLowerCase().includes('already') || message.toLowerCase().includes('exists')) {
           toast.error('Este email ya está registrado');
         } else {
-          toast.error(result.error || 'Error al crear usuario');
+          toast.error(message);
         }
+        return;
+      }
+
+      if (!data?.success) {
+        toast.error('Error al crear usuario');
         return;
       }
 
