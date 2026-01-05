@@ -625,7 +625,7 @@ export default function AdminPage() {
 
         {/* Create User Dialog */}
         <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Agregar Usuario</DialogTitle>
               <DialogDescription>
