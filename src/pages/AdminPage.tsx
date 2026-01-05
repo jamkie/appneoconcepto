@@ -237,79 +237,38 @@ export default function AdminPage() {
 
     setCreating(true);
     try {
-      // Create user via Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: newUserEmail.trim(),
-        password: newUserPassword,
-        options: {
-          emailRedirectTo: `${window.location.origin}/`,
-          data: {
-            full_name: newUserName.trim(),
+      // Get current session for auth header
+      const session = await supabase.auth.getSession();
+      
+      // Call edge function to create user (doesn't switch session)
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.data.session?.access_token}`,
           },
-        },
-      });
+          body: JSON.stringify({
+            email: newUserEmail.trim(),
+            password: newUserPassword,
+            fullName: newUserName.trim(),
+            role: newUserRole,
+            moduleIds: newUserRole !== 'admin' ? newUserModules : [],
+            isSeller: newUserIsSeller && newUserRole !== 'admin',
+          }),
+        }
+      );
 
-      if (authError) {
-        if (authError.message.includes('already registered')) {
+      const result = await response.json();
+
+      if (!response.ok) {
+        if (result.error?.includes('already') || result.error?.includes('exists')) {
           toast.error('Este email ya está registrado');
         } else {
-          toast.error(authError.message);
+          toast.error(result.error || 'Error al crear usuario');
         }
         return;
-      }
-
-      if (!authData.user) {
-        toast.error('Error al crear usuario');
-        return;
-      }
-
-      const newUserId = authData.user.id;
-
-      // Wait a moment for the trigger to create the profile
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Assign role
-      if (newUserRole === 'admin') {
-        await supabase.from('user_roles').insert({
-          user_id: newUserId,
-          role: 'admin',
-        });
-      } else if (newUserModules.length > 0) {
-        const session = await supabase.auth.getSession();
-        const authHeader = {
-          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          Authorization: `Bearer ${session.data.session?.access_token}`,
-          'Content-Type': 'application/json',
-        };
-
-        const insertData = newUserModules.map((moduleId) => ({
-          user_id: newUserId,
-          module_id: moduleId,
-          created_by: user?.id,
-        }));
-
-        await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/user_module_permissions`,
-          {
-            method: 'POST',
-            headers: authHeader,
-            body: JSON.stringify(insertData),
-          }
-        );
-      }
-
-      // If user should be a seller, create seller record
-      if (newUserIsSeller && newUserRole !== 'admin') {
-        const { error: sellerError } = await supabase.from('sellers').insert({
-          name: newUserName.trim(),
-          email: newUserEmail.trim(),
-          user_id: newUserId,
-        });
-
-        if (sellerError) {
-          console.error('Error creating seller:', sellerError);
-          toast.error('Usuario creado, pero hubo un error al asignarlo como vendedor');
-        }
       }
 
       toast.success('Usuario creado exitosamente');
