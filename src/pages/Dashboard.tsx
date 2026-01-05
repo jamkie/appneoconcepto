@@ -8,10 +8,10 @@ import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { SearchBar } from '@/components/dashboard/SearchBar';
 import { ModuleCard } from '@/components/dashboard/ModuleCard';
 import { Button } from '@/components/ui/button';
-import { Settings, Loader2 } from 'lucide-react';
+import { Settings, Loader2, LogOut } from 'lucide-react';
 
 export default function Dashboard() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, signOut } = useAuth();
   const { isAdmin, loading: permLoading, hasModuleAccess } = useUserPermissions();
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -51,14 +51,25 @@ export default function Dashboard() {
       <div className="relative z-10 container max-w-6xl mx-auto px-4 py-12">
         <div className="flex items-start justify-between mb-8">
           <DashboardHeader />
-          {isAdmin && (
-            <Link to="/admin">
-              <Button variant="outline" size="sm" className="gap-2">
-                <Settings className="w-4 h-4" />
-                Administración
-              </Button>
-            </Link>
-          )}
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <Link to="/admin">
+                <Button variant="outline" size="sm" className="gap-2">
+                  <Settings className="w-4 h-4" />
+                  Administración
+                </Button>
+              </Link>
+            )}
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="gap-2 text-muted-foreground hover:text-foreground"
+              onClick={() => signOut()}
+            >
+              <LogOut className="w-4 h-4" />
+              Salir
+            </Button>
+          </div>
         </div>
 
         <div className="mb-8">
