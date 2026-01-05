@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, Plus, Search, Pencil, Trash2 } from 'lucide-react';
+import { Building2, Plus, Search, Pencil, Trash2, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -35,6 +35,21 @@ import {
 import type { Obra, ObraStatus } from '../types';
 import { useUserRole } from '@/hooks/useUserRole';
 
+interface MobiliarioItem {
+  id?: string;
+  descripcion: string;
+  cantidad: number;
+  precio_unitario: number;
+}
+
+const TIPOS_MOBILIARIO = [
+  'Cocina',
+  'Closet',
+  'Cubierta',
+  'Vanity',
+  'Otro',
+];
+
 export default function ObrasPage() {
   const { user, loading } = useAuth();
   const { isAdmin } = useUserRole();
@@ -52,10 +67,12 @@ export default function ObrasPage() {
     cliente: '',
     ubicacion: '',
     estado: 'activa' as ObraStatus,
-    precio_cocina: '',
-    precio_closet: '',
-    precio_cubierta: '',
-    precio_vanity: '',
+  });
+  const [mobiliarioItems, setMobiliarioItems] = useState<MobiliarioItem[]>([]);
+  const [newItem, setNewItem] = useState<MobiliarioItem>({
+    descripcion: '',
+    cantidad: 1,
+    precio_unitario: 0,
   });
 
   useEffect(() => {
@@ -92,7 +109,7 @@ export default function ObrasPage() {
     }
   };
 
-  const handleOpenModal = (obra?: Obra) => {
+  const handleOpenModal = async (obra?: Obra) => {
     if (obra) {
       setSelectedObra(obra);
       setFormData({
@@ -100,11 +117,20 @@ export default function ObrasPage() {
         cliente: obra.cliente || '',
         ubicacion: obra.ubicacion || '',
         estado: obra.estado,
-        precio_cocina: String(obra.precio_cocina),
-        precio_closet: String(obra.precio_closet),
-        precio_cubierta: String(obra.precio_cubierta),
-        precio_vanity: String(obra.precio_vanity),
       });
+      // Fetch existing obra_items
+      const { data: items } = await supabase
+        .from('obra_items')
+        .select('*')
+        .eq('obra_id', obra.id);
+      setMobiliarioItems(
+        items?.map((item) => ({
+          id: item.id,
+          descripcion: item.descripcion,
+          cantidad: item.cantidad,
+          precio_unitario: Number(item.precio_unitario),
+        })) || []
+      );
     } else {
       setSelectedObra(null);
       setFormData({
@@ -112,13 +138,28 @@ export default function ObrasPage() {
         cliente: '',
         ubicacion: '',
         estado: 'activa',
-        precio_cocina: '',
-        precio_closet: '',
-        precio_cubierta: '',
-        precio_vanity: '',
       });
+      setMobiliarioItems([]);
     }
+    setNewItem({ descripcion: '', cantidad: 1, precio_unitario: 0 });
     setIsModalOpen(true);
+  };
+
+  const handleAddItem = () => {
+    if (!newItem.descripcion.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Selecciona un tipo de mobiliario',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setMobiliarioItems([...mobiliarioItems, { ...newItem }]);
+    setNewItem({ descripcion: '', cantidad: 1, precio_unitario: 0 });
+  };
+
+  const handleRemoveItem = (index: number) => {
+    setMobiliarioItems(mobiliarioItems.filter((_, i) => i !== index));
   };
 
   const handleSave = async () => {
@@ -138,11 +179,13 @@ export default function ObrasPage() {
         cliente: formData.cliente.trim() || null,
         ubicacion: formData.ubicacion.trim() || null,
         estado: formData.estado,
-        precio_cocina: parseFloat(formData.precio_cocina) || 0,
-        precio_closet: parseFloat(formData.precio_closet) || 0,
-        precio_cubierta: parseFloat(formData.precio_cubierta) || 0,
-        precio_vanity: parseFloat(formData.precio_vanity) || 0,
+        precio_cocina: 0,
+        precio_closet: 0,
+        precio_cubierta: 0,
+        precio_vanity: 0,
       };
+
+      let obraId = selectedObra?.id;
 
       if (selectedObra) {
         const { error } = await supabase
@@ -150,13 +193,35 @@ export default function ObrasPage() {
           .update(obraData)
           .eq('id', selectedObra.id);
         if (error) throw error;
-        toast({ title: 'Éxito', description: 'Obra actualizada correctamente' });
+
+        // Delete existing items and re-insert
+        await supabase.from('obra_items').delete().eq('obra_id', selectedObra.id);
       } else {
-        const { error } = await supabase.from('obras').insert(obraData);
+        const { data, error } = await supabase
+          .from('obras')
+          .insert(obraData)
+          .select('id')
+          .single();
         if (error) throw error;
-        toast({ title: 'Éxito', description: 'Obra creada correctamente' });
+        obraId = data.id;
       }
 
+      // Insert mobiliario items
+      if (obraId && mobiliarioItems.length > 0) {
+        const itemsToInsert = mobiliarioItems.map((item) => ({
+          obra_id: obraId,
+          descripcion: item.descripcion,
+          cantidad: item.cantidad,
+          precio_unitario: item.precio_unitario,
+        }));
+        const { error: itemsError } = await supabase.from('obra_items').insert(itemsToInsert);
+        if (itemsError) throw itemsError;
+      }
+
+      toast({
+        title: 'Éxito',
+        description: selectedObra ? 'Obra actualizada correctamente' : 'Obra creada correctamente',
+      });
       setIsModalOpen(false);
       fetchObras();
     } catch (error) {
@@ -376,46 +441,93 @@ export default function ObrasPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="precio_cocina">Precio Cocina</Label>
-                <Input
-                  id="precio_cocina"
-                  type="number"
-                  value={formData.precio_cocina}
-                  onChange={(e) => setFormData({ ...formData, precio_cocina: e.target.value })}
-                  placeholder="0.00"
-                />
-              </div>
-              <div>
-                <Label htmlFor="precio_closet">Precio Closet</Label>
-                <Input
-                  id="precio_closet"
-                  type="number"
-                  value={formData.precio_closet}
-                  onChange={(e) => setFormData({ ...formData, precio_closet: e.target.value })}
-                  placeholder="0.00"
-                />
-              </div>
-              <div>
-                <Label htmlFor="precio_cubierta">Precio Cubierta</Label>
-                <Input
-                  id="precio_cubierta"
-                  type="number"
-                  value={formData.precio_cubierta}
-                  onChange={(e) => setFormData({ ...formData, precio_cubierta: e.target.value })}
-                  placeholder="0.00"
-                />
-              </div>
-              <div>
-                <Label htmlFor="precio_vanity">Precio Vanity</Label>
-                <Input
-                  id="precio_vanity"
-                  type="number"
-                  value={formData.precio_vanity}
-                  onChange={(e) => setFormData({ ...formData, precio_vanity: e.target.value })}
-                  placeholder="0.00"
-                />
+            {/* Mobiliario Section */}
+            <div className="space-y-3">
+              <Label>Mobiliario</Label>
+              
+              {/* Existing items */}
+              {mobiliarioItems.length > 0 && (
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {mobiliarioItems.map((item, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between p-2 rounded-lg bg-muted/50 text-sm"
+                    >
+                      <div className="flex-1">
+                        <span className="font-medium">{item.descripcion}</span>
+                        <span className="text-muted-foreground ml-2">
+                          x{item.cantidad} @ {formatCurrency(item.precio_unitario)}
+                        </span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => handleRemoveItem(index)}
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Add new item */}
+              <div className="grid grid-cols-12 gap-2 items-end">
+                <div className="col-span-5">
+                  <Label className="text-xs">Tipo</Label>
+                  <Select
+                    value={newItem.descripcion}
+                    onValueChange={(value) => setNewItem({ ...newItem, descripcion: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TIPOS_MOBILIARIO.map((tipo) => (
+                        <SelectItem key={tipo} value={tipo}>
+                          {tipo}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-2">
+                  <Label className="text-xs">Cant.</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={newItem.cantidad}
+                    onChange={(e) =>
+                      setNewItem({ ...newItem, cantidad: parseInt(e.target.value) || 1 })
+                    }
+                  />
+                </div>
+                <div className="col-span-3">
+                  <Label className="text-xs">Precio</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={newItem.precio_unitario || ''}
+                    onChange={(e) =>
+                      setNewItem({ ...newItem, precio_unitario: parseFloat(e.target.value) || 0 })
+                    }
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="w-full"
+                    onClick={handleAddItem}
+                  >
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
