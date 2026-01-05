@@ -6,6 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { modules } from '@/data/modules';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -29,6 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import {
   ArrowLeft,
@@ -38,8 +40,10 @@ import {
   Loader2,
   Settings,
   Save,
+  UserPlus,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { z } from 'zod';
 
 interface UserProfile {
   id: string;
@@ -54,6 +58,12 @@ interface ModulePermissionRow {
   module_id: string;
 }
 
+const createUserSchema = z.object({
+  email: z.string().trim().email('Email inválido').max(255),
+  password: z.string().min(6, 'Mínimo 6 caracteres').max(72),
+  fullName: z.string().trim().min(1, 'Nombre requerido').max(100),
+});
+
 export default function AdminPage() {
   const { user, loading: authLoading } = useAuth();
   const { isAdmin, loading: permLoading } = useUserPermissions();
@@ -64,6 +74,15 @@ export default function AdminPage() {
   const [editRole, setEditRole] = useState<AppRole>('user');
   const [editModules, setEditModules] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+
+  // Create user state
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserRole, setNewUserRole] = useState<AppRole>('user');
+  const [newUserModules, setNewUserModules] = useState<string[]>([]);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (isAdmin) {
@@ -91,7 +110,6 @@ export default function AdminPage() {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      // Fetch all profiles
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
         .select('id, email, full_name')
@@ -99,17 +117,14 @@ export default function AdminPage() {
 
       if (profilesError) throw profilesError;
 
-      // Fetch all roles
       const { data: roles, error: rolesError } = await supabase
         .from('user_roles')
         .select('user_id, role');
 
       if (rolesError) throw rolesError;
 
-      // Fetch all module permissions via REST API
       const permissions = await fetchModulePermissions();
 
-      // Combine data
       const usersWithRoles = profiles?.map((profile) => {
         const userRole = roles?.find((r) => r.user_id === profile.id);
         const userModules = permissions
@@ -151,7 +166,6 @@ export default function AdminPage() {
         Prefer: 'return=minimal',
       };
 
-      // Update or insert role
       const { data: existingRole } = await supabase
         .from('user_roles')
         .select('id')
@@ -170,7 +184,6 @@ export default function AdminPage() {
         });
       }
 
-      // Delete existing module permissions via REST API
       await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/user_module_permissions?user_id=eq.${selectedUser.id}`,
         {
@@ -179,7 +192,6 @@ export default function AdminPage() {
         }
       );
 
-      // Insert new module permissions (only for non-admins)
       if (editRole !== 'admin' && editModules.length > 0) {
         const insertData = editModules.map((moduleId) => ({
           user_id: selectedUser.id,
@@ -208,6 +220,103 @@ export default function AdminPage() {
     }
   };
 
+  const handleCreateUser = async () => {
+    try {
+      createUserSchema.parse({
+        email: newUserEmail,
+        password: newUserPassword,
+        fullName: newUserName,
+      });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        toast.error(err.errors[0].message);
+        return;
+      }
+    }
+
+    setCreating(true);
+    try {
+      // Create user via Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: newUserEmail.trim(),
+        password: newUserPassword,
+        options: {
+          emailRedirectTo: `${window.location.origin}/`,
+          data: {
+            full_name: newUserName.trim(),
+          },
+        },
+      });
+
+      if (authError) {
+        if (authError.message.includes('already registered')) {
+          toast.error('Este email ya está registrado');
+        } else {
+          toast.error(authError.message);
+        }
+        return;
+      }
+
+      if (!authData.user) {
+        toast.error('Error al crear usuario');
+        return;
+      }
+
+      const newUserId = authData.user.id;
+
+      // Wait a moment for the trigger to create the profile
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Assign role
+      if (newUserRole === 'admin') {
+        await supabase.from('user_roles').insert({
+          user_id: newUserId,
+          role: 'admin',
+        });
+      } else if (newUserModules.length > 0) {
+        const session = await supabase.auth.getSession();
+        const authHeader = {
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          Authorization: `Bearer ${session.data.session?.access_token}`,
+          'Content-Type': 'application/json',
+        };
+
+        const insertData = newUserModules.map((moduleId) => ({
+          user_id: newUserId,
+          module_id: moduleId,
+          created_by: user?.id,
+        }));
+
+        await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/user_module_permissions`,
+          {
+            method: 'POST',
+            headers: authHeader,
+            body: JSON.stringify(insertData),
+          }
+        );
+      }
+
+      toast.success('Usuario creado exitosamente');
+      setShowCreateDialog(false);
+      resetCreateForm();
+      fetchUsers();
+    } catch (error) {
+      console.error('Error creating user:', error);
+      toast.error('Error al crear usuario');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const resetCreateForm = () => {
+    setNewUserEmail('');
+    setNewUserPassword('');
+    setNewUserName('');
+    setNewUserRole('user');
+    setNewUserModules([]);
+  };
+
   const toggleModule = (moduleId: string) => {
     setEditModules((prev) =>
       prev.includes(moduleId)
@@ -216,7 +325,14 @@ export default function AdminPage() {
     );
   };
 
-  // Loading states
+  const toggleNewUserModule = (moduleId: string) => {
+    setNewUserModules((prev) =>
+      prev.includes(moduleId)
+        ? prev.filter((id) => id !== moduleId)
+        : [...prev, moduleId]
+    );
+  };
+
   if (authLoading || permLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -225,12 +341,10 @@ export default function AdminPage() {
     );
   }
 
-  // Auth check
   if (!user) {
     return <Navigate to="/auth" replace />;
   }
 
-  // Admin check
   if (!isAdmin) {
     return <Navigate to="/dashboard" replace />;
   }
@@ -255,18 +369,24 @@ export default function AdminPage() {
             </Button>
           </Link>
 
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-xl bg-primary/10">
-              <Settings className="w-6 h-6 text-primary" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-xl bg-primary/10">
+                <Settings className="w-6 h-6 text-primary" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-foreground">
+                  Administración
+                </h1>
+                <p className="text-muted-foreground">
+                  Gestiona usuarios, roles y permisos
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-foreground">
-                Administración
-              </h1>
-              <p className="text-muted-foreground">
-                Gestiona usuarios, roles y permisos de módulos
-              </p>
-            </div>
+            <Button onClick={() => setShowCreateDialog(true)} className="gap-2">
+              <UserPlus className="w-4 h-4" />
+              Agregar Usuario
+            </Button>
           </div>
         </div>
 
@@ -426,7 +546,7 @@ export default function AdminPage() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Rol</label>
+                <Label>Rol</Label>
                 <Select
                   value={editRole}
                   onValueChange={(v) => setEditRole(v as AppRole)}
@@ -443,7 +563,7 @@ export default function AdminPage() {
 
               {editRole !== 'admin' && (
                 <div className="space-y-3">
-                  <label className="text-sm font-medium">Acceso a módulos</label>
+                  <Label>Acceso a módulos</Label>
                   <div className="space-y-2 max-h-60 overflow-y-auto">
                     {activeModules.map((mod) => (
                       <div
@@ -469,7 +589,7 @@ export default function AdminPage() {
 
               {editRole === 'admin' && (
                 <p className="text-sm text-muted-foreground bg-muted p-3 rounded-lg">
-                  Los administradores tienen acceso a todos los módulos automáticamente.
+                  Los administradores tienen acceso a todos los módulos.
                 </p>
               )}
             </div>
@@ -482,6 +602,117 @@ export default function AdminPage() {
                 {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 <Save className="mr-2 h-4 w-4" />
                 Guardar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Create User Dialog */}
+        <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Agregar Usuario</DialogTitle>
+              <DialogDescription>
+                Crea una nueva cuenta de usuario
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="new-name">Nombre completo</Label>
+                <Input
+                  id="new-name"
+                  placeholder="Nombre del usuario"
+                  value={newUserName}
+                  onChange={(e) => setNewUserName(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="new-email">Correo electrónico</Label>
+                <Input
+                  id="new-email"
+                  type="email"
+                  placeholder="usuario@ejemplo.com"
+                  value={newUserEmail}
+                  onChange={(e) => setNewUserEmail(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="new-password">Contraseña</Label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  placeholder="Mínimo 6 caracteres"
+                  value={newUserPassword}
+                  onChange={(e) => setNewUserPassword(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Rol</Label>
+                <Select
+                  value={newUserRole}
+                  onValueChange={(v) => setNewUserRole(v as AppRole)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="user">Usuario</SelectItem>
+                    <SelectItem value="admin">Administrador</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {newUserRole !== 'admin' && (
+                <div className="space-y-3">
+                  <Label>Acceso a módulos</Label>
+                  <div className="space-y-2 max-h-48 overflow-y-auto border rounded-lg p-2">
+                    {activeModules.map((mod) => (
+                      <div
+                        key={mod.id}
+                        className="flex items-center space-x-3 p-2 rounded-lg hover:bg-muted/50"
+                      >
+                        <Checkbox
+                          id={`new-${mod.id}`}
+                          checked={newUserModules.includes(mod.id)}
+                          onCheckedChange={() => toggleNewUserModule(mod.id)}
+                        />
+                        <label
+                          htmlFor={`new-${mod.id}`}
+                          className="flex-1 text-sm cursor-pointer"
+                        >
+                          {mod.title}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {newUserRole === 'admin' && (
+                <p className="text-sm text-muted-foreground bg-muted p-3 rounded-lg">
+                  Los administradores tienen acceso a todos los módulos.
+                </p>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowCreateDialog(false);
+                  resetCreateForm();
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button onClick={handleCreateUser} disabled={creating}>
+                {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                <UserPlus className="mr-2 h-4 w-4" />
+                Crear Usuario
               </Button>
             </DialogFooter>
           </DialogContent>
