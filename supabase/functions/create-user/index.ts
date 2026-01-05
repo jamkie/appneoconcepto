@@ -109,8 +109,8 @@ Deno.serve(async (req) => {
       await supabaseAdmin.from("user_module_permissions").insert(insertData);
     }
 
-    // Create seller record if requested
-    if (isSeller && role !== "admin") {
+    // Create seller record if requested (admins can also be sellers)
+    if (isSeller) {
       await supabaseAdmin.from("sellers").insert({
         name: fullName,
         email: email,
