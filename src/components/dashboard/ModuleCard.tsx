@@ -9,11 +9,10 @@ import { Module } from '@/types/modules';
 
 interface ModuleCardProps {
   module: Module;
-  onEnter: (moduleId: string) => void;
   index: number;
 }
 
-export function ModuleCard({ module, onEnter, index }: ModuleCardProps) {
+export function ModuleCard({ module, index }: ModuleCardProps) {
   const navigate = useNavigate();
   const isComingSoon = module.status === 'coming_soon';
   
@@ -30,7 +29,6 @@ export function ModuleCard({ module, onEnter, index }: ModuleCardProps) {
     }
     
     if (module.route) {
-      onEnter(module.id);
       navigate(module.route);
     }
   };

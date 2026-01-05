@@ -2,12 +2,10 @@ import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Link, Navigate } from 'react-router-dom';
 import { modules } from '@/data/modules';
-import { useRecentModules } from '@/hooks/useRecentModules';
 import { useUserPermissions } from '@/hooks/useUserPermissions';
 import { useAuth } from '@/contexts/AuthContext';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { SearchBar } from '@/components/dashboard/SearchBar';
-import { RecentModules } from '@/components/dashboard/RecentModules';
 import { ModuleCard } from '@/components/dashboard/ModuleCard';
 import { Button } from '@/components/ui/button';
 import { Settings, Loader2 } from 'lucide-react';
@@ -16,9 +14,7 @@ export default function Dashboard() {
   const { user, loading: authLoading } = useAuth();
   const { isAdmin, loading: permLoading, hasModuleAccess } = useUserPermissions();
   const [searchQuery, setSearchQuery] = useState('');
-  const { recentIds, addRecent } = useRecentModules();
 
-  // All hooks must be called before any conditional returns
   const accessibleModules = useMemo(() => {
     return modules.filter((module) => {
       if (isAdmin) return true;
@@ -36,17 +32,6 @@ export default function Dashboard() {
     );
   }, [accessibleModules, searchQuery]);
 
-  const recentModules = useMemo(() => {
-    return recentIds
-      .map((id) => accessibleModules.find((m) => m.id === id))
-      .filter((m) => m && m.status === 'active') as typeof modules;
-  }, [recentIds, accessibleModules]);
-
-  const handleEnterModule = (moduleId: string) => {
-    addRecent(moduleId);
-  };
-
-  // Show loading while checking auth
   if (authLoading || permLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -55,14 +40,12 @@ export default function Dashboard() {
     );
   }
 
-  // Redirect to auth if not logged in
   if (!user) {
     return <Navigate to="/auth" replace />;
   }
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Subtle gradient background */}
       <div className="fixed inset-0 bg-gradient-to-br from-primary/[0.02] via-transparent to-primary/[0.02] pointer-events-none" />
 
       <div className="relative z-10 container max-w-6xl mx-auto px-4 py-12">
@@ -82,11 +65,6 @@ export default function Dashboard() {
           <SearchBar value={searchQuery} onChange={setSearchQuery} />
         </div>
 
-        {!searchQuery && recentModules.length > 0 && (
-          <RecentModules modules={recentModules} onEnter={handleEnterModule} />
-        )}
-
-        {/* Modules Grid */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -124,7 +102,6 @@ export default function Dashboard() {
                 <ModuleCard
                   key={module.id}
                   module={module}
-                  onEnter={handleEnterModule}
                   index={index}
                 />
               ))}
