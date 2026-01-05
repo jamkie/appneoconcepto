@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import logoNeoconcepto from '@/assets/logo-neoconcepto.png';
+import logoNeoconcepto from '@/assets/logo-neoconcepto.jpg';
 
 export function DashboardHeader() {
   return (
