@@ -390,12 +390,12 @@ export default function ObrasPage() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label htmlFor="nombre">Nombre *</Label>
+              <Label htmlFor="nombre">Nombre de la obra *</Label>
               <Input
                 id="nombre"
                 value={formData.nombre}
                 onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
-                placeholder="Nombre de la obra"
+                placeholder="Ej: Residencial Las Palmas"
               />
             </div>
             <div>
@@ -407,99 +407,80 @@ export default function ObrasPage() {
                 placeholder="Nombre del cliente"
               />
             </div>
-            <div>
-              <Label htmlFor="estado">Estado</Label>
-              <Select
-                value={formData.estado}
-                onValueChange={(value: ObraStatus) => setFormData({ ...formData, estado: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="activa">Activa</SelectItem>
-                  <SelectItem value="cerrada">Cerrada</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {/* Mobiliario Section */}
+
+            {/* Piezas Section */}
             <div className="space-y-3">
-              <Label>Mobiliario</Label>
-              
-              {/* Existing items */}
+              <div className="flex items-center justify-between">
+                <Label>Piezas</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setMobiliarioItems([
+                      ...mobiliarioItems,
+                      { descripcion: '', cantidad: 0, precio_unitario: 0 },
+                    ]);
+                  }}
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Agregar Pieza
+                </Button>
+              </div>
+
+              {/* Items list */}
               {mobiliarioItems.length > 0 && (
-                <div className="space-y-2 max-h-40 overflow-y-auto">
+                <div className="space-y-3 max-h-60 overflow-y-auto">
                   {mobiliarioItems.map((item, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center justify-between p-2 rounded-lg bg-muted/50 text-sm"
-                    >
-                      <div className="flex-1">
-                        <span className="font-medium">{item.descripcion}</span>
-                        <span className="text-muted-foreground ml-2">
-                          x{item.cantidad} @ {formatCurrency(item.precio_unitario)}
-                        </span>
-                      </div>
+                    <div key={index} className="relative border rounded-lg p-3 space-y-2">
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6"
+                        className="absolute top-2 right-2 h-6 w-6 text-destructive hover:text-destructive"
                         onClick={() => handleRemoveItem(index)}
                       >
-                        <X className="w-3 h-3" />
+                        <X className="w-4 h-4" />
                       </Button>
+                      <Input
+                        value={item.descripcion}
+                        onChange={(e) => {
+                          const updated = [...mobiliarioItems];
+                          updated[index].descripcion = e.target.value;
+                          setMobiliarioItems(updated);
+                        }}
+                        placeholder="Descripción (ej: Cocinas, Clósets, Mueble especial...)"
+                        className="pr-10"
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input
+                          type="number"
+                          min="0"
+                          value={item.cantidad || ''}
+                          onChange={(e) => {
+                            const updated = [...mobiliarioItems];
+                            updated[index].cantidad = parseInt(e.target.value) || 0;
+                            setMobiliarioItems(updated);
+                          }}
+                          placeholder="Cantidad"
+                        />
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.precio_unitario || ''}
+                          onChange={(e) => {
+                            const updated = [...mobiliarioItems];
+                            updated[index].precio_unitario = parseFloat(e.target.value) || 0;
+                            setMobiliarioItems(updated);
+                          }}
+                          placeholder="Precio unitario"
+                        />
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
-
-              {/* Add new item */}
-              <div className="grid grid-cols-12 gap-2 items-end">
-                <div className="col-span-5">
-                  <Label className="text-xs">Descripción</Label>
-                  <Input
-                    value={newItem.descripcion}
-                    onChange={(e) => setNewItem({ ...newItem, descripcion: e.target.value })}
-                    placeholder="Ej: Cocina, Closet..."
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Label className="text-xs">Cant.</Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={newItem.cantidad}
-                    onChange={(e) =>
-                      setNewItem({ ...newItem, cantidad: parseInt(e.target.value) || 1 })
-                    }
-                  />
-                </div>
-                <div className="col-span-3">
-                  <Label className="text-xs">Precio</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={newItem.precio_unitario || ''}
-                    onChange={(e) =>
-                      setNewItem({ ...newItem, precio_unitario: parseFloat(e.target.value) || 0 })
-                    }
-                    placeholder="0.00"
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    className="w-full"
-                    onClick={handleAddItem}
-                  >
-                    <Plus className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
             </div>
           </div>
           <DialogFooter>
@@ -507,7 +488,7 @@ export default function ObrasPage() {
               Cancelar
             </Button>
             <Button onClick={handleSave} disabled={saving}>
-              {saving ? 'Guardando...' : 'Guardar'}
+              {saving ? 'Guardando...' : selectedObra ? 'Guardar' : 'Crear Obra'}
             </Button>
           </DialogFooter>
         </DialogContent>
