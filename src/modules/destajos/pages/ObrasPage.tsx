@@ -42,13 +42,6 @@ interface MobiliarioItem {
   precio_unitario: number;
 }
 
-const TIPOS_MOBILIARIO = [
-  'Cocina',
-  'Closet',
-  'Cubierta',
-  'Vanity',
-  'Otro',
-];
 
 export default function ObrasPage() {
   const { user, loading } = useAuth();
@@ -65,7 +58,6 @@ export default function ObrasPage() {
   const [formData, setFormData] = useState({
     nombre: '',
     cliente: '',
-    ubicacion: '',
     estado: 'activa' as ObraStatus,
   });
   const [mobiliarioItems, setMobiliarioItems] = useState<MobiliarioItem[]>([]);
@@ -115,7 +107,6 @@ export default function ObrasPage() {
       setFormData({
         nombre: obra.nombre,
         cliente: obra.cliente || '',
-        ubicacion: obra.ubicacion || '',
         estado: obra.estado,
       });
       // Fetch existing obra_items
@@ -136,7 +127,6 @@ export default function ObrasPage() {
       setFormData({
         nombre: '',
         cliente: '',
-        ubicacion: '',
         estado: 'activa',
       });
       setMobiliarioItems([]);
@@ -149,7 +139,7 @@ export default function ObrasPage() {
     if (!newItem.descripcion.trim()) {
       toast({
         title: 'Error',
-        description: 'Selecciona un tipo de mobiliario',
+        description: 'Escribe la descripción del mueble',
         variant: 'destructive',
       });
       return;
@@ -177,7 +167,7 @@ export default function ObrasPage() {
       const obraData = {
         nombre: formData.nombre.trim(),
         cliente: formData.cliente.trim() || null,
-        ubicacion: formData.ubicacion.trim() || null,
+        ubicacion: null,
         estado: formData.estado,
         precio_cocina: 0,
         precio_closet: 0,
@@ -418,15 +408,6 @@ export default function ObrasPage() {
               />
             </div>
             <div>
-              <Label htmlFor="ubicacion">Ubicación</Label>
-              <Input
-                id="ubicacion"
-                value={formData.ubicacion}
-                onChange={(e) => setFormData({ ...formData, ubicacion: e.target.value })}
-                placeholder="Ubicación"
-              />
-            </div>
-            <div>
               <Label htmlFor="estado">Estado</Label>
               <Select
                 value={formData.estado}
@@ -476,22 +457,12 @@ export default function ObrasPage() {
               {/* Add new item */}
               <div className="grid grid-cols-12 gap-2 items-end">
                 <div className="col-span-5">
-                  <Label className="text-xs">Tipo</Label>
-                  <Select
+                  <Label className="text-xs">Descripción</Label>
+                  <Input
                     value={newItem.descripcion}
-                    onValueChange={(value) => setNewItem({ ...newItem, descripcion: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TIPOS_MOBILIARIO.map((tipo) => (
-                        <SelectItem key={tipo} value={tipo}>
-                          {tipo}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    onChange={(e) => setNewItem({ ...newItem, descripcion: e.target.value })}
+                    placeholder="Ej: Cocina, Closet..."
+                  />
                 </div>
                 <div className="col-span-2">
                   <Label className="text-xs">Cant.</Label>
