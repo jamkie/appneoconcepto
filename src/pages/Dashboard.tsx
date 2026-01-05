@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Link, Navigate } from 'react-router-dom';
 import { modules } from '@/data/modules';
@@ -18,6 +18,34 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const { recentIds, addRecent } = useRecentModules();
 
+  // All hooks must be called before any conditional returns
+  const accessibleModules = useMemo(() => {
+    return modules.filter((module) => {
+      if (isAdmin) return true;
+      return hasModuleAccess(module.id);
+    });
+  }, [isAdmin, hasModuleAccess]);
+
+  const filteredModules = useMemo(() => {
+    if (!searchQuery.trim()) return accessibleModules;
+    const query = searchQuery.toLowerCase();
+    return accessibleModules.filter(
+      (module) =>
+        module.title.toLowerCase().includes(query) ||
+        module.description.toLowerCase().includes(query)
+    );
+  }, [accessibleModules, searchQuery]);
+
+  const recentModules = useMemo(() => {
+    return recentIds
+      .map((id) => accessibleModules.find((m) => m.id === id))
+      .filter((m) => m && m.status === 'active') as typeof modules;
+  }, [recentIds, accessibleModules]);
+
+  const handleEnterModule = (moduleId: string) => {
+    addRecent(moduleId);
+  };
+
   // Show loading while checking auth
   if (authLoading || permLoading) {
     return (
@@ -31,38 +59,6 @@ export default function Dashboard() {
   if (!user) {
     return <Navigate to="/auth" replace />;
   }
-
-  // Filter modules based on user permissions
-  const accessibleModules = useMemo(() => {
-    return modules.filter((module) => {
-      // Admin sees all modules
-      if (isAdmin) return true;
-      // Non-admins only see modules they have access to
-      return hasModuleAccess(module.id);
-    });
-  }, [isAdmin, hasModuleAccess]);
-
-  // Filter by search query
-  const filteredModules = useMemo(() => {
-    if (!searchQuery.trim()) return accessibleModules;
-    const query = searchQuery.toLowerCase();
-    return accessibleModules.filter(
-      (module) =>
-        module.title.toLowerCase().includes(query) ||
-        module.description.toLowerCase().includes(query)
-    );
-  }, [accessibleModules, searchQuery]);
-
-  // Get recent modules (only accessible ones)
-  const recentModules = useMemo(() => {
-    return recentIds
-      .map((id) => accessibleModules.find((m) => m.id === id))
-      .filter((m) => m && m.status === 'active') as typeof modules;
-  }, [recentIds, accessibleModules]);
-
-  const handleEnterModule = (moduleId: string) => {
-    addRecent(moduleId);
-  };
 
   return (
     <div className="min-h-screen bg-background">
