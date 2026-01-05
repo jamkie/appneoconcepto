@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
+import logoNeoconcepto from '@/assets/logo-neoconcepto.png';
 
 const emailSchema = z.string().email("Email inválido");
 const passwordSchema = z.string().min(6, "La contraseña debe tener al menos 6 caracteres");
@@ -66,11 +67,12 @@ export default function Auth() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-sm space-y-8">
         {/* Logo */}
-        <div className="text-center space-y-1">
-          <div className="flex items-baseline justify-center gap-1 mb-6">
-            <span className="text-4xl font-bold tracking-tight text-primary">NEO</span>
-            <span className="text-2xl font-medium tracking-wide text-muted-foreground">CONCEPTO</span>
-          </div>
+        <div className="text-center">
+          <img 
+            src={logoNeoconcepto} 
+            alt="Neo Concepto" 
+            className="h-20 w-auto mx-auto mb-4"
+          />
           <p className="text-muted-foreground text-sm">
             Plataforma de Gestión Empresarial
           </p>
