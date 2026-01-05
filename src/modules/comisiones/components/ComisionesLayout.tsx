@@ -9,7 +9,6 @@ import {
   ChevronLeft,
   Menu,
   ArrowLeft,
-  KeyRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -23,18 +22,6 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 
 const navigation = [
   { name: "Dashboard", href: "/comisiones", icon: LayoutDashboard },
@@ -55,39 +42,6 @@ export function ComisionesLayout({ children }: ComisionesLayoutProps) {
   const { isAdmin } = useUserRole();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [changingPassword, setChangingPassword] = useState(false);
-
-  const handleChangePassword = async () => {
-    if (newPassword !== confirmPassword) {
-      toast.error("Las contraseñas no coinciden");
-      return;
-    }
-
-    if (newPassword.length < 6) {
-      toast.error("La contraseña debe tener al menos 6 caracteres");
-      return;
-    }
-
-    setChangingPassword(true);
-    const { error } = await supabase.auth.updateUser({
-      password: newPassword,
-    });
-
-    if (error) {
-      toast.error(error.message);
-    } else {
-      toast.success("Contraseña actualizada exitosamente");
-      setIsPasswordDialogOpen(false);
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-    }
-    setChangingPassword(false);
-  };
 
   const handleSignOut = async () => {
     await signOut();
@@ -137,15 +91,6 @@ export function ComisionesLayout({ children }: ComisionesLayoutProps) {
         <Button
           variant="ghost"
           size="sm"
-          className="w-full justify-start gap-2"
-          onClick={() => setIsPasswordDialogOpen(true)}
-        >
-          <KeyRound className="h-4 w-4" />
-          {!collapsed && "Cambiar contraseña"}
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
           className="w-full justify-start gap-2 text-destructive hover:text-destructive"
           onClick={handleSignOut}
         >
@@ -185,46 +130,6 @@ export function ComisionesLayout({ children }: ComisionesLayoutProps) {
 
         {/* Main content */}
         <main className="pt-14 min-h-screen p-4">{children}</main>
-
-        {/* Password Dialog */}
-        <Dialog open={isPasswordDialogOpen} onOpenChange={setIsPasswordDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Cambiar Contraseña</DialogTitle>
-              <DialogDescription>
-                Ingresa tu nueva contraseña
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>Nueva Contraseña</Label>
-                <Input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="••••••••"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Confirmar Contraseña</Label>
-                <Input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="••••••••"
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsPasswordDialogOpen(false)}>
-                Cancelar
-              </Button>
-              <Button onClick={handleChangePassword} disabled={changingPassword}>
-                {changingPassword ? "Guardando..." : "Guardar"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
     );
   }
@@ -264,44 +169,6 @@ export function ComisionesLayout({ children }: ComisionesLayoutProps) {
       >
         {children}
       </main>
-
-      {/* Password Dialog */}
-      <Dialog open={isPasswordDialogOpen} onOpenChange={setIsPasswordDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Cambiar Contraseña</DialogTitle>
-            <DialogDescription>Ingresa tu nueva contraseña</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Nueva Contraseña</Label>
-              <Input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="••••••••"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Confirmar Contraseña</Label>
-              <Input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsPasswordDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleChangePassword} disabled={changingPassword}>
-              {changingPassword ? "Guardando..." : "Guardar"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
