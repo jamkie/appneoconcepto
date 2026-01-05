@@ -14,16 +14,218 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      payments: {
+        Row: {
+          amount: number
+          concept: string
+          created_at: string
+          created_by: string | null
+          date: string
+          id: string
+          seller_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          concept: string
+          created_at?: string
+          created_by?: string | null
+          date: string
+          id?: string
+          seller_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          concept?: string
+          created_at?: string
+          created_by?: string | null
+          date?: string
+          id?: string
+          seller_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_seller_id_fkey"
+            columns: ["seller_id"]
+            isOneToOne: false
+            referencedRelation: "sellers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          email: string | null
+          full_name: string | null
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      sale_commissions: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          percentage: number
+          sale_id: string
+          seller_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          percentage: number
+          sale_id: string
+          seller_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          percentage?: number
+          sale_id?: string
+          seller_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sale_commissions_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "sales"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sale_commissions_seller_id_fkey"
+            columns: ["seller_id"]
+            isOneToOne: false
+            referencedRelation: "sellers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales: {
+        Row: {
+          client_name: string
+          created_at: string
+          created_by: string | null
+          date: string
+          id: string
+          project_name: string
+          total_with_vat: number
+          total_without_vat: number
+          updated_at: string
+          vat: number
+        }
+        Insert: {
+          client_name: string
+          created_at?: string
+          created_by?: string | null
+          date: string
+          id?: string
+          project_name: string
+          total_with_vat: number
+          total_without_vat: number
+          updated_at?: string
+          vat: number
+        }
+        Update: {
+          client_name?: string
+          created_at?: string
+          created_by?: string | null
+          date?: string
+          id?: string
+          project_name?: string
+          total_with_vat?: number
+          total_without_vat?: number
+          updated_at?: string
+          vat?: number
+        }
+        Relationships: []
+      }
+      sellers: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          name: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          name: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          name?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +352,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "user"],
+    },
   },
 } as const
