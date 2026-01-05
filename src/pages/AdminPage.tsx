@@ -82,6 +82,7 @@ export default function AdminPage() {
   const [newUserName, setNewUserName] = useState('');
   const [newUserRole, setNewUserRole] = useState<AppRole>('user');
   const [newUserModules, setNewUserModules] = useState<string[]>([]);
+  const [newUserIsSeller, setNewUserIsSeller] = useState(false);
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -297,6 +298,20 @@ export default function AdminPage() {
         );
       }
 
+      // If user should be a seller, create seller record
+      if (newUserIsSeller && newUserRole !== 'admin') {
+        const { error: sellerError } = await supabase.from('sellers').insert({
+          name: newUserName.trim(),
+          email: newUserEmail.trim(),
+          user_id: newUserId,
+        });
+
+        if (sellerError) {
+          console.error('Error creating seller:', sellerError);
+          toast.error('Usuario creado, pero hubo un error al asignarlo como vendedor');
+        }
+      }
+
       toast.success('Usuario creado exitosamente');
       setShowCreateDialog(false);
       resetCreateForm();
@@ -315,6 +330,7 @@ export default function AdminPage() {
     setNewUserName('');
     setNewUserRole('user');
     setNewUserModules([]);
+    setNewUserIsSeller(false);
   };
 
   const toggleModule = (moduleId: string) => {
@@ -696,6 +712,25 @@ export default function AdminPage() {
                 <p className="text-sm text-muted-foreground bg-muted p-3 rounded-lg">
                   Los administradores tienen acceso a todos los módulos.
                 </p>
+              )}
+
+              {newUserRole !== 'admin' && (
+                <div className="flex items-center space-x-3 p-3 rounded-lg border bg-muted/30">
+                  <Checkbox
+                    id="new-user-seller"
+                    checked={newUserIsSeller}
+                    onCheckedChange={(checked) => setNewUserIsSeller(checked === true)}
+                  />
+                  <label
+                    htmlFor="new-user-seller"
+                    className="flex-1 text-sm cursor-pointer"
+                  >
+                    <span className="font-medium">Asignar como vendedor</span>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Este usuario podrá registrar ventas y recibir comisiones
+                    </p>
+                  </label>
+                </div>
               )}
             </div>
 

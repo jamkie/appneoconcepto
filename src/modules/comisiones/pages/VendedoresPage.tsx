@@ -83,7 +83,6 @@ export default function VendedoresPage() {
   const [saving, setSaving] = useState(false);
   const [savingPayment, setSavingPayment] = useState(false);
   const [selectedSeller, setSelectedSeller] = useState<SellerWithStats | null>(null);
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -92,8 +91,6 @@ export default function VendedoresPage() {
   const [sellerToDelete, setSellerToDelete] = useState<SellerWithStats | null>(null);
   const [updating, setUpdating] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
-  const [newSeller, setNewSeller] = useState({ name: "", email: "" });
   const [newPayment, setNewPayment] = useState({ amount: "", date: "", concept: "" });
   const [editData, setEditData] = useState({ name: "", email: "" });
 
@@ -161,38 +158,10 @@ export default function VendedoresPage() {
     fetchSellers();
   }, []);
 
-  const resetForm = () => setNewSeller({ name: "", email: "" });
   const resetPaymentForm = () => setNewPayment({ amount: "", date: "", concept: "" });
   const resetEditForm = () => {
     setEditData({ name: "", email: "" });
     setSellerToEdit(null);
-  };
-
-  const handleCreateSeller = async () => {
-    if (!newSeller.name || !newSeller.email) {
-      toast.error("Por favor completa todos los campos");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const { error } = await supabase.from("sellers").insert({
-        name: newSeller.name,
-        email: newSeller.email,
-      });
-
-      if (error) throw error;
-
-      toast.success("Vendedor creado exitosamente");
-      resetForm();
-      setIsCreateOpen(false);
-      fetchSellers();
-    } catch (error: any) {
-      console.error("Error creating seller:", error);
-      toast.error("Error al crear el vendedor: " + error.message);
-    } finally {
-      setSaving(false);
-    }
   };
 
   const handleCreatePayment = async () => {
@@ -303,11 +272,6 @@ export default function VendedoresPage() {
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Vendedores</h1>
             <p className="text-sm md:text-base text-muted-foreground">Gestiona tu equipo de ventas</p>
           </div>
-          {isAdmin && (
-            <Button onClick={() => setIsCreateOpen(true)}>
-              <span className="mr-2">+</span> Nuevo Vendedor
-            </Button>
-          )}
         </div>
 
         {/* Sellers */}
@@ -437,28 +401,6 @@ export default function VendedoresPage() {
         )}
       </div>
 
-      {/* Create Seller Dialog */}
-      <Dialog open={isCreateOpen} onOpenChange={(open) => { setIsCreateOpen(open); if (!open) resetForm(); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Nuevo Vendedor</DialogTitle>
-            <DialogDescription>Agrega un nuevo vendedor al equipo.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Nombre Completo</Label>
-              <Input placeholder="Nombre del vendedor" value={newSeller.name} onChange={(e) => setNewSeller({ ...newSeller, name: e.target.value })} />
-            </div>
-            <div className="space-y-2">
-              <Label>Correo Electrónico</Label>
-              <Input type="email" placeholder="correo@empresa.com" value={newSeller.email} onChange={(e) => setNewSeller({ ...newSeller, email: e.target.value })} />
-            </div>
-            <Button className="w-full" onClick={handleCreateSeller} disabled={saving}>
-              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Crear Vendedor
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Detail Dialog */}
       <Dialog open={isDetailOpen} onOpenChange={(open) => { setIsDetailOpen(open); if (!open) setSelectedSeller(null); }}>
