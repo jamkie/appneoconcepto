@@ -453,13 +453,20 @@ export default function AdminPage() {
                 {filteredUsers.map((userProfile) => (
                   <TableRow key={userProfile.id}>
                     <TableCell>
-                      <div>
-                        <p className="font-medium">
-                          {userProfile.full_name || 'Sin nombre'}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {userProfile.email}
-                        </p>
+                      <div className="flex items-center gap-2">
+                        <div>
+                          <p className="font-medium">
+                            {userProfile.full_name || 'Sin nombre'}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {userProfile.email}
+                          </p>
+                        </div>
+                        {userProfile.isSeller && (
+                          <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+                            Vendedor
+                          </Badge>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>
