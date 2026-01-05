@@ -16,7 +16,6 @@ export function ModuleCard({ module, index }: ModuleCardProps) {
   const navigate = useNavigate();
   const isComingSoon = module.status === 'coming_soon';
   
-  // Dynamically get the icon
   const IconComponent = (Icons[module.icon as keyof typeof Icons] as LucideIcon) || Icons.Box;
 
   const handleClick = () => {
@@ -37,22 +36,19 @@ export function ModuleCard({ module, index }: ModuleCardProps) {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.1, duration: 0.4, ease: 'easeOut' }}
+      transition={{ delay: index * 0.08, duration: 0.35, ease: 'easeOut' }}
       className="neo-card group relative overflow-hidden p-6"
     >
-      {/* Gradient overlay on hover */}
-      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-      
       <div className="relative z-10">
         {/* Header with icon and badge */}
-        <div className="flex items-start justify-between mb-4">
-          <div className={`p-3 rounded-xl ${isComingSoon ? 'bg-muted' : 'neo-gradient-bg'}`}>
+        <div className="flex items-start justify-between mb-5">
+          <div className={`p-3 rounded-lg ${isComingSoon ? 'bg-muted' : 'neo-gradient-bg'}`}>
             <IconComponent 
-              className={`w-6 h-6 ${isComingSoon ? 'text-muted-foreground' : 'text-primary-foreground'}`} 
+              className={`w-5 h-5 ${isComingSoon ? 'text-muted-foreground' : 'text-primary-foreground'}`} 
             />
           </div>
           {isComingSoon && (
-            <Badge variant="secondary" className="flex items-center gap-1 text-xs">
+            <Badge variant="secondary" className="flex items-center gap-1 text-xs font-normal">
               <Clock className="w-3 h-3" />
               Próximamente
             </Badge>
@@ -60,10 +56,10 @@ export function ModuleCard({ module, index }: ModuleCardProps) {
         </div>
 
         {/* Content */}
-        <h3 className={`text-lg font-semibold mb-2 ${isComingSoon ? 'text-muted-foreground' : 'text-foreground'}`}>
+        <h3 className={`text-base font-semibold mb-2 ${isComingSoon ? 'text-muted-foreground' : 'text-foreground'}`}>
           {module.title}
         </h3>
-        <p className="text-sm text-muted-foreground mb-6 line-clamp-2">
+        <p className="text-sm text-muted-foreground mb-5 line-clamp-2 leading-relaxed">
           {module.description}
         </p>
 
@@ -72,6 +68,7 @@ export function ModuleCard({ module, index }: ModuleCardProps) {
           onClick={handleClick}
           disabled={false}
           variant={isComingSoon ? 'outline' : 'default'}
+          size="sm"
           className={`w-full ${isComingSoon ? 'cursor-pointer' : ''}`}
         >
           {isComingSoon ? 'Ver más' : 'Entrar'}

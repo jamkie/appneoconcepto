@@ -57,6 +57,12 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        // NeoConcepto brand colors
+        neo: {
+          slate: "hsl(var(--neo-slate))",
+          "slate-light": "hsl(var(--neo-slate-light))",
+          "slate-dark": "hsl(var(--neo-slate-dark))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -64,7 +70,7 @@ export default {
         sm: "calc(var(--radius) - 4px)",
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['Montserrat', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
         'neo-sm': 'var(--neo-shadow-sm)',

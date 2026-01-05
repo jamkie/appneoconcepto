@@ -4,8 +4,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Loader2, Building2 } from "lucide-react";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -64,55 +64,69 @@ export default function Auth() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <div className="w-full max-w-md space-y-6">
-        <div className="text-center space-y-2">
-          <div className="flex justify-center">
-            <div className="p-3 rounded-xl neo-gradient-bg">
-              <Building2 className="w-8 h-8 text-primary-foreground" />
-            </div>
+      <div className="w-full max-w-sm space-y-8">
+        {/* Logo */}
+        <div className="text-center space-y-1">
+          <div className="flex items-baseline justify-center gap-1 mb-6">
+            <span className="text-4xl font-bold tracking-tight text-primary">NEO</span>
+            <span className="text-2xl font-medium tracking-wide text-muted-foreground">CONCEPTO</span>
           </div>
-          <h1 className="text-2xl font-bold">NeoConcepto Platform</h1>
-          <p className="text-muted-foreground">Accede a tus módulos empresariales</p>
+          <p className="text-muted-foreground text-sm">
+            Plataforma de Gestión Empresarial
+          </p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Iniciar Sesión</CardTitle>
-            <CardDescription>
-              Ingresa tus credenciales para acceder
-            </CardDescription>
+        <Card className="border-0 shadow-neo-lg">
+          <CardHeader className="pb-4 pt-6">
+            <h2 className="text-lg font-semibold text-center text-foreground">
+              Iniciar Sesión
+            </h2>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pb-6">
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email" className="text-sm font-medium">
+                  Correo electrónico
+                </Label>
                 <Input
                   id="email"
                   type="email"
                   placeholder="tu@email.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  className="h-11"
                   required
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">Contraseña</Label>
+                <Label htmlFor="password" className="text-sm font-medium">
+                  Contraseña
+                </Label>
                 <Input
                   id="password"
                   type="password"
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  className="h-11"
                   required
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button 
+                type="submit" 
+                className="w-full h-11 text-sm font-medium" 
+                disabled={loading}
+              >
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Iniciar Sesión
+                Acceder
               </Button>
             </form>
           </CardContent>
         </Card>
+
+        <p className="text-center text-xs text-muted-foreground">
+          25 años de experiencia en calidad e innovación
+        </p>
       </div>
     </div>
   );
