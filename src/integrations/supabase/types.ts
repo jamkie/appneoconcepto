@@ -14,6 +14,399 @@ export type Database = {
   }
   public: {
     Tables: {
+      avance_items: {
+        Row: {
+          avance_id: string
+          cantidad_completada: number
+          created_at: string | null
+          id: string
+          obra_item_id: string
+        }
+        Insert: {
+          avance_id: string
+          cantidad_completada?: number
+          created_at?: string | null
+          id?: string
+          obra_item_id: string
+        }
+        Update: {
+          avance_id?: string
+          cantidad_completada?: number
+          created_at?: string | null
+          id?: string
+          obra_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "avance_items_avance_id_fkey"
+            columns: ["avance_id"]
+            isOneToOne: false
+            referencedRelation: "avances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "avance_items_obra_item_id_fkey"
+            columns: ["obra_item_id"]
+            isOneToOne: false
+            referencedRelation: "obra_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      avances: {
+        Row: {
+          closets_completados: number | null
+          cocinas_completadas: number | null
+          created_at: string | null
+          cubiertas_completadas: number | null
+          fecha: string
+          id: string
+          instalador_id: string
+          obra_id: string
+          observaciones: string | null
+          registrado_por: string
+          vanitys_completados: number | null
+        }
+        Insert: {
+          closets_completados?: number | null
+          cocinas_completadas?: number | null
+          created_at?: string | null
+          cubiertas_completadas?: number | null
+          fecha?: string
+          id?: string
+          instalador_id: string
+          obra_id: string
+          observaciones?: string | null
+          registrado_por: string
+          vanitys_completados?: number | null
+        }
+        Update: {
+          closets_completados?: number | null
+          cocinas_completadas?: number | null
+          created_at?: string | null
+          cubiertas_completadas?: number | null
+          fecha?: string
+          id?: string
+          instalador_id?: string
+          obra_id?: string
+          observaciones?: string | null
+          registrado_por?: string
+          vanitys_completados?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "avances_instalador_id_fkey"
+            columns: ["instalador_id"]
+            isOneToOne: false
+            referencedRelation: "instaladores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "avances_obra_id_fkey"
+            columns: ["obra_id"]
+            isOneToOne: false
+            referencedRelation: "obras"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      extras: {
+        Row: {
+          aprobado_por: string | null
+          created_at: string | null
+          descripcion: string
+          estado: Database["public"]["Enums"]["extra_status"] | null
+          fecha_aprobacion: string | null
+          id: string
+          instalador_id: string
+          monto: number
+          obra_id: string
+          solicitado_por: string
+          tipo_extra_id: string | null
+        }
+        Insert: {
+          aprobado_por?: string | null
+          created_at?: string | null
+          descripcion: string
+          estado?: Database["public"]["Enums"]["extra_status"] | null
+          fecha_aprobacion?: string | null
+          id?: string
+          instalador_id: string
+          monto: number
+          obra_id: string
+          solicitado_por: string
+          tipo_extra_id?: string | null
+        }
+        Update: {
+          aprobado_por?: string | null
+          created_at?: string | null
+          descripcion?: string
+          estado?: Database["public"]["Enums"]["extra_status"] | null
+          fecha_aprobacion?: string | null
+          id?: string
+          instalador_id?: string
+          monto?: number
+          obra_id?: string
+          solicitado_por?: string
+          tipo_extra_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extras_instalador_id_fkey"
+            columns: ["instalador_id"]
+            isOneToOne: false
+            referencedRelation: "instaladores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extras_obra_id_fkey"
+            columns: ["obra_id"]
+            isOneToOne: false
+            referencedRelation: "obras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extras_tipo_extra_id_fkey"
+            columns: ["tipo_extra_id"]
+            isOneToOne: false
+            referencedRelation: "tipos_extra"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      instaladores: {
+        Row: {
+          activo: boolean | null
+          created_at: string | null
+          id: string
+          nombre: string
+          numero_cuenta: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          activo?: boolean | null
+          created_at?: string | null
+          id?: string
+          nombre: string
+          numero_cuenta?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          activo?: boolean | null
+          created_at?: string | null
+          id?: string
+          nombre?: string
+          numero_cuenta?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      obra_instaladores: {
+        Row: {
+          created_at: string | null
+          id: string
+          instalador_id: string
+          obra_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          instalador_id: string
+          obra_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          instalador_id?: string
+          obra_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "obra_instaladores_instalador_id_fkey"
+            columns: ["instalador_id"]
+            isOneToOne: false
+            referencedRelation: "instaladores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "obra_instaladores_obra_id_fkey"
+            columns: ["obra_id"]
+            isOneToOne: false
+            referencedRelation: "obras"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      obra_items: {
+        Row: {
+          cantidad: number
+          created_at: string | null
+          descripcion: string
+          id: string
+          obra_id: string
+          precio_unitario: number
+        }
+        Insert: {
+          cantidad?: number
+          created_at?: string | null
+          descripcion: string
+          id?: string
+          obra_id: string
+          precio_unitario?: number
+        }
+        Update: {
+          cantidad?: number
+          created_at?: string | null
+          descripcion?: string
+          id?: string
+          obra_id?: string
+          precio_unitario?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "obra_items_obra_id_fkey"
+            columns: ["obra_id"]
+            isOneToOne: false
+            referencedRelation: "obras"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      obra_supervisores: {
+        Row: {
+          created_at: string | null
+          id: string
+          obra_id: string
+          supervisor_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          obra_id: string
+          supervisor_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          obra_id?: string
+          supervisor_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "obra_supervisores_obra_id_fkey"
+            columns: ["obra_id"]
+            isOneToOne: false
+            referencedRelation: "obras"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      obras: {
+        Row: {
+          cliente: string | null
+          created_at: string | null
+          estado: Database["public"]["Enums"]["obra_status"] | null
+          id: string
+          nombre: string
+          precio_closet: number
+          precio_cocina: number
+          precio_cubierta: number
+          precio_vanity: number
+          ubicacion: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          cliente?: string | null
+          created_at?: string | null
+          estado?: Database["public"]["Enums"]["obra_status"] | null
+          id?: string
+          nombre: string
+          precio_closet?: number
+          precio_cocina?: number
+          precio_cubierta?: number
+          precio_vanity?: number
+          ubicacion?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          cliente?: string | null
+          created_at?: string | null
+          estado?: Database["public"]["Enums"]["obra_status"] | null
+          id?: string
+          nombre?: string
+          precio_closet?: number
+          precio_cocina?: number
+          precio_cubierta?: number
+          precio_vanity?: number
+          ubicacion?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      pagos_destajos: {
+        Row: {
+          created_at: string | null
+          fecha: string
+          id: string
+          instalador_id: string
+          metodo_pago: Database["public"]["Enums"]["payment_method"]
+          monto: number
+          obra_id: string
+          observaciones: string | null
+          referencia: string | null
+          registrado_por: string
+          solicitud_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          fecha?: string
+          id?: string
+          instalador_id: string
+          metodo_pago: Database["public"]["Enums"]["payment_method"]
+          monto: number
+          obra_id: string
+          observaciones?: string | null
+          referencia?: string | null
+          registrado_por: string
+          solicitud_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          fecha?: string
+          id?: string
+          instalador_id?: string
+          metodo_pago?: Database["public"]["Enums"]["payment_method"]
+          monto?: number
+          obra_id?: string
+          observaciones?: string | null
+          referencia?: string | null
+          registrado_por?: string
+          solicitud_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pagos_destajos_instalador_id_fkey"
+            columns: ["instalador_id"]
+            isOneToOne: false
+            referencedRelation: "instaladores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pagos_destajos_obra_id_fkey"
+            columns: ["obra_id"]
+            isOneToOne: false
+            referencedRelation: "obras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pagos_destajos_solicitud_id_fkey"
+            columns: ["solicitud_id"]
+            isOneToOne: false
+            referencedRelation: "solicitudes_pago"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payments: {
         Row: {
           amount: number
@@ -190,6 +583,108 @@ export type Database = {
         }
         Relationships: []
       }
+      solicitudes_pago: {
+        Row: {
+          aprobado_por: string | null
+          closets_solicitados: number | null
+          cocinas_solicitadas: number | null
+          created_at: string | null
+          estado: Database["public"]["Enums"]["payment_request_status"] | null
+          extras_ids: string[] | null
+          fecha_aprobacion: string | null
+          id: string
+          instalador_id: string
+          monto_libre: number | null
+          obra_id: string
+          observaciones: string | null
+          retencion: number | null
+          solicitado_por: string
+          subtotal_extras: number | null
+          subtotal_piezas: number | null
+          tipo: string
+          total_solicitado: number
+        }
+        Insert: {
+          aprobado_por?: string | null
+          closets_solicitados?: number | null
+          cocinas_solicitadas?: number | null
+          created_at?: string | null
+          estado?: Database["public"]["Enums"]["payment_request_status"] | null
+          extras_ids?: string[] | null
+          fecha_aprobacion?: string | null
+          id?: string
+          instalador_id: string
+          monto_libre?: number | null
+          obra_id: string
+          observaciones?: string | null
+          retencion?: number | null
+          solicitado_por: string
+          subtotal_extras?: number | null
+          subtotal_piezas?: number | null
+          tipo: string
+          total_solicitado: number
+        }
+        Update: {
+          aprobado_por?: string | null
+          closets_solicitados?: number | null
+          cocinas_solicitadas?: number | null
+          created_at?: string | null
+          estado?: Database["public"]["Enums"]["payment_request_status"] | null
+          extras_ids?: string[] | null
+          fecha_aprobacion?: string | null
+          id?: string
+          instalador_id?: string
+          monto_libre?: number | null
+          obra_id?: string
+          observaciones?: string | null
+          retencion?: number | null
+          solicitado_por?: string
+          subtotal_extras?: number | null
+          subtotal_piezas?: number | null
+          tipo?: string
+          total_solicitado?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "solicitudes_pago_instalador_id_fkey"
+            columns: ["instalador_id"]
+            isOneToOne: false
+            referencedRelation: "instaladores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "solicitudes_pago_obra_id_fkey"
+            columns: ["obra_id"]
+            isOneToOne: false
+            referencedRelation: "obras"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tipos_extra: {
+        Row: {
+          activo: boolean | null
+          created_at: string | null
+          descripcion: string | null
+          id: string
+          nombre: string
+        }
+        Insert: {
+          activo?: boolean | null
+          created_at?: string | null
+          descripcion?: string | null
+          id?: string
+          nombre: string
+        }
+        Update: {
+          activo?: boolean | null
+          created_at?: string | null
+          descripcion?: string | null
+          id?: string
+          nombre?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -216,6 +711,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      can_access_obra: { Args: { _obra_id: string }; Returns: boolean }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -226,6 +722,10 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "user"
+      extra_status: "pendiente" | "aprobado" | "rechazado"
+      obra_status: "activa" | "cerrada"
+      payment_method: "efectivo" | "transferencia" | "cheque" | "otro"
+      payment_request_status: "pendiente" | "aprobada" | "rechazada"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -354,6 +854,10 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "user"],
+      extra_status: ["pendiente", "aprobado", "rechazado"],
+      obra_status: ["activa", "cerrada"],
+      payment_method: ["efectivo", "transferencia", "cheque", "otro"],
+      payment_request_status: ["pendiente", "aprobada", "rechazada"],
     },
   },
 } as const
