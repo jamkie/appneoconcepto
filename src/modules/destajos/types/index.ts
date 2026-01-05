@@ -133,6 +133,9 @@ export interface PagoDestajo {
 // Extended types with relations
 export interface ObraWithDetails extends Obra {
   instaladores?: Instalador[];
+  items?: ObraItem[];
+  avanceItems?: { obra_item_id: string; total_completado: number }[];
+  pagos?: { total: number };
 }
 
 export interface AvanceWithDetails extends Avance {

@@ -32,7 +32,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import type { Obra, ObraStatus } from '../types';
+import type { Obra, ObraStatus, ObraItem } from '../types';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { useUserRole } from '@/hooks/useUserRole';
 
 interface MobiliarioItem {
@@ -42,18 +44,23 @@ interface MobiliarioItem {
   precio_unitario: number;
 }
 
+interface ObraWithItems extends Obra {
+  items: ObraItem[];
+  avances: { [itemId: string]: number };
+  totalPagado: number;
+}
 
 export default function ObrasPage() {
   const { user, loading } = useAuth();
   const { isAdmin } = useUserRole();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [obras, setObras] = useState<Obra[]>([]);
+  const [obras, setObras] = useState<ObraWithItems[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [selectedObra, setSelectedObra] = useState<Obra | null>(null);
+  const [selectedObra, setSelectedObra] = useState<ObraWithItems | null>(null);
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
     nombre: '',
@@ -61,11 +68,6 @@ export default function ObrasPage() {
     estado: 'activa' as ObraStatus,
   });
   const [mobiliarioItems, setMobiliarioItems] = useState<MobiliarioItem[]>([]);
-  const [newItem, setNewItem] = useState<MobiliarioItem>({
-    descripcion: '',
-    cantidad: 1,
-    precio_unitario: 0,
-  });
 
   useEffect(() => {
     if (!loading && !user) {
@@ -82,13 +84,61 @@ export default function ObrasPage() {
   const fetchObras = async () => {
     try {
       setLoadingData(true);
-      const { data, error } = await supabase
+      
+      // Fetch obras
+      const { data: obrasData, error } = await supabase
         .from('obras')
         .select('*')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setObras((data as Obra[]) || []);
+
+      // Fetch all obra_items
+      const { data: itemsData } = await supabase
+        .from('obra_items')
+        .select('*');
+
+      // Fetch all avance_items to calculate progress
+      const { data: avanceItemsData } = await supabase
+        .from('avance_items')
+        .select('obra_item_id, cantidad_completada');
+
+      // Fetch all pagos_destajos
+      const { data: pagosData } = await supabase
+        .from('pagos_destajos')
+        .select('obra_id, monto');
+
+      // Build the enriched obras
+      const enrichedObras: ObraWithItems[] = (obrasData || []).map((obra) => {
+        const items = (itemsData || []).filter((item) => item.obra_id === obra.id).map((item) => ({
+          ...item,
+          cantidad: item.cantidad,
+          precio_unitario: Number(item.precio_unitario),
+        }));
+
+        // Calculate avances per item
+        const avances: { [itemId: string]: number } = {};
+        items.forEach((item) => {
+          const itemAvances = (avanceItemsData || [])
+            .filter((ai) => ai.obra_item_id === item.id)
+            .reduce((sum, ai) => sum + ai.cantidad_completada, 0);
+          avances[item.id] = itemAvances;
+        });
+
+        // Calculate total pagado
+        const totalPagado = (pagosData || [])
+          .filter((p) => p.obra_id === obra.id)
+          .reduce((sum, p) => sum + Number(p.monto), 0);
+
+        return {
+          ...obra,
+          items,
+          avances,
+          totalPagado,
+        };
+      });
+
+      setObras(enrichedObras);
     } catch (error) {
       console.error('Error fetching obras:', error);
       toast({
@@ -101,7 +151,7 @@ export default function ObrasPage() {
     }
   };
 
-  const handleOpenModal = async (obra?: Obra) => {
+  const handleOpenModal = async (obra?: ObraWithItems) => {
     if (obra) {
       setSelectedObra(obra);
       setFormData({
@@ -109,18 +159,13 @@ export default function ObrasPage() {
         cliente: obra.cliente || '',
         estado: obra.estado,
       });
-      // Fetch existing obra_items
-      const { data: items } = await supabase
-        .from('obra_items')
-        .select('*')
-        .eq('obra_id', obra.id);
       setMobiliarioItems(
-        items?.map((item) => ({
+        obra.items.map((item) => ({
           id: item.id,
           descripcion: item.descripcion,
           cantidad: item.cantidad,
           precio_unitario: Number(item.precio_unitario),
-        })) || []
+        }))
       );
     } else {
       setSelectedObra(null);
@@ -131,21 +176,7 @@ export default function ObrasPage() {
       });
       setMobiliarioItems([]);
     }
-    setNewItem({ descripcion: '', cantidad: 1, precio_unitario: 0 });
     setIsModalOpen(true);
-  };
-
-  const handleAddItem = () => {
-    if (!newItem.descripcion.trim()) {
-      toast({
-        title: 'Error',
-        description: 'Escribe la descripción del mueble',
-        variant: 'destructive',
-      });
-      return;
-    }
-    setMobiliarioItems([...mobiliarioItems, { ...newItem }]);
-    setNewItem({ descripcion: '', cantidad: 1, precio_unitario: 0 });
   };
 
   const handleRemoveItem = (index: number) => {
@@ -267,32 +298,111 @@ export default function ObrasPage() {
     {
       key: 'nombre',
       header: 'Nombre',
-      cell: (item: Obra) => <span className="font-medium">{item.nombre}</span>,
+      cell: (item: ObraWithItems) => (
+        <div>
+          <span className="font-medium">{item.nombre}</span>
+          {item.cliente && (
+            <p className="text-sm text-muted-foreground">{item.cliente}</p>
+          )}
+        </div>
+      ),
     },
     {
-      key: 'cliente',
-      header: 'Cliente',
-      cell: (item: Obra) => item.cliente || '-',
+      key: 'piezas',
+      header: 'Piezas',
+      cell: (item: ObraWithItems) => (
+        <div className="space-y-1 min-w-[120px]">
+          {item.items.length > 0 ? (
+            item.items.map((pieza) => {
+              const completado = item.avances[pieza.id] || 0;
+              const total = pieza.cantidad;
+              const percent = total > 0 ? (completado / total) * 100 : 0;
+              return (
+                <div key={pieza.id} className="text-xs">
+                  <div className="flex justify-between mb-0.5">
+                    <span>{pieza.descripcion}</span>
+                    <span className="text-muted-foreground">{completado}/{total}</span>
+                  </div>
+                  <Progress value={percent} className="h-1" />
+                </div>
+              );
+            })
+          ) : (
+            <span className="text-muted-foreground text-xs">Sin piezas</span>
+          )}
+        </div>
+      ),
+      hideOnMobile: true,
+    },
+    {
+      key: 'precios',
+      header: 'Precios Unitarios',
+      cell: (item: ObraWithItems) => (
+        <div className="space-y-0.5 text-xs min-w-[140px]">
+          {item.items.length > 0 ? (
+            item.items.map((pieza) => (
+              <div key={pieza.id}>
+                <span className="text-muted-foreground">{pieza.descripcion}:</span>{' '}
+                <span className="font-medium">{formatCurrency(pieza.precio_unitario)}</span>
+              </div>
+            ))
+          ) : (
+            <span className="text-muted-foreground">-</span>
+          )}
+        </div>
+      ),
+      hideOnMobile: true,
+    },
+    {
+      key: 'montoTotal',
+      header: 'Monto Total',
+      cell: (item: ObraWithItems) => {
+        const total = item.items.reduce((sum, pieza) => sum + pieza.cantidad * pieza.precio_unitario, 0);
+        return <span className="font-medium">{formatCurrency(total)}</span>;
+      },
+      hideOnMobile: true,
+    },
+    {
+      key: 'pagado',
+      header: 'Pagado',
+      cell: (item: ObraWithItems) => (
+        <span className="text-muted-foreground">{formatCurrency(item.totalPagado)}</span>
+      ),
+      hideOnMobile: true,
+    },
+    {
+      key: 'porPagar',
+      header: 'Por Pagar',
+      cell: (item: ObraWithItems) => {
+        const total = item.items.reduce((sum, pieza) => sum + pieza.cantidad * pieza.precio_unitario, 0);
+        const porPagar = total - item.totalPagado;
+        return <span className="font-medium text-emerald-600">{formatCurrency(porPagar)}</span>;
+      },
       hideOnMobile: true,
     },
     {
       key: 'estado',
       header: 'Estado',
-      cell: (item: Obra) => <StatusBadge status={item.estado} />,
-    },
-    {
-      key: 'precios',
-      header: 'Precio Cocina',
-      cell: (item: Obra) => formatCurrency(Number(item.precio_cocina)),
-      hideOnMobile: true,
+      cell: (item: ObraWithItems) => (
+        <Badge
+          variant="outline"
+          className={
+            item.estado === 'activa'
+              ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+              : 'bg-muted text-muted-foreground'
+          }
+        >
+          {item.estado === 'activa' ? 'Activa' : 'Cerrada'}
+        </Badge>
+      ),
     },
     ...(isAdmin
       ? [
           {
             key: 'actions',
             header: 'Acciones',
-            cell: (item: Obra) => (
-              <div className="flex items-center gap-2">
+            cell: (item: ObraWithItems) => (
+              <div className="flex items-center gap-1">
                 <Button
                   variant="ghost"
                   size="icon"
