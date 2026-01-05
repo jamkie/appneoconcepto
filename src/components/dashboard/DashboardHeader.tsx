@@ -1,5 +1,4 @@
 import { motion } from 'framer-motion';
-import { LayoutGrid } from 'lucide-react';
 
 export function DashboardHeader() {
   return (
@@ -8,16 +7,17 @@ export function DashboardHeader() {
       animate={{ opacity: 1, y: 0 }}
       className="mb-8"
     >
-      <div className="flex items-center gap-3 mb-2">
-        <div className="p-2 rounded-xl neo-gradient-bg">
-          <LayoutGrid className="w-5 h-5 text-primary-foreground" />
+      <div className="flex items-center gap-4 mb-3">
+        <div className="flex items-baseline gap-1">
+          <span className="text-3xl font-bold tracking-tight text-primary">NEO</span>
+          <span className="text-xl font-medium tracking-wide text-muted-foreground">CONCEPTO</span>
         </div>
-        <h1 className="text-2xl font-bold text-foreground">
-          NeoConcepto <span className="neo-gradient-text">Platform</span>
-        </h1>
       </div>
-      <p className="text-muted-foreground">
-        Selecciona un módulo para comenzar a trabajar
+      <h2 className="text-lg font-medium text-foreground mb-1">
+        Plataforma de Gestión
+      </h2>
+      <p className="text-muted-foreground text-sm">
+        Selecciona un módulo para comenzar
       </p>
     </motion.header>
   );
