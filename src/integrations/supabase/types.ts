@@ -685,6 +685,30 @@ export type Database = {
         }
         Relationships: []
       }
+      user_module_permissions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          module_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          module_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          module_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
