@@ -51,6 +51,7 @@ interface UserProfile {
   full_name: string | null;
   role?: AppRole;
   moduleIds?: string[];
+  isSeller?: boolean;
 }
 
 interface ModulePermissionRow {
@@ -73,6 +74,7 @@ export default function AdminPage() {
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
   const [editRole, setEditRole] = useState<AppRole>('user');
   const [editModules, setEditModules] = useState<string[]>([]);
+  const [editIsSeller, setEditIsSeller] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Create user state
@@ -126,6 +128,13 @@ export default function AdminPage() {
 
       const permissions = await fetchModulePermissions();
 
+      // Fetch sellers to know which users are sellers
+      const { data: sellers } = await supabase
+        .from('sellers')
+        .select('user_id');
+
+      const sellerUserIds = new Set(sellers?.map((s) => s.user_id).filter(Boolean) || []);
+
       const usersWithRoles = profiles?.map((profile) => {
         const userRole = roles?.find((r) => r.user_id === profile.id);
         const userModules = permissions
@@ -136,6 +145,7 @@ export default function AdminPage() {
           ...profile,
           role: (userRole?.role as AppRole) || 'user',
           moduleIds: userModules,
+          isSeller: sellerUserIds.has(profile.id),
         };
       }) || [];
 
@@ -152,6 +162,7 @@ export default function AdminPage() {
     setSelectedUser(userProfile);
     setEditRole(userProfile.role || 'user');
     setEditModules(userProfile.moduleIds || []);
+    setEditIsSeller(userProfile.isSeller || false);
   };
 
   const handleSave = async () => {
@@ -210,6 +221,20 @@ export default function AdminPage() {
         );
       }
 
+      // Handle seller status
+      const wasSeller = selectedUser.isSeller || false;
+      if (editIsSeller && !wasSeller) {
+        // Add as seller
+        await supabase.from('sellers').insert({
+          name: selectedUser.full_name || selectedUser.email || '',
+          email: selectedUser.email || '',
+          user_id: selectedUser.id,
+        });
+      } else if (!editIsSeller && wasSeller) {
+        // Remove as seller
+        await supabase.from('sellers').delete().eq('user_id', selectedUser.id);
+      }
+
       toast.success('Permisos actualizados');
       setSelectedUser(null);
       fetchUsers();
@@ -245,7 +270,7 @@ export default function AdminPage() {
           fullName: newUserName.trim(),
           role: newUserRole,
           moduleIds: newUserRole !== 'admin' ? newUserModules : [],
-          isSeller: newUserIsSeller && newUserRole !== 'admin',
+          isSeller: newUserIsSeller,
         },
       });
 
@@ -560,6 +585,23 @@ export default function AdminPage() {
                   Los administradores tienen acceso a todos los módulos.
                 </p>
               )}
+
+              <div className="flex items-center space-x-3 p-3 rounded-lg border bg-muted/30">
+                <Checkbox
+                  id="edit-user-seller"
+                  checked={editIsSeller}
+                  onCheckedChange={(checked) => setEditIsSeller(checked === true)}
+                />
+                <label
+                  htmlFor="edit-user-seller"
+                  className="flex-1 text-sm cursor-pointer"
+                >
+                  <span className="font-medium">Asignar como vendedor</span>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Este usuario podrá registrar ventas y recibir comisiones
+                  </p>
+                </label>
+              </div>
             </div>
 
             <DialogFooter>
@@ -666,24 +708,22 @@ export default function AdminPage() {
                 </p>
               )}
 
-              {newUserRole !== 'admin' && (
-                <div className="flex items-center space-x-3 p-3 rounded-lg border bg-muted/30">
-                  <Checkbox
-                    id="new-user-seller"
-                    checked={newUserIsSeller}
-                    onCheckedChange={(checked) => setNewUserIsSeller(checked === true)}
-                  />
-                  <label
-                    htmlFor="new-user-seller"
-                    className="flex-1 text-sm cursor-pointer"
-                  >
-                    <span className="font-medium">Asignar como vendedor</span>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Este usuario podrá registrar ventas y recibir comisiones
-                    </p>
-                  </label>
-                </div>
-              )}
+              <div className="flex items-center space-x-3 p-3 rounded-lg border bg-muted/30">
+                <Checkbox
+                  id="new-user-seller"
+                  checked={newUserIsSeller}
+                  onCheckedChange={(checked) => setNewUserIsSeller(checked === true)}
+                />
+                <label
+                  htmlFor="new-user-seller"
+                  className="flex-1 text-sm cursor-pointer"
+                >
+                  <span className="font-medium">Asignar como vendedor</span>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Este usuario podrá registrar ventas y recibir comisiones
+                  </p>
+                </label>
+              </div>
             </div>
 
             <DialogFooter>
