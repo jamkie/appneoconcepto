@@ -1,24 +1,46 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { modules, mockUserPermissions } from '@/data/modules';
+import { Link, Navigate } from 'react-router-dom';
+import { modules } from '@/data/modules';
 import { useRecentModules } from '@/hooks/useRecentModules';
+import { useUserPermissions } from '@/hooks/useUserPermissions';
+import { useAuth } from '@/contexts/AuthContext';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { SearchBar } from '@/components/dashboard/SearchBar';
 import { RecentModules } from '@/components/dashboard/RecentModules';
 import { ModuleCard } from '@/components/dashboard/ModuleCard';
+import { Button } from '@/components/ui/button';
+import { Settings, Loader2 } from 'lucide-react';
 
 export default function Dashboard() {
+  const { user, loading: authLoading } = useAuth();
+  const { isAdmin, loading: permLoading, hasModuleAccess } = useUserPermissions();
   const [searchQuery, setSearchQuery] = useState('');
   const { recentIds, addRecent } = useRecentModules();
 
+  // Show loading while checking auth
+  if (authLoading || permLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Redirect to auth if not logged in
+  if (!user) {
+    return <Navigate to="/auth" replace />;
+  }
+
   // Filter modules based on user permissions
   const accessibleModules = useMemo(() => {
-    return modules.filter((module) =>
-      module.requiredPermissions.every((perm) =>
-        mockUserPermissions.modules.includes(perm)
-      )
-    );
-  }, []);
+    return modules.filter((module) => {
+      // Admin sees all modules
+      if (isAdmin) return true;
+      // Non-admins only see modules they have access to
+      return hasModuleAccess(module.id);
+    });
+  }, [isAdmin, hasModuleAccess]);
 
   // Filter by search query
   const filteredModules = useMemo(() => {
@@ -31,7 +53,7 @@ export default function Dashboard() {
     );
   }, [accessibleModules, searchQuery]);
 
-  // Get recent modules
+  // Get recent modules (only accessible ones)
   const recentModules = useMemo(() => {
     return recentIds
       .map((id) => accessibleModules.find((m) => m.id === id))
@@ -46,15 +68,25 @@ export default function Dashboard() {
     <div className="min-h-screen bg-background">
       {/* Subtle gradient background */}
       <div className="fixed inset-0 bg-gradient-to-br from-primary/[0.02] via-transparent to-primary/[0.02] pointer-events-none" />
-      
+
       <div className="relative z-10 container max-w-6xl mx-auto px-4 py-12">
-        <DashboardHeader />
+        <div className="flex items-start justify-between mb-8">
+          <DashboardHeader />
+          {isAdmin && (
+            <Link to="/admin">
+              <Button variant="outline" size="sm" className="gap-2">
+                <Settings className="w-4 h-4" />
+                Administración
+              </Button>
+            </Link>
+          )}
+        </div>
 
         <div className="mb-8">
           <SearchBar value={searchQuery} onChange={setSearchQuery} />
         </div>
 
-        {!searchQuery && (
+        {!searchQuery && recentModules.length > 0 && (
           <RecentModules modules={recentModules} onEnter={handleEnterModule} />
         )}
 
@@ -66,7 +98,7 @@ export default function Dashboard() {
         >
           <div className="flex items-center gap-2 mb-4">
             <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-              {searchQuery ? 'Resultados' : 'Todos los módulos'}
+              {searchQuery ? 'Resultados' : 'Tus módulos'}
             </h2>
             <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
               {filteredModules.length}
@@ -75,9 +107,20 @@ export default function Dashboard() {
 
           {filteredModules.length === 0 ? (
             <div className="text-center py-12">
-              <p className="text-muted-foreground">
-                No se encontraron módulos con "{searchQuery}"
-              </p>
+              {searchQuery ? (
+                <p className="text-muted-foreground">
+                  No se encontraron módulos con "{searchQuery}"
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-muted-foreground">
+                    No tienes acceso a ningún módulo.
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Contacta al administrador para solicitar acceso.
+                  </p>
+                </div>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
