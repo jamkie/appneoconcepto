@@ -441,6 +441,38 @@ export default function SolicitudesPage() {
       
       if (updateError) throw updateError;
       
+      // Collect all extras_ids from selected solicitudes and approve them
+      const allExtrasIds = selectedSolicitudes
+        .flatMap(s => s.extras_ids || [])
+        .filter(Boolean);
+      
+      if (allExtrasIds.length > 0) {
+        await supabase
+          .from('extras')
+          .update({
+            estado: 'aprobado',
+            aprobado_por: user.id,
+            fecha_aprobacion: new Date().toISOString(),
+          })
+          .in('id', allExtrasIds);
+      }
+      
+      // Also approve extras for "extra" type solicitudes
+      const extraTypeSolicitudes = selectedSolicitudes.filter(s => s.tipo === 'extra');
+      for (const sol of extraTypeSolicitudes) {
+        await supabase
+          .from('extras')
+          .update({
+            estado: 'aprobado',
+            aprobado_por: user.id,
+            fecha_aprobacion: new Date().toISOString(),
+          })
+          .eq('obra_id', sol.obra_id)
+          .eq('instalador_id', sol.instalador_id)
+          .eq('monto', Number(sol.total_solicitado))
+          .eq('estado', 'pendiente');
+      }
+      
       // Create one single consolidated payment for the grand total
       const grandTotal = selectedSolicitudes.reduce((sum, s) => sum + Number(s.total_solicitado), 0);
       const instaladorNames = [...new Set(selectedSolicitudes.map(s => s.instaladores?.nombre || 'N/A'))].join(', ');
