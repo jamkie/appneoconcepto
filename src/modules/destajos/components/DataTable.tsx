@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 
 interface Column<T> {
   key: string;
-  header: string;
+  header: string | (() => React.ReactNode);
   cell: (item: T) => React.ReactNode;
   className?: string;
   hideOnMobile?: boolean;
@@ -52,7 +52,7 @@ export function DataTable<T>({
                     column.hideOnMobile && "hidden md:table-cell"
                   )}
                 >
-                  {column.header}
+                  {typeof column.header === 'function' ? column.header() : column.header}
                 </TableHead>
               ))}
             </TableRow>
