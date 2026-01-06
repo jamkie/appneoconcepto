@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ClipboardList, Plus, Search, Pencil, Trash2, Calendar, Box } from 'lucide-react';
+import { ClipboardList, Plus, Search, Pencil, Trash2, Calendar, Box, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -72,7 +72,7 @@ interface AvanceRecord {
     cantidad_completada: number;
     obra_items: { descripcion: string; precio_unitario: number } | null;
   }[];
-  solicitudes_pago: { id: string; estado: string }[];
+  solicitudes_pago: { id: string; estado: string; pagos_destajos: { id: string }[] }[];
 }
 
 export default function AvancesPage() {
@@ -92,6 +92,7 @@ export default function AvancesPage() {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [avanceToDelete, setAvanceToDelete] = useState<AvanceRecord | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [creatingSolicitud, setCreatingSolicitud] = useState<string | null>(null);
   
   // Form state
   const [selectedObraId, setSelectedObraId] = useState('');
@@ -145,7 +146,7 @@ export default function AvancesPage() {
               cantidad_completada,
               obra_items(descripcion, precio_unitario)
             ),
-            solicitudes_pago(id, estado)
+            solicitudes_pago(id, estado, pagos_destajos(id))
           `)
           .order('fecha', { ascending: false }),
         supabase.from('obras').select('*').eq('estado', 'activa'),
@@ -459,6 +460,29 @@ export default function AvancesPage() {
     try {
       setDeleting(true);
       
+      // Check if there's a solicitud with a pago
+      const solicitud = avanceToDelete.solicitudes_pago?.[0];
+      if (solicitud && solicitud.pagos_destajos?.length > 0) {
+        toast({
+          title: 'No se puede eliminar',
+          description: 'Este avance tiene un pago asociado. Primero cancele el pago.',
+          variant: 'destructive',
+        });
+        setIsDeleteOpen(false);
+        setDeleting(false);
+        return;
+      }
+      
+      // Delete associated solicitud if exists
+      if (solicitud) {
+        const { error: solicitudError } = await supabase
+          .from('solicitudes_pago')
+          .delete()
+          .eq('id', solicitud.id);
+        
+        if (solicitudError) throw solicitudError;
+      }
+      
       const { error: itemsError } = await supabase
         .from('avance_items')
         .delete()
@@ -487,6 +511,50 @@ export default function AvancesPage() {
     } finally {
       setDeleting(false);
     }
+  };
+
+  const handleCrearNuevaSolicitud = async (avance: AvanceRecord) => {
+    try {
+      setCreatingSolicitud(avance.id);
+      
+      const subtotalPiezas = avance.avance_items.reduce((acc, item) => {
+        return acc + (item.cantidad_completada * (item.obra_items?.precio_unitario || 0));
+      }, 0);
+
+      const { error } = await supabase
+        .from('solicitudes_pago')
+        .insert({
+          obra_id: avance.obra_id,
+          instalador_id: avance.instalador_id,
+          solicitado_por: user?.id,
+          tipo: 'avance',
+          subtotal_piezas: subtotalPiezas,
+          subtotal_extras: 0,
+          retencion: 0,
+          total_solicitado: subtotalPiezas,
+          observaciones: `Nueva solicitud - Avance del ${format(new Date(avance.fecha), 'dd/MM/yyyy')}`,
+          avance_id: avance.id,
+        });
+
+      if (error) throw error;
+
+      toast({ title: 'Éxito', description: 'Nueva solicitud de pago creada' });
+      fetchData();
+    } catch (error) {
+      console.error('Error creating solicitud:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo crear la solicitud',
+        variant: 'destructive',
+      });
+    } finally {
+      setCreatingSolicitud(null);
+    }
+  };
+
+  const canDeleteAvance = (avance: AvanceRecord): boolean => {
+    const solicitud = avance.solicitudes_pago?.[0];
+    return !solicitud || solicitud.pagos_destajos?.length === 0;
   };
 
   const resetForm = () => {
@@ -634,9 +702,21 @@ export default function AvancesPage() {
                         );
                       } else if (estado === 'rechazada') {
                         return (
-                          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
-                            Rechazada
-                          </Badge>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+                              Rechazada
+                            </Badge>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleCrearNuevaSolicitud(avance)}
+                              disabled={creatingSolicitud === avance.id}
+                              className="h-6 text-xs"
+                            >
+                              <RefreshCw className={`w-3 h-3 mr-1 ${creatingSolicitud === avance.id ? 'animate-spin' : ''}`} />
+                              Nueva solicitud
+                            </Button>
+                          </div>
                         );
                       } else if (estado === 'pendiente') {
                         return (
@@ -665,16 +745,18 @@ export default function AvancesPage() {
                       >
                         <Pencil className="w-4 h-4" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          setAvanceToDelete(avance);
-                          setIsDeleteOpen(true);
-                        }}
-                      >
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
+                      {canDeleteAvance(avance) && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setAvanceToDelete(avance);
+                            setIsDeleteOpen(true);
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
