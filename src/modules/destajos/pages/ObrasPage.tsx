@@ -48,6 +48,7 @@ interface ObraWithItems extends Obra {
   items: ObraItem[];
   avances: { [itemId: string]: number };
   totalPagado: number;
+  totalExtras: number;
 }
 
 export default function ObrasPage() {
@@ -108,6 +109,11 @@ export default function ObrasPage() {
         .from('pagos_destajos')
         .select('obra_id, monto');
 
+      // Fetch all extras (aprobados)
+      const { data: extrasData } = await supabase
+        .from('extras')
+        .select('obra_id, monto, estado');
+
       // Build the enriched obras
       const enrichedObras: ObraWithItems[] = (obrasData || []).map((obra) => {
         const items = (itemsData || []).filter((item) => item.obra_id === obra.id).map((item) => ({
@@ -130,11 +136,17 @@ export default function ObrasPage() {
           .filter((p) => p.obra_id === obra.id)
           .reduce((sum, p) => sum + Number(p.monto), 0);
 
+        // Calculate total extras (solo aprobados)
+        const totalExtras = (extrasData || [])
+          .filter((e) => e.obra_id === obra.id && e.estado === 'aprobado')
+          .reduce((sum, e) => sum + Number(e.monto), 0);
+
         return {
           ...obra,
           items,
           avances,
           totalPagado,
+          totalExtras,
         };
       });
 
@@ -357,8 +369,18 @@ export default function ObrasPage() {
       key: 'montoTotal',
       header: 'Monto Total',
       cell: (item: ObraWithItems) => {
-        const total = item.items.reduce((sum, pieza) => sum + pieza.cantidad * pieza.precio_unitario, 0);
-        return <span className="font-medium">{formatCurrency(total)}</span>;
+        const totalItems = item.items.reduce((sum, pieza) => sum + pieza.cantidad * pieza.precio_unitario, 0);
+        const total = totalItems + item.totalExtras;
+        return (
+          <div className="text-xs">
+            <span className="font-medium">{formatCurrency(total)}</span>
+            {item.totalExtras > 0 && (
+              <p className="text-muted-foreground">
+                (Extras: {formatCurrency(item.totalExtras)})
+              </p>
+            )}
+          </div>
+        );
       },
       hideOnMobile: true,
     },
@@ -374,7 +396,8 @@ export default function ObrasPage() {
       key: 'porPagar',
       header: 'Por Pagar',
       cell: (item: ObraWithItems) => {
-        const total = item.items.reduce((sum, pieza) => sum + pieza.cantidad * pieza.precio_unitario, 0);
+        const totalItems = item.items.reduce((sum, pieza) => sum + pieza.cantidad * pieza.precio_unitario, 0);
+        const total = totalItems + item.totalExtras;
         const porPagar = total - item.totalPagado;
         return <span className="font-medium text-emerald-600">{formatCurrency(porPagar)}</span>;
       },
