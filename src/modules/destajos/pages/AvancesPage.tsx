@@ -4,7 +4,7 @@ import { ClipboardList, Plus, Search, Pencil, Trash2, Calendar, Box, RefreshCw }
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { PageHeader, EmptyState, StatCard } from '../components';
+import { PageHeader, EmptyState } from '../components';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -84,6 +84,7 @@ export default function AvancesPage() {
   const [instaladores, setInstaladores] = useState<Instalador[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'todos' | 'pendiente' | 'pagado' | 'rechazada'>('todos');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   
@@ -572,23 +573,27 @@ export default function AvancesPage() {
     setEditingAvance(null);
   };
 
-  const filteredAvances = avances.filter((avance) =>
-    avance.obras?.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    avance.instaladores?.nombre.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  // Calculate totals for stat cards
-  const totalsByItem = avances.reduce((acc, avance) => {
-    avance.avance_items.forEach((item) => {
-      const desc = item.obra_items?.descripcion || 'Otro';
-      acc[desc] = (acc[desc] || 0) + item.cantidad_completada;
-    });
-    return acc;
-  }, {} as Record<string, number>);
-
-  const topItems = Object.entries(totalsByItem)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3);
+  const filteredAvances = avances.filter((avance) => {
+    const matchesSearch = avance.obras?.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      avance.instaladores?.nombre.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    if (statusFilter === 'todos') return matchesSearch;
+    
+    const solicitud = avance.solicitudes_pago?.[0];
+    const hasPago = solicitud?.pagos_destajos?.length > 0;
+    
+    if (statusFilter === 'pagado') {
+      return matchesSearch && hasPago;
+    }
+    if (statusFilter === 'rechazada') {
+      return matchesSearch && solicitud?.estado === 'rechazada';
+    }
+    if (statusFilter === 'pendiente') {
+      return matchesSearch && solicitud?.estado === 'pendiente' && !hasPago;
+    }
+    
+    return matchesSearch;
+  });
 
   if (loading || loadingData) {
     return (
@@ -612,26 +617,9 @@ export default function AvancesPage() {
         }
       />
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        {topItems.map(([name, count]) => (
-          <StatCard
-            key={name}
-            title={name}
-            value={count}
-            icon={<Box className="w-5 h-5" />}
-          />
-        ))}
-        {topItems.length === 0 && (
-          <div className="col-span-3 text-center text-muted-foreground py-4">
-            Sin avances registrados aún
-          </div>
-        )}
-      </div>
-
-      {/* Search */}
-      <div className="mb-6">
-        <div className="relative max-w-sm">
+      {/* Filters */}
+      <div className="mb-6 flex flex-col sm:flex-row gap-4">
+        <div className="relative max-w-sm flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Buscar por obra o instalador..."
@@ -640,6 +628,17 @@ export default function AvancesPage() {
             className="pl-10"
           />
         </div>
+        <Select value={statusFilter} onValueChange={(value: 'todos' | 'pendiente' | 'pagado' | 'rechazada') => setStatusFilter(value)}>
+          <SelectTrigger className="w-full sm:w-48">
+            <SelectValue placeholder="Estado" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos</SelectItem>
+            <SelectItem value="pendiente">Pendientes</SelectItem>
+            <SelectItem value="pagado">Pagados</SelectItem>
+            <SelectItem value="rechazada">Rechazados</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Table */}
