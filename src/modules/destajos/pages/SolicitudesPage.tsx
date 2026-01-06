@@ -937,8 +937,9 @@ export default function SolicitudesPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => {
+                        const avanceId = viewingSolicitud.avance_id;
                         setViewingSolicitud(null);
-                        navigate('/destajos/avances');
+                        navigate(`/destajos/avances?edit=${avanceId}`);
                       }}
                     >
                       <Pencil className="w-4 h-4 mr-1" />
@@ -946,14 +947,15 @@ export default function SolicitudesPage() {
                     </Button>
                   </div>
                 )}
-                {viewingSolicitud.tipo === 'extra' && (
+                {viewingSolicitud.tipo === 'extra' && viewingSolicitud.extras_ids && viewingSolicitud.extras_ids.length > 0 && (
                   <div className="flex gap-2 mr-auto">
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => {
+                        const extraId = viewingSolicitud.extras_ids?.[0];
                         setViewingSolicitud(null);
-                        navigate('/destajos/extras');
+                        navigate(`/destajos/extras?edit=${extraId}`);
                       }}
                     >
                       <Pencil className="w-4 h-4 mr-1" />
