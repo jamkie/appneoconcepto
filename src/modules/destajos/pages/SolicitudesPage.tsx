@@ -64,6 +64,12 @@ export default function SolicitudesPage() {
   const [processing, setProcessing] = useState(false);
   const [motivoRechazo, setMotivoRechazo] = useState('');
   
+  // Anticipo application states
+  const [showAplicarAnticipoDialog, setShowAplicarAnticipoDialog] = useState(false);
+  const [solicitudParaAprobar, setSolicitudParaAprobar] = useState<SolicitudWithDetails | null>(null);
+  const [anticiposDisponibles, setAnticiposDisponibles] = useState<AnticipoWithDetails[]>([]);
+  const [anticiposSeleccionados, setAnticiposSeleccionados] = useState<{[key: string]: number}>({});
+  
   
   
   // View detail state
@@ -226,6 +232,39 @@ export default function SolicitudesPage() {
     const isAnticipo = solicitud.tipo === 'anticipo';
     const montoSolicitud = Number(solicitud.total_solicitado);
     
+    // For non-anticipo, check if there are available anticipos for this obra/instalador
+    if (!isAnticipo) {
+      const anticiposParaAplicar = anticipos.filter(
+        a => a.obra_id === solicitud.obra_id && 
+             a.instalador_id === solicitud.instalador_id && 
+             a.monto_disponible > 0
+      );
+      
+      if (anticiposParaAplicar.length > 0) {
+        // Show dialog to apply anticipos
+        setSolicitudParaAprobar(solicitud);
+        setAnticiposDisponibles(anticiposParaAplicar);
+        setAnticiposSeleccionados({});
+        setShowAplicarAnticipoDialog(true);
+        return;
+      }
+    }
+    
+    // Proceed with normal approval
+    await aprobarSolicitud(solicitud, {});
+  };
+
+  const aprobarSolicitud = async (
+    solicitud: SolicitudWithDetails, 
+    anticiposAAplicar: {[anticipoId: string]: number}
+  ) => {
+    if (!user) return;
+    
+    const isAnticipo = solicitud.tipo === 'anticipo';
+    const montoSolicitud = Number(solicitud.total_solicitado);
+    const totalAnticiposAplicados = Object.values(anticiposAAplicar).reduce((sum, val) => sum + val, 0);
+    const montoEfectivo = montoSolicitud - totalAnticiposAplicados;
+    
     // For non-anticipo, validate obra limits
     if (!isAnticipo) {
       try {
@@ -289,24 +328,53 @@ export default function SolicitudesPage() {
       
       if (updateError) throw updateError;
       
-      // Create payment record
+      // Create payment record (with effective amount after anticipos)
       const { data: pagoData, error: pagoError } = await supabase
         .from('pagos_destajos')
         .insert({
           obra_id: solicitud.obra_id,
           instalador_id: solicitud.instalador_id,
-          monto: montoSolicitud,
+          monto: montoSolicitud, // Full amount for tracking
           metodo_pago: 'transferencia',
           solicitud_id: solicitud.id,
           registrado_por: user.id,
           observaciones: isAnticipo 
             ? `Anticipo - ${solicitud.observaciones || 'Pago adelantado'}`
-            : `Pago - Solicitud aprobada`,
+            : totalAnticiposAplicados > 0 
+              ? `Pago - Con descuento de anticipo: ${formatCurrency(totalAnticiposAplicados)}`
+              : `Pago - Solicitud aprobada`,
         })
         .select()
         .single();
       
       if (pagoError) throw pagoError;
+      
+      // Apply anticipos if any
+      if (totalAnticiposAplicados > 0 && pagoData) {
+        for (const [anticipoId, montoAplicado] of Object.entries(anticiposAAplicar)) {
+          if (montoAplicado > 0) {
+            // Create application record
+            await supabase
+              .from('anticipo_aplicaciones')
+              .insert({
+                anticipo_id: anticipoId,
+                pago_id: pagoData.id,
+                monto_aplicado: montoAplicado,
+              });
+            
+            // Update anticipo available amount
+            const anticipo = anticiposDisponibles.find(a => a.id === anticipoId);
+            if (anticipo) {
+              await supabase
+                .from('anticipos')
+                .update({
+                  monto_disponible: anticipo.monto_disponible - montoAplicado,
+                })
+                .eq('id', anticipoId);
+            }
+          }
+        }
+      }
       
       // If this is an anticipo, create the anticipo record
       if (isAnticipo) {
@@ -357,8 +425,16 @@ export default function SolicitudesPage() {
         title: 'Éxito', 
         description: isAnticipo
           ? 'Anticipo aprobado'
-          : 'Solicitud aprobada y pago creado'
+          : totalAnticiposAplicados > 0
+            ? `Solicitud aprobada con ${formatCurrency(totalAnticiposAplicados)} de anticipo aplicado`
+            : 'Solicitud aprobada y pago creado'
       });
+      
+      // Reset dialog states
+      setShowAplicarAnticipoDialog(false);
+      setSolicitudParaAprobar(null);
+      setAnticiposSeleccionados({});
+      
       fetchSolicitudes();
     } catch (error) {
       console.error('Error approving solicitud:', error);
@@ -370,6 +446,25 @@ export default function SolicitudesPage() {
     } finally {
       setProcessing(false);
     }
+  };
+
+  const handleConfirmarAprobacion = async () => {
+    if (!solicitudParaAprobar) return;
+    await aprobarSolicitud(solicitudParaAprobar, anticiposSeleccionados);
+  };
+
+  const handleAprobarSinAnticipo = async () => {
+    if (!solicitudParaAprobar) return;
+    await aprobarSolicitud(solicitudParaAprobar, {});
+  };
+
+  const handleAnticipoAmountChange = (anticipoId: string, value: string, maxDisponible: number) => {
+    const numValue = parseFloat(value) || 0;
+    const clampedValue = Math.min(Math.max(0, numValue), maxDisponible);
+    setAnticiposSeleccionados(prev => ({
+      ...prev,
+      [anticipoId]: clampedValue,
+    }));
   };
 
 
@@ -974,6 +1069,135 @@ export default function SolicitudesPage() {
             </Button>
             <Button onClick={handleSaveAnticipo} disabled={savingAnticipo}>
               {savingAnticipo ? 'Guardando...' : 'Guardar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Apply Anticipo Dialog */}
+      <Dialog open={showAplicarAnticipoDialog} onOpenChange={(open) => {
+        if (!open) {
+          setShowAplicarAnticipoDialog(false);
+          setSolicitudParaAprobar(null);
+          setAnticiposSeleccionados({});
+        }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Banknote className="w-5 h-5 text-amber-600" />
+              Aplicar Anticipos
+            </DialogTitle>
+          </DialogHeader>
+          
+          {solicitudParaAprobar && (
+            <div className="space-y-4">
+              <div className="p-3 bg-muted rounded-lg text-sm">
+                <div className="flex justify-between mb-1">
+                  <span className="text-muted-foreground">Instalador:</span>
+                  <span className="font-medium">{solicitudParaAprobar.instaladores?.nombre}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total a pagar:</span>
+                  <span className="font-semibold text-emerald-600">
+                    {formatCurrency(Number(solicitudParaAprobar.total_solicitado))}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Anticipos disponibles:</Label>
+                {anticiposDisponibles.map((anticipo) => (
+                  <div key={anticipo.id} className="p-3 border rounded-lg space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">
+                        {format(new Date(anticipo.created_at), 'dd/MM/yyyy', { locale: es })}
+                      </span>
+                      <span className="font-medium text-amber-600">
+                        Disponible: {formatCurrency(anticipo.monto_disponible)}
+                      </span>
+                    </div>
+                    {anticipo.observaciones && (
+                      <p className="text-xs text-muted-foreground">{anticipo.observaciones}</p>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs whitespace-nowrap">Aplicar:</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        max={anticipo.monto_disponible}
+                        step="0.01"
+                        value={anticiposSeleccionados[anticipo.id] || ''}
+                        onChange={(e) => handleAnticipoAmountChange(anticipo.id, e.target.value, anticipo.monto_disponible)}
+                        placeholder="0.00"
+                        className="h-8 text-sm"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="text-xs h-8"
+                        onClick={() => {
+                          const montoSolicitud = Number(solicitudParaAprobar.total_solicitado);
+                          const yaAplicado = Object.entries(anticiposSeleccionados)
+                            .filter(([id]) => id !== anticipo.id)
+                            .reduce((sum, [, val]) => sum + val, 0);
+                          const restante = montoSolicitud - yaAplicado;
+                          const aplicar = Math.min(anticipo.monto_disponible, restante);
+                          handleAnticipoAmountChange(anticipo.id, aplicar.toString(), anticipo.monto_disponible);
+                        }}
+                      >
+                        Max
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {Object.values(anticiposSeleccionados).reduce((sum, val) => sum + val, 0) > 0 && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-emerald-700">Total anticipos a aplicar:</span>
+                    <span className="font-semibold text-emerald-700">
+                      -{formatCurrency(Object.values(anticiposSeleccionados).reduce((sum, val) => sum + val, 0))}
+                    </span>
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-emerald-700">Pago efectivo:</span>
+                    <span className="font-semibold text-emerald-700">
+                      {formatCurrency(
+                        Number(solicitudParaAprobar.total_solicitado) - 
+                        Object.values(anticiposSeleccionados).reduce((sum, val) => sum + val, 0)
+                      )}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowAplicarAnticipoDialog(false);
+                setSolicitudParaAprobar(null);
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handleAprobarSinAnticipo}
+              disabled={processing}
+            >
+              Aprobar sin anticipo
+            </Button>
+            <Button
+              onClick={handleConfirmarAprobacion}
+              disabled={processing || Object.values(anticiposSeleccionados).reduce((sum, val) => sum + val, 0) === 0}
+            >
+              {processing ? 'Procesando...' : 'Aprobar con anticipo'}
             </Button>
           </DialogFooter>
         </DialogContent>
