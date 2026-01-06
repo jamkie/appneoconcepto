@@ -589,6 +589,7 @@ export type Database = {
       solicitudes_pago: {
         Row: {
           aprobado_por: string | null
+          avance_id: string | null
           closets_solicitados: number | null
           cocinas_solicitadas: number | null
           created_at: string | null
@@ -609,6 +610,7 @@ export type Database = {
         }
         Insert: {
           aprobado_por?: string | null
+          avance_id?: string | null
           closets_solicitados?: number | null
           cocinas_solicitadas?: number | null
           created_at?: string | null
@@ -629,6 +631,7 @@ export type Database = {
         }
         Update: {
           aprobado_por?: string | null
+          avance_id?: string | null
           closets_solicitados?: number | null
           cocinas_solicitadas?: number | null
           created_at?: string | null
@@ -648,6 +651,13 @@ export type Database = {
           total_solicitado?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "solicitudes_pago_avance_id_fkey"
+            columns: ["avance_id"]
+            isOneToOne: false
+            referencedRelation: "avances"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "solicitudes_pago_instalador_id_fkey"
             columns: ["instalador_id"]
