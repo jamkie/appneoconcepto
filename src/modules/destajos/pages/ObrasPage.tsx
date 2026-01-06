@@ -44,11 +44,19 @@ interface MobiliarioItem {
   precio_unitario: number;
 }
 
+interface ExtraInfo {
+  id: string;
+  descripcion: string;
+  monto: number;
+  estado: string;
+}
+
 interface ObraWithItems extends Obra {
   items: ObraItem[];
   avances: { [itemId: string]: number };
   totalPagado: number;
   totalExtras: number;
+  extras: ExtraInfo[];
 }
 
 export default function ObrasPage() {
@@ -109,10 +117,10 @@ export default function ObrasPage() {
         .from('pagos_destajos')
         .select('obra_id, monto');
 
-      // Fetch all extras (aprobados)
+      // Fetch all extras
       const { data: extrasData } = await supabase
         .from('extras')
-        .select('obra_id, monto, estado');
+        .select('id, obra_id, descripcion, monto, estado');
 
       // Build the enriched obras
       const enrichedObras: ObraWithItems[] = (obrasData || []).map((obra) => {
@@ -136,10 +144,20 @@ export default function ObrasPage() {
           .filter((p) => p.obra_id === obra.id)
           .reduce((sum, p) => sum + Number(p.monto), 0);
 
+        // Get extras for this obra
+        const obraExtras = (extrasData || [])
+          .filter((e) => e.obra_id === obra.id)
+          .map((e) => ({
+            id: e.id,
+            descripcion: e.descripcion,
+            monto: Number(e.monto),
+            estado: e.estado || 'pendiente',
+          }));
+
         // Calculate total extras (solo aprobados)
-        const totalExtras = (extrasData || [])
-          .filter((e) => e.obra_id === obra.id && e.estado === 'aprobado')
-          .reduce((sum, e) => sum + Number(e.monto), 0);
+        const totalExtras = obraExtras
+          .filter((e) => e.estado === 'aprobado')
+          .reduce((sum, e) => sum + e.monto, 0);
 
         return {
           ...obra,
@@ -147,6 +165,7 @@ export default function ObrasPage() {
           avances,
           totalPagado,
           totalExtras,
+          extras: obraExtras,
         };
       });
 
@@ -366,21 +385,43 @@ export default function ObrasPage() {
       hideOnMobile: true,
     },
     {
+      key: 'extras',
+      header: 'Extras',
+      cell: (item: ObraWithItems) => {
+        if (item.extras.length === 0) {
+          return <span className="text-muted-foreground text-xs">Sin extras</span>;
+        }
+        const aprobados = item.extras.filter((e) => e.estado === 'aprobado');
+        const pendientes = item.extras.filter((e) => e.estado === 'pendiente');
+        return (
+          <div className="space-y-1 text-xs min-w-[150px]">
+            {aprobados.map((extra) => (
+              <div key={extra.id} className="flex justify-between gap-2">
+                <span className="truncate max-w-[100px]" title={extra.descripcion}>{extra.descripcion}</span>
+                <span className="font-medium text-emerald-600">{formatCurrency(extra.monto)}</span>
+              </div>
+            ))}
+            {pendientes.map((extra) => (
+              <div key={extra.id} className="flex justify-between gap-2 text-muted-foreground">
+                <span className="truncate max-w-[100px]" title={extra.descripcion}>{extra.descripcion}</span>
+                <span className="italic">{formatCurrency(extra.monto)}</span>
+              </div>
+            ))}
+            {pendientes.length > 0 && (
+              <p className="text-muted-foreground italic">({pendientes.length} pendiente{pendientes.length > 1 ? 's' : ''})</p>
+            )}
+          </div>
+        );
+      },
+      hideOnMobile: true,
+    },
+    {
       key: 'montoTotal',
       header: 'Monto Total',
       cell: (item: ObraWithItems) => {
         const totalItems = item.items.reduce((sum, pieza) => sum + pieza.cantidad * pieza.precio_unitario, 0);
         const total = totalItems + item.totalExtras;
-        return (
-          <div className="text-xs">
-            <span className="font-medium">{formatCurrency(total)}</span>
-            {item.totalExtras > 0 && (
-              <p className="text-muted-foreground">
-                (Extras: {formatCurrency(item.totalExtras)})
-              </p>
-            )}
-          </div>
-        );
+        return <span className="font-medium">{formatCurrency(total)}</span>;
       },
       hideOnMobile: true,
     },
