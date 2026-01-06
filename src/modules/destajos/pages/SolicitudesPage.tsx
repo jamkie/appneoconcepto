@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Wallet, Search, Check, X, CheckCheck, Trash2, Plus, Banknote, ArrowDownCircle, Eye } from 'lucide-react';
+import { Wallet, Search, Check, X, Trash2, Plus, Banknote, ArrowDownCircle, Eye } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -8,7 +8,7 @@ import { PageHeader, DataTable, EmptyState, StatusBadge } from '../components';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
+
 import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
@@ -59,13 +59,12 @@ export default function SolicitudesPage() {
   const [filterTipo, setFilterTipo] = useState<'todos' | 'avance' | 'anticipo' | 'extra'>('todos');
   
   // Action states
-  const [actionType, setActionType] = useState<'aprobar' | 'rechazar' | 'masivo' | 'eliminar' | null>(null);
+  const [actionType, setActionType] = useState<'aprobar' | 'rechazar' | 'eliminar' | null>(null);
   const [selectedSolicitud, setSelectedSolicitud] = useState<SolicitudWithDetails | null>(null);
   const [processing, setProcessing] = useState(false);
   const [motivoRechazo, setMotivoRechazo] = useState('');
   
-  // Bulk selection
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  
   
   // View detail state
   const [viewingSolicitud, setViewingSolicitud] = useState<SolicitudWithDetails | null>(null);
@@ -134,7 +133,6 @@ export default function SolicitudesPage() {
       setObras((obrasRes.data as Obra[]) || []);
       setInstaladores((instaladoresRes.data as Instalador[]) || []);
       setAnticipos((anticiposRes.data as unknown as AnticipoWithDetails[]) || []);
-      setSelectedIds(new Set());
     } catch (error) {
       console.error('Error fetching data:', error);
       toast({
@@ -149,26 +147,6 @@ export default function SolicitudesPage() {
 
   const fetchSolicitudes = fetchData;
 
-  const pendingSolicitudes = solicitudes.filter(s => s.estado === 'pendiente');
-  const selectedSolicitudes = pendingSolicitudes.filter(s => selectedIds.has(s.id));
-
-  const toggleSelection = (id: string) => {
-    const newSet = new Set(selectedIds);
-    if (newSet.has(id)) {
-      newSet.delete(id);
-    } else {
-      newSet.add(id);
-    }
-    setSelectedIds(newSet);
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedIds.size === pendingSolicitudes.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(pendingSolicitudes.map(s => s.id)));
-    }
-  };
 
   // Handle viewing solicitud detail
   const handleViewSolicitud = async (solicitud: SolicitudWithDetails) => {
@@ -395,123 +373,6 @@ export default function SolicitudesPage() {
   };
 
 
-  // Build breakdown by installer for bulk approval modal
-  const instaladorBreakdown = (() => {
-    const breakdown = new Map<string, { 
-      instalador: Instalador | undefined; 
-      total: number; 
-      solicitudes: SolicitudWithDetails[];
-      obraId: string;
-    }>();
-    
-    for (const sol of selectedSolicitudes) {
-      const instalador = instaladores.find(i => i.id === sol.instalador_id);
-      const key = sol.instalador_id;
-      if (!breakdown.has(key)) {
-        breakdown.set(key, { 
-          instalador, 
-          total: 0, 
-          solicitudes: [],
-          obraId: sol.obra_id,
-        });
-      }
-      const entry = breakdown.get(key)!;
-      entry.total += Number(sol.total_solicitado);
-      entry.solicitudes.push(sol);
-    }
-    
-    return Array.from(breakdown.values());
-  })();
-
-  const handleAprobarMasivo = async () => {
-    if (selectedSolicitudes.length === 0 || !user) return;
-    
-    try {
-      setProcessing(true);
-      
-      // Update all selected solicitudes to approved
-      const { error: updateError } = await supabase
-        .from('solicitudes_pago')
-        .update({
-          estado: 'aprobada',
-          aprobado_por: user.id,
-          fecha_aprobacion: new Date().toISOString(),
-        })
-        .in('id', Array.from(selectedIds));
-      
-      if (updateError) throw updateError;
-      
-      // Collect all extras_ids from selected solicitudes and approve them
-      const allExtrasIds = selectedSolicitudes
-        .flatMap(s => s.extras_ids || [])
-        .filter(Boolean);
-      
-      if (allExtrasIds.length > 0) {
-        await supabase
-          .from('extras')
-          .update({
-            estado: 'aprobado',
-            aprobado_por: user.id,
-            fecha_aprobacion: new Date().toISOString(),
-          })
-          .in('id', allExtrasIds);
-      }
-      
-      // Also approve extras for "extra" type solicitudes
-      const extraTypeSolicitudes = selectedSolicitudes.filter(s => s.tipo === 'extra');
-      for (const sol of extraTypeSolicitudes) {
-        await supabase
-          .from('extras')
-          .update({
-            estado: 'aprobado',
-            aprobado_por: user.id,
-            fecha_aprobacion: new Date().toISOString(),
-          })
-          .eq('obra_id', sol.obra_id)
-          .eq('instalador_id', sol.instalador_id)
-          .eq('monto', Number(sol.total_solicitado))
-          .eq('estado', 'pendiente');
-      }
-      
-      // Create one single consolidated payment for the grand total
-      const grandTotal = selectedSolicitudes.reduce((sum, s) => sum + Number(s.total_solicitado), 0);
-      const instaladorNames = [...new Set(selectedSolicitudes.map(s => s.instaladores?.nombre || 'N/A'))].join(', ');
-      const obraNames = [...new Set(selectedSolicitudes.map(s => s.obras?.nombre || 'N/A'))].join(', ');
-      
-      // Use first solicitud's obra_id and instalador_id for the single payment record
-      const { error: pagoError } = await supabase
-        .from('pagos_destajos')
-        .insert({
-          obra_id: selectedSolicitudes[0].obra_id,
-          instalador_id: selectedSolicitudes[0].instalador_id,
-          monto: grandTotal,
-          metodo_pago: 'transferencia' as const,
-          solicitud_id: selectedSolicitudes[0].id,
-          registrado_por: user.id,
-          observaciones: `Pago consolidado - ${selectedSolicitudes.length} solicitud(es) - Instaladores: ${instaladorNames} - Obras: ${obraNames}`,
-        });
-      
-      if (pagoError) throw pagoError;
-      
-      toast({ 
-        title: 'Éxito', 
-        description: `${selectedSolicitudes.length} solicitudes aprobadas y 1 pago consolidado creado por ${formatCurrency(grandTotal)}` 
-      });
-      setActionType(null);
-      setSelectedIds(new Set());
-      fetchSolicitudes();
-    } catch (error) {
-      console.error('Error bulk approving:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudieron aprobar las solicitudes',
-        variant: 'destructive',
-      });
-    } finally {
-      setProcessing(false);
-    }
-  };
-
   const handleRechazar = async () => {
     if (!selectedSolicitud || !user) return;
     
@@ -667,27 +528,6 @@ export default function SolicitudesPage() {
 
   const columns = [
     {
-      key: 'select',
-      header: () => (
-        <Checkbox
-          checked={pendingSolicitudes.length > 0 && selectedIds.size === pendingSolicitudes.length}
-          onCheckedChange={toggleSelectAll}
-          aria-label="Seleccionar todas"
-        />
-      ),
-      cell: (item: SolicitudWithDetails) => (
-        item.estado === 'pendiente' ? (
-          <div onClick={(e) => e.stopPropagation()}>
-            <Checkbox
-              checked={selectedIds.has(item.id)}
-              onCheckedChange={() => toggleSelection(item.id)}
-              aria-label="Seleccionar"
-            />
-          </div>
-        ) : null
-      ),
-    },
-    {
       key: 'fecha',
       header: 'Fecha',
       cell: (item: SolicitudWithDetails) => format(new Date(item.created_at), 'dd/MM/yyyy', { locale: es }),
@@ -792,7 +632,7 @@ export default function SolicitudesPage() {
     );
   }
 
-  const totalSeleccionado = selectedSolicitudes.reduce((sum, s) => sum + Number(s.total_solicitado), 0);
+
   const totalAnticiposDisponibles = anticipos.reduce((sum, a) => sum + a.monto_disponible, 0);
 
   return (
@@ -872,21 +712,6 @@ export default function SolicitudesPage() {
             </Button>
           </div>
         </div>
-        
-        {selectedIds.size > 0 && (
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground">
-              {selectedIds.size} seleccionada(s) - {formatCurrency(totalSeleccionado)}
-            </span>
-            <Button
-              onClick={() => setActionType('masivo')}
-              className="bg-emerald-600 hover:bg-emerald-700"
-            >
-              <CheckCheck className="w-4 h-4 mr-2" />
-              Aprobar Seleccionadas
-            </Button>
-          </div>
-        )}
       </div>
 
       {/* Table */}
@@ -1015,65 +840,6 @@ export default function SolicitudesPage() {
         </DialogContent>
       </Dialog>
 
-
-      {/* Bulk Approve Confirmation */}
-      <AlertDialog open={actionType === 'masivo'} onOpenChange={(open) => !open && setActionType(null)}>
-        <AlertDialogContent className="max-w-lg">
-          <AlertDialogHeader>
-            <AlertDialogTitle>¿Aprobar {selectedIds.size} solicitud(es)?</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-4">
-                <p>Se aprobarán las solicitudes seleccionadas y se creará <strong>un solo pago consolidado</strong>.</p>
-                
-                {/* Breakdown by installer */}
-                <div className="space-y-3 max-h-60 overflow-y-auto">
-                  <p className="text-sm font-semibold text-foreground">Desglose por instalador:</p>
-                  {instaladorBreakdown.map((item, idx) => (
-                    <div key={idx} className="p-3 rounded-lg border bg-muted/30 space-y-1">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="font-medium text-foreground">{item.instalador?.nombre || 'N/A'}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {item.solicitudes.length} solicitud(es)
-                          </p>
-                        </div>
-                        <span className="font-semibold text-emerald-600">{formatCurrency(item.total)}</span>
-                      </div>
-                      {item.instalador?.numero_cuenta && (
-                        <div className="flex items-center gap-2 pt-1 border-t">
-                          <span className="text-xs text-muted-foreground">No. Cuenta:</span>
-                          <span className="text-sm font-mono bg-background px-2 py-0.5 rounded">
-                            {item.instalador.numero_cuenta}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                
-                <div className="pt-2 border-t">
-                  <div className="flex justify-between text-base font-semibold">
-                    <span>Total a pagar:</span>
-                    <span className="text-emerald-600">{formatCurrency(totalSeleccionado)}</span>
-                  </div>
-                </div>
-                
-                <p className="text-amber-600 text-xs">Nota: Para aplicar anticipos, apruebe las solicitudes individualmente.</p>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleAprobarMasivo}
-              disabled={processing}
-              className="bg-emerald-600 hover:bg-emerald-700"
-            >
-              {processing ? 'Procesando...' : 'Aprobar Todas'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* Reject Confirmation with Reason */}
       <AlertDialog open={actionType === 'rechazar'} onOpenChange={(open) => {
