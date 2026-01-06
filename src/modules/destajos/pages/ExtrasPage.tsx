@@ -110,18 +110,37 @@ export default function ExtrasPage() {
 
     try {
       setSaving(true);
+      const monto = parseFloat(formData.monto);
       const extraData = {
         obra_id: formData.obra_id,
         instalador_id: formData.instalador_id,
         descripcion: formData.descripcion.trim(),
-        monto: parseFloat(formData.monto),
+        monto: monto,
         solicitado_por: user?.id,
       };
 
-      const { error } = await supabase.from('extras').insert(extraData);
-      if (error) throw error;
+      const { data: extraCreated, error: extraError } = await supabase
+        .from('extras')
+        .insert(extraData)
+        .select()
+        .single();
+      if (extraError) throw extraError;
 
-      toast({ title: 'Éxito', description: 'Extra registrado correctamente' });
+      // Crear solicitud de pago para el extra
+      const { error: solicitudError } = await supabase
+        .from('solicitudes_pago')
+        .insert({
+          obra_id: formData.obra_id,
+          instalador_id: formData.instalador_id,
+          tipo: 'extra',
+          total_solicitado: monto,
+          subtotal_extras: monto,
+          extras_ids: [extraCreated.id],
+          solicitado_por: user?.id,
+        });
+      if (solicitudError) throw solicitudError;
+
+      toast({ title: 'Éxito', description: 'Extra y solicitud de pago registrados correctamente' });
       setIsModalOpen(false);
       setFormData({
         obra_id: '',
