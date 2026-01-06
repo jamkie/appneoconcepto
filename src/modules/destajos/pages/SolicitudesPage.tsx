@@ -1,14 +1,29 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Wallet, Search, Check, X, CheckCheck, Trash2 } from 'lucide-react';
+import { Wallet, Search, Check, X, CheckCheck, Trash2, Plus, Banknote } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { PageHeader, DataTable, EmptyState, StatusBadge } from '../components';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,7 +34,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import type { SolicitudPago } from '../types';
+import type { SolicitudPago, Obra, Instalador, Anticipo } from '../types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -27,6 +42,11 @@ interface SolicitudWithDetails extends SolicitudPago {
   obras: { nombre: string } | null;
   instaladores: { nombre: string } | null;
   pagos_destajos: { id: string }[] | null;
+}
+
+interface AnticipoWithDetails extends Anticipo {
+  obras: { nombre: string } | null;
+  instaladores: { nombre: string } | null;
 }
 
 export default function SolicitudesPage() {
@@ -45,6 +65,23 @@ export default function SolicitudesPage() {
   
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  
+  // Anticipo states
+  const [isAnticipoModalOpen, setIsAnticipoModalOpen] = useState(false);
+  const [obras, setObras] = useState<Obra[]>([]);
+  const [instaladores, setInstaladores] = useState<Instalador[]>([]);
+  const [anticipos, setAnticipos] = useState<AnticipoWithDetails[]>([]);
+  const [anticipoForm, setAnticipoForm] = useState({
+    obra_id: '',
+    instalador_id: '',
+    monto: '',
+    observaciones: '',
+  });
+  const [savingAnticipo, setSavingAnticipo] = useState(false);
+  
+  // Anticipos selection for approval
+  const [selectedAnticipos, setSelectedAnticipos] = useState<Map<string, number>>(new Map());
+  const [availableAnticipos, setAvailableAnticipos] = useState<AnticipoWithDetails[]>([]);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -54,37 +91,59 @@ export default function SolicitudesPage() {
 
   useEffect(() => {
     if (user) {
-      fetchSolicitudes();
+      fetchData();
     }
   }, [user]);
 
-  const fetchSolicitudes = async () => {
+  const fetchData = async () => {
     try {
       setLoadingData(true);
-      const { data, error } = await supabase
-        .from('solicitudes_pago')
-        .select(`
-          *,
-          obras(nombre),
-          instaladores(nombre),
-          pagos_destajos(id)
-        `)
-        .order('created_at', { ascending: false });
+      const [solicitudesRes, obrasRes, instaladoresRes, anticiposRes] = await Promise.all([
+        supabase
+          .from('solicitudes_pago')
+          .select(`
+            *,
+            obras(nombre),
+            instaladores(nombre),
+            pagos_destajos(id)
+          `)
+          .order('created_at', { ascending: false }),
+        supabase.from('obras').select('*').eq('estado', 'activa'),
+        supabase.from('instaladores').select('*').eq('activo', true),
+        supabase
+          .from('anticipos')
+          .select(`
+            *,
+            obras(nombre),
+            instaladores(nombre)
+          `)
+          .gt('monto_disponible', 0)
+          .order('created_at', { ascending: false }),
+      ]);
 
-      if (error) throw error;
-      setSolicitudes((data as SolicitudWithDetails[]) || []);
+      if (solicitudesRes.error) throw solicitudesRes.error;
+      if (obrasRes.error) throw obrasRes.error;
+      if (instaladoresRes.error) throw instaladoresRes.error;
+      if (anticiposRes.error) throw anticiposRes.error;
+
+      setSolicitudes((solicitudesRes.data as SolicitudWithDetails[]) || []);
+      setObras((obrasRes.data as Obra[]) || []);
+      setInstaladores((instaladoresRes.data as Instalador[]) || []);
+      setAnticipos((anticiposRes.data as AnticipoWithDetails[]) || []);
       setSelectedIds(new Set());
     } catch (error) {
-      console.error('Error fetching solicitudes:', error);
+      console.error('Error fetching data:', error);
       toast({
         title: 'Error',
-        description: 'No se pudieron cargar las solicitudes',
+        description: 'No se pudieron cargar los datos',
         variant: 'destructive',
       });
     } finally {
       setLoadingData(false);
     }
   };
+
+  const fetchSolicitudes = fetchData;
 
   const pendingSolicitudes = solicitudes.filter(s => s.estado === 'pendiente');
   const selectedSolicitudes = pendingSolicitudes.filter(s => selectedIds.has(s.id));
@@ -107,11 +166,47 @@ export default function SolicitudesPage() {
     }
   };
 
+  // When opening approve modal, load available anticipos for that installer/obra
+  const openApproveModal = (solicitud: SolicitudWithDetails) => {
+    setSelectedSolicitud(solicitud);
+    const available = anticipos.filter(
+      a => a.instalador_id === solicitud.instalador_id && a.obra_id === solicitud.obra_id && a.monto_disponible > 0
+    );
+    setAvailableAnticipos(available);
+    setSelectedAnticipos(new Map());
+    setActionType('aprobar');
+  };
+
+  const toggleAnticipoSelection = (anticipo: AnticipoWithDetails, apply: boolean) => {
+    const newMap = new Map(selectedAnticipos);
+    if (apply) {
+      newMap.set(anticipo.id, anticipo.monto_disponible);
+    } else {
+      newMap.delete(anticipo.id);
+    }
+    setSelectedAnticipos(newMap);
+  };
+
+  const updateAnticipoAmount = (anticipoId: string, amount: number, maxAmount: number) => {
+    const newMap = new Map(selectedAnticipos);
+    const validAmount = Math.min(Math.max(0, amount), maxAmount);
+    if (validAmount > 0) {
+      newMap.set(anticipoId, validAmount);
+    } else {
+      newMap.delete(anticipoId);
+    }
+    setSelectedAnticipos(newMap);
+  };
+
+  const totalAnticiposAplicados = Array.from(selectedAnticipos.values()).reduce((sum, val) => sum + val, 0);
+
   const handleAprobar = async () => {
     if (!selectedSolicitud || !user) return;
     
     try {
       setProcessing(true);
+      
+      const montoFinal = Math.max(0, Number(selectedSolicitud.total_solicitado) - totalAnticiposAplicados);
       
       const { error: updateError } = await supabase
         .from('solicitudes_pago')
@@ -124,23 +219,55 @@ export default function SolicitudesPage() {
       
       if (updateError) throw updateError;
       
-      const { error: pagoError } = await supabase
+      // Create payment with reduced amount
+      const { data: pagoData, error: pagoError } = await supabase
         .from('pagos_destajos')
         .insert({
           obra_id: selectedSolicitud.obra_id,
           instalador_id: selectedSolicitud.instalador_id,
-          monto: selectedSolicitud.total_solicitado,
+          monto: montoFinal,
           metodo_pago: 'transferencia',
           solicitud_id: selectedSolicitud.id,
           registrado_por: user.id,
-          observaciones: `Pago pendiente - Solicitud aprobada`,
-        });
+          observaciones: totalAnticiposAplicados > 0 
+            ? `Pago pendiente - Anticipo aplicado: ${formatCurrency(totalAnticiposAplicados)}`
+            : `Pago pendiente - Solicitud aprobada`,
+        })
+        .select()
+        .single();
       
       if (pagoError) throw pagoError;
       
-      toast({ title: 'Éxito', description: 'Solicitud aprobada y pago creado' });
+      // Apply anticipos: update monto_disponible and create aplicaciones
+      for (const [anticipoId, montoAplicado] of selectedAnticipos) {
+        const anticipo = availableAnticipos.find(a => a.id === anticipoId);
+        if (!anticipo) continue;
+        
+        const nuevoDisponible = anticipo.monto_disponible - montoAplicado;
+        
+        await supabase
+          .from('anticipos')
+          .update({ monto_disponible: nuevoDisponible })
+          .eq('id', anticipoId);
+        
+        await supabase
+          .from('anticipo_aplicaciones')
+          .insert({
+            anticipo_id: anticipoId,
+            pago_id: pagoData.id,
+            monto_aplicado: montoAplicado,
+          });
+      }
+      
+      toast({ 
+        title: 'Éxito', 
+        description: totalAnticiposAplicados > 0
+          ? `Solicitud aprobada. Anticipo de ${formatCurrency(totalAnticiposAplicados)} aplicado.`
+          : 'Solicitud aprobada y pago creado'
+      });
       setActionType(null);
       setSelectedSolicitud(null);
+      setSelectedAnticipos(new Map());
       fetchSolicitudes();
     } catch (error) {
       console.error('Error approving solicitud:', error);
@@ -191,7 +318,7 @@ export default function SolicitudesPage() {
           instalador_id: sols[0].instalador_id,
           monto: totalMonto,
           metodo_pago: 'transferencia' as const,
-          solicitud_id: sols[0].id, // Reference first solicitud
+          solicitud_id: sols[0].id,
           registrado_por: user.id,
           observaciones: `Pago consolidado - ${sols.length} solicitud(es): ${solicitudIds}`,
         };
@@ -286,8 +413,59 @@ export default function SolicitudesPage() {
     }
   };
 
+  const handleSaveAnticipo = async () => {
+    if (!anticipoForm.obra_id || !anticipoForm.instalador_id || !anticipoForm.monto) {
+      toast({
+        title: 'Error',
+        description: 'Obra, instalador y monto son requeridos',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const monto = parseFloat(anticipoForm.monto);
+    if (isNaN(monto) || monto <= 0) {
+      toast({
+        title: 'Error',
+        description: 'El monto debe ser mayor a 0',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setSavingAnticipo(true);
+      
+      const { error } = await supabase
+        .from('anticipos')
+        .insert({
+          obra_id: anticipoForm.obra_id,
+          instalador_id: anticipoForm.instalador_id,
+          monto_original: monto,
+          monto_disponible: monto,
+          observaciones: anticipoForm.observaciones.trim() || null,
+          registrado_por: user?.id,
+        });
+
+      if (error) throw error;
+
+      toast({ title: 'Éxito', description: 'Anticipo registrado correctamente' });
+      setIsAnticipoModalOpen(false);
+      setAnticipoForm({ obra_id: '', instalador_id: '', monto: '', observaciones: '' });
+      fetchData();
+    } catch (error) {
+      console.error('Error saving anticipo:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo registrar el anticipo',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingAnticipo(false);
+    }
+  };
+
   const canDeleteSolicitud = (sol: SolicitudWithDetails) => {
-    // Can delete if no payment linked and no avance linked
     const hasPago = sol.pagos_destajos && sol.pagos_destajos.length > 0;
     const hasAvance = !!sol.avance_id;
     return !hasPago && !hasAvance;
@@ -362,10 +540,7 @@ export default function SolicitudesPage() {
                 size="sm"
                 variant="outline"
                 className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
-                onClick={() => {
-                  setSelectedSolicitud(item);
-                  setActionType('aprobar');
-                }}
+                onClick={() => openApproveModal(item)}
               >
                 <Check className="w-4 h-4 mr-1" />
                 Aprobar
@@ -414,6 +589,7 @@ export default function SolicitudesPage() {
   }
 
   const totalSeleccionado = selectedSolicitudes.reduce((sum, s) => sum + Number(s.total_solicitado), 0);
+  const totalAnticiposDisponibles = anticipos.reduce((sum, a) => sum + a.monto_disponible, 0);
 
   return (
     <div>
@@ -421,7 +597,28 @@ export default function SolicitudesPage() {
         title="Solicitudes de Pago"
         description="Gestión de solicitudes de pago de instaladores"
         icon={Wallet}
+        actions={
+          <Button onClick={() => setIsAnticipoModalOpen(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Nuevo Anticipo
+          </Button>
+        }
       />
+
+      {/* Anticipos Summary */}
+      {totalAnticiposDisponibles > 0 && (
+        <div className="mb-6 p-4 rounded-lg border bg-amber-50 border-amber-200">
+          <div className="flex items-center gap-2">
+            <Banknote className="w-5 h-5 text-amber-600" />
+            <span className="font-medium text-amber-800">
+              Anticipos disponibles: {formatCurrency(totalAnticiposDisponibles)}
+            </span>
+            <span className="text-sm text-amber-600">
+              ({anticipos.length} anticipo{anticipos.length !== 1 ? 's' : ''})
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Search + Bulk Actions */}
       <div className="mb-6 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
@@ -465,14 +662,72 @@ export default function SolicitudesPage() {
         }
       />
 
-      {/* Approve Single Confirmation */}
-      <AlertDialog open={actionType === 'aprobar'} onOpenChange={(open) => !open && setActionType(null)}>
-        <AlertDialogContent>
+      {/* Approve Single Confirmation with Anticipos */}
+      <AlertDialog open={actionType === 'aprobar'} onOpenChange={(open) => {
+        if (!open) {
+          setActionType(null);
+          setSelectedAnticipos(new Map());
+        }
+      }}>
+        <AlertDialogContent className="max-w-lg">
           <AlertDialogHeader>
-            <AlertDialogTitle>¿Aprobar solicitud?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Se aprobará la solicitud de pago por {selectedSolicitud && formatCurrency(Number(selectedSolicitud.total_solicitado))} 
-              para {selectedSolicitud?.instaladores?.nombre}. Se creará un registro de pago pendiente.
+            <AlertDialogTitle>Aprobar solicitud</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-4">
+                <p>
+                  Solicitud de pago por <span className="font-semibold">{selectedSolicitud && formatCurrency(Number(selectedSolicitud.total_solicitado))}</span> 
+                  {' '}para <span className="font-semibold">{selectedSolicitud?.instaladores?.nombre}</span>.
+                </p>
+                
+                {availableAnticipos.length > 0 && (
+                  <div className="space-y-3 pt-2">
+                    <p className="text-sm font-medium text-foreground">Anticipos disponibles para aplicar:</p>
+                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                      {availableAnticipos.map((anticipo) => (
+                        <div key={anticipo.id} className="flex items-center gap-3 p-2 rounded border bg-muted/30">
+                          <Checkbox
+                            checked={selectedAnticipos.has(anticipo.id)}
+                            onCheckedChange={(checked) => toggleAnticipoSelection(anticipo, !!checked)}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{anticipo.observaciones || 'Anticipo'}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Disponible: {formatCurrency(anticipo.monto_disponible)}
+                            </p>
+                          </div>
+                          {selectedAnticipos.has(anticipo.id) && (
+                            <Input
+                              type="number"
+                              min="0"
+                              max={anticipo.monto_disponible}
+                              value={selectedAnticipos.get(anticipo.id) || 0}
+                              onChange={(e) => updateAnticipoAmount(anticipo.id, parseFloat(e.target.value) || 0, anticipo.monto_disponible)}
+                              className="w-24 text-right"
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    
+                    {totalAnticiposAplicados > 0 && (
+                      <div className="pt-2 border-t space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span>Total solicitado:</span>
+                          <span>{selectedSolicitud && formatCurrency(Number(selectedSolicitud.total_solicitado))}</span>
+                        </div>
+                        <div className="flex justify-between text-sm text-amber-600">
+                          <span>Anticipo aplicado:</span>
+                          <span>- {formatCurrency(totalAnticiposAplicados)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm font-semibold">
+                          <span>A pagar:</span>
+                          <span>{formatCurrency(Math.max(0, Number(selectedSolicitud?.total_solicitado || 0) - totalAnticiposAplicados))}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -496,6 +751,7 @@ export default function SolicitudesPage() {
             <AlertDialogDescription className="space-y-2">
               <p>Se aprobarán las solicitudes seleccionadas y se creará un pago consolidado por instalador/obra.</p>
               <p className="font-semibold">Total: {formatCurrency(totalSeleccionado)}</p>
+              <p className="text-amber-600 text-sm">Nota: Para aplicar anticipos, apruebe las solicitudes individualmente.</p>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -569,6 +825,85 @@ export default function SolicitudesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Create Anticipo Modal */}
+      <Dialog open={isAnticipoModalOpen} onOpenChange={setIsAnticipoModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Registrar Anticipo</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="anticipo_obra">Obra *</Label>
+              <Select 
+                value={anticipoForm.obra_id} 
+                onValueChange={(v) => setAnticipoForm(prev => ({ ...prev, obra_id: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar obra" />
+                </SelectTrigger>
+                <SelectContent>
+                  {obras.map((obra) => (
+                    <SelectItem key={obra.id} value={obra.id}>
+                      {obra.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div>
+              <Label htmlFor="anticipo_instalador">Instalador *</Label>
+              <Select 
+                value={anticipoForm.instalador_id} 
+                onValueChange={(v) => setAnticipoForm(prev => ({ ...prev, instalador_id: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar instalador" />
+                </SelectTrigger>
+                <SelectContent>
+                  {instaladores.map((instalador) => (
+                    <SelectItem key={instalador.id} value={instalador.id}>
+                      {instalador.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div>
+              <Label htmlFor="anticipo_monto">Monto *</Label>
+              <Input
+                id="anticipo_monto"
+                type="number"
+                min="0"
+                step="0.01"
+                value={anticipoForm.monto}
+                onChange={(e) => setAnticipoForm(prev => ({ ...prev, monto: e.target.value }))}
+                placeholder="0.00"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="anticipo_obs">Observaciones</Label>
+              <Textarea
+                id="anticipo_obs"
+                value={anticipoForm.observaciones}
+                onChange={(e) => setAnticipoForm(prev => ({ ...prev, observaciones: e.target.value }))}
+                placeholder="Descripción del anticipo..."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAnticipoModalOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveAnticipo} disabled={savingAnticipo}>
+              {savingAnticipo ? 'Guardando...' : 'Guardar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
