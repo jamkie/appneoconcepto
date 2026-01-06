@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Wallet, Search, Check, X } from 'lucide-react';
+import { Wallet, Search, Check, X, CheckCheck } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { PageHeader, DataTable, EmptyState, StatusBadge } from '../components';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Textarea } from '@/components/ui/textarea';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,9 +37,13 @@ export default function SolicitudesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   
   // Action states
-  const [actionType, setActionType] = useState<'aprobar' | 'rechazar' | null>(null);
+  const [actionType, setActionType] = useState<'aprobar' | 'rechazar' | 'masivo' | null>(null);
   const [selectedSolicitud, setSelectedSolicitud] = useState<SolicitudWithDetails | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [motivoRechazo, setMotivoRechazo] = useState('');
+  
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!loading && !user) {
@@ -65,6 +71,7 @@ export default function SolicitudesPage() {
 
       if (error) throw error;
       setSolicitudes((data as SolicitudWithDetails[]) || []);
+      setSelectedIds(new Set());
     } catch (error) {
       console.error('Error fetching solicitudes:', error);
       toast({
@@ -77,13 +84,33 @@ export default function SolicitudesPage() {
     }
   };
 
+  const pendingSolicitudes = solicitudes.filter(s => s.estado === 'pendiente');
+  const selectedSolicitudes = pendingSolicitudes.filter(s => selectedIds.has(s.id));
+
+  const toggleSelection = (id: string) => {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedIds(newSet);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === pendingSolicitudes.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(pendingSolicitudes.map(s => s.id)));
+    }
+  };
+
   const handleAprobar = async () => {
     if (!selectedSolicitud || !user) return;
     
     try {
       setProcessing(true);
       
-      // Update solicitud status to approved
       const { error: updateError } = await supabase
         .from('solicitudes_pago')
         .update({
@@ -95,7 +122,6 @@ export default function SolicitudesPage() {
       
       if (updateError) throw updateError;
       
-      // Create payment record with "pendiente" status (transferencia as default, will be updated when paid)
       const { error: pagoError } = await supabase
         .from('pagos_destajos')
         .insert({
@@ -126,19 +152,87 @@ export default function SolicitudesPage() {
     }
   };
 
+  const handleAprobarMasivo = async () => {
+    if (selectedSolicitudes.length === 0 || !user) return;
+    
+    try {
+      setProcessing(true);
+      
+      // Group by instalador_id + obra_id
+      const groups = new Map<string, SolicitudWithDetails[]>();
+      for (const sol of selectedSolicitudes) {
+        const key = `${sol.instalador_id}-${sol.obra_id}`;
+        if (!groups.has(key)) {
+          groups.set(key, []);
+        }
+        groups.get(key)!.push(sol);
+      }
+      
+      // Update all selected solicitudes to approved
+      const { error: updateError } = await supabase
+        .from('solicitudes_pago')
+        .update({
+          estado: 'aprobada',
+          aprobado_por: user.id,
+          fecha_aprobacion: new Date().toISOString(),
+        })
+        .in('id', Array.from(selectedIds));
+      
+      if (updateError) throw updateError;
+      
+      // Create one consolidated payment per group
+      const pagosToInsert = Array.from(groups.entries()).map(([_, sols]) => {
+        const totalMonto = sols.reduce((sum, s) => sum + Number(s.total_solicitado), 0);
+        const solicitudIds = sols.map(s => s.id).join(', ');
+        return {
+          obra_id: sols[0].obra_id,
+          instalador_id: sols[0].instalador_id,
+          monto: totalMonto,
+          metodo_pago: 'transferencia' as const,
+          solicitud_id: sols[0].id, // Reference first solicitud
+          registrado_por: user.id,
+          observaciones: `Pago consolidado - ${sols.length} solicitud(es): ${solicitudIds}`,
+        };
+      });
+      
+      const { error: pagoError } = await supabase
+        .from('pagos_destajos')
+        .insert(pagosToInsert);
+      
+      if (pagoError) throw pagoError;
+      
+      toast({ 
+        title: 'Éxito', 
+        description: `${selectedSolicitudes.length} solicitudes aprobadas y ${pagosToInsert.length} pago(s) creado(s)` 
+      });
+      setActionType(null);
+      setSelectedIds(new Set());
+      fetchSolicitudes();
+    } catch (error) {
+      console.error('Error bulk approving:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudieron aprobar las solicitudes',
+        variant: 'destructive',
+      });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   const handleRechazar = async () => {
     if (!selectedSolicitud || !user) return;
     
     try {
       setProcessing(true);
       
-      // Update solicitud status to rejected
       const { error: updateError } = await supabase
         .from('solicitudes_pago')
         .update({
           estado: 'rechazada',
           aprobado_por: user.id,
           fecha_aprobacion: new Date().toISOString(),
+          observaciones: motivoRechazo || selectedSolicitud.observaciones,
         })
         .eq('id', selectedSolicitud.id);
       
@@ -147,6 +241,7 @@ export default function SolicitudesPage() {
       toast({ title: 'Solicitud rechazada', description: 'La solicitud ha sido cancelada' });
       setActionType(null);
       setSelectedSolicitud(null);
+      setMotivoRechazo('');
       fetchSolicitudes();
     } catch (error) {
       console.error('Error rejecting solicitud:', error);
@@ -173,6 +268,25 @@ export default function SolicitudesPage() {
   );
 
   const columns = [
+    {
+      key: 'select',
+      header: () => (
+        <Checkbox
+          checked={pendingSolicitudes.length > 0 && selectedIds.size === pendingSolicitudes.length}
+          onCheckedChange={toggleSelectAll}
+          aria-label="Seleccionar todas"
+        />
+      ),
+      cell: (item: SolicitudWithDetails) => (
+        item.estado === 'pendiente' ? (
+          <Checkbox
+            checked={selectedIds.has(item.id)}
+            onCheckedChange={() => toggleSelection(item.id)}
+            aria-label="Seleccionar"
+          />
+        ) : null
+      ),
+    },
     {
       key: 'fecha',
       header: 'Fecha',
@@ -245,6 +359,8 @@ export default function SolicitudesPage() {
     );
   }
 
+  const totalSeleccionado = selectedSolicitudes.reduce((sum, s) => sum + Number(s.total_solicitado), 0);
+
   return (
     <div>
       <PageHeader
@@ -253,9 +369,9 @@ export default function SolicitudesPage() {
         icon={Wallet}
       />
 
-      {/* Search */}
-      <div className="mb-6">
-        <div className="relative max-w-sm">
+      {/* Search + Bulk Actions */}
+      <div className="mb-6 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+        <div className="relative max-w-sm w-full">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Buscar solicitudes..."
@@ -264,6 +380,21 @@ export default function SolicitudesPage() {
             className="pl-10"
           />
         </div>
+        
+        {selectedIds.size > 0 && (
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-muted-foreground">
+              {selectedIds.size} seleccionada(s) - {formatCurrency(totalSeleccionado)}
+            </span>
+            <Button
+              onClick={() => setActionType('masivo')}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              <CheckCheck className="w-4 h-4 mr-2" />
+              Aprobar Seleccionadas
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Table */}
@@ -280,7 +411,7 @@ export default function SolicitudesPage() {
         }
       />
 
-      {/* Approve Confirmation */}
+      {/* Approve Single Confirmation */}
       <AlertDialog open={actionType === 'aprobar'} onOpenChange={(open) => !open && setActionType(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -303,8 +434,36 @@ export default function SolicitudesPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Reject Confirmation */}
-      <AlertDialog open={actionType === 'rechazar'} onOpenChange={(open) => !open && setActionType(null)}>
+      {/* Bulk Approve Confirmation */}
+      <AlertDialog open={actionType === 'masivo'} onOpenChange={(open) => !open && setActionType(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Aprobar {selectedIds.size} solicitud(es)?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>Se aprobarán las solicitudes seleccionadas y se creará un pago consolidado por instalador/obra.</p>
+              <p className="font-semibold">Total: {formatCurrency(totalSeleccionado)}</p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleAprobarMasivo}
+              disabled={processing}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {processing ? 'Procesando...' : 'Aprobar Todas'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Reject Confirmation with Reason */}
+      <AlertDialog open={actionType === 'rechazar'} onOpenChange={(open) => {
+        if (!open) {
+          setActionType(null);
+          setMotivoRechazo('');
+        }
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Rechazar solicitud?</AlertDialogTitle>
@@ -313,6 +472,14 @@ export default function SolicitudesPage() {
               para {selectedSolicitud?.instaladores?.nombre}. Esta acción no se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="py-4">
+            <Textarea
+              placeholder="Motivo del rechazo (opcional)"
+              value={motivoRechazo}
+              onChange={(e) => setMotivoRechazo(e.target.value)}
+              rows={3}
+            />
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
