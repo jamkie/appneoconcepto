@@ -70,6 +70,7 @@ export default function SolicitudesPage() {
   // View detail state
   const [viewingSolicitud, setViewingSolicitud] = useState<SolicitudWithDetails | null>(null);
   const [avanceItems, setAvanceItems] = useState<{ descripcion: string; cantidad: number; precio: number }[]>([]);
+  const [extrasInfo, setExtrasInfo] = useState<{ descripcion: string; monto: number }[]>([]);
   
   // Anticipo states
   const [isAnticipoModalOpen, setIsAnticipoModalOpen] = useState(false);
@@ -172,6 +173,8 @@ export default function SolicitudesPage() {
   // Handle viewing solicitud detail
   const handleViewSolicitud = async (solicitud: SolicitudWithDetails) => {
     setViewingSolicitud(solicitud);
+    setAvanceItems([]);
+    setExtrasInfo([]);
     
     // If it has an avance_id, fetch the avance items
     if (solicitud.avance_id) {
@@ -194,10 +197,47 @@ export default function SolicitudesPage() {
         }
       } catch (error) {
         console.error('Error fetching avance items:', error);
-        setAvanceItems([]);
       }
-    } else {
-      setAvanceItems([]);
+    }
+    
+    // If it has extras_ids, fetch the extras info
+    if (solicitud.extras_ids && solicitud.extras_ids.length > 0) {
+      try {
+        const { data: extrasData } = await supabase
+          .from('extras')
+          .select('descripcion, monto')
+          .in('id', solicitud.extras_ids);
+        
+        if (extrasData) {
+          setExtrasInfo(extrasData.map(e => ({
+            descripcion: e.descripcion,
+            monto: Number(e.monto),
+          })));
+        }
+      } catch (error) {
+        console.error('Error fetching extras:', error);
+      }
+    }
+    
+    // If tipo is 'extra', try to find matching extra by obra/instalador/monto
+    if (solicitud.tipo === 'extra' && (!solicitud.extras_ids || solicitud.extras_ids.length === 0)) {
+      try {
+        const { data: extrasData } = await supabase
+          .from('extras')
+          .select('descripcion, monto')
+          .eq('obra_id', solicitud.obra_id)
+          .eq('instalador_id', solicitud.instalador_id)
+          .eq('monto', solicitud.total_solicitado);
+        
+        if (extrasData && extrasData.length > 0) {
+          setExtrasInfo(extrasData.map(e => ({
+            descripcion: e.descripcion,
+            monto: Number(e.monto),
+          })));
+        }
+      } catch (error) {
+        console.error('Error fetching extra by match:', error);
+      }
     }
   };
 
@@ -857,6 +897,21 @@ export default function SolicitudesPage() {
                       <div key={idx} className="flex justify-between text-sm">
                         <span>{item.descripcion} x{item.cantidad}</span>
                         <span className="font-medium">{formatCurrency(item.cantidad * item.precio)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Extras breakdown */}
+              {extrasInfo.length > 0 && (
+                <div className="border rounded-lg p-3 space-y-2 bg-amber-50 border-amber-200">
+                  <h4 className="font-semibold text-sm text-amber-800">Detalle del Extra</h4>
+                  <div className="space-y-2">
+                    {extrasInfo.map((extra, idx) => (
+                      <div key={idx} className="text-sm">
+                        <p className="text-amber-900">{extra.descripcion}</p>
+                        <p className="font-medium text-amber-700">{formatCurrency(extra.monto)}</p>
                       </div>
                     ))}
                   </div>
