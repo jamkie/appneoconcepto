@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, Plus, Search, Pencil, Trash2 } from 'lucide-react';
+import { FileText, Plus, Search, Pencil, Trash2, RotateCcw } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -40,6 +40,7 @@ import { es } from 'date-fns/locale';
 interface ExtraWithDetails extends Extra {
   obras: { nombre: string } | null;
   instaladores: { nombre: string } | null;
+  solicitudRechazada?: boolean;
 }
 
 export default function ExtrasPage() {
@@ -51,7 +52,8 @@ export default function ExtrasPage() {
   const [instaladores, setInstaladores] = useState<Instalador[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'todos' | 'pendiente' | 'aprobado'>('todos');
+  const [statusFilter, setStatusFilter] = useState<'todos' | 'pendiente' | 'aprobado' | 'rechazado'>('todos');
+  const [creatingSolicitud, setCreatingSolicitud] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingExtra, setEditingExtra] = useState<ExtraWithDetails | null>(null);
@@ -80,7 +82,7 @@ export default function ExtrasPage() {
     try {
       setLoadingData(true);
       
-      const [extrasRes, obrasRes, instaladoresRes] = await Promise.all([
+      const [extrasRes, obrasRes, instaladoresRes, solicitudesRes] = await Promise.all([
         supabase
           .from('extras')
           .select(`
@@ -91,13 +93,28 @@ export default function ExtrasPage() {
           .order('created_at', { ascending: false }),
         supabase.from('obras').select('*').eq('estado', 'activa'),
         supabase.from('instaladores').select('*').eq('activo', true),
+        supabase
+          .from('solicitudes_pago')
+          .select('extras_ids, estado')
+          .eq('tipo', 'extra'),
       ]);
 
       if (extrasRes.error) throw extrasRes.error;
       if (obrasRes.error) throw obrasRes.error;
       if (instaladoresRes.error) throw instaladoresRes.error;
 
-      setExtras((extrasRes.data as ExtraWithDetails[]) || []);
+      // Map extras with their solicitud status
+      const extrasWithStatus = (extrasRes.data || []).map(extra => {
+        const solicitud = (solicitudesRes.data || []).find(
+          s => s.extras_ids && s.extras_ids.includes(extra.id)
+        );
+        return {
+          ...extra,
+          solicitudRechazada: solicitud?.estado === 'rechazada',
+        } as ExtraWithDetails;
+      });
+
+      setExtras(extrasWithStatus);
       setObras((obrasRes.data as Obra[]) || []);
       setInstaladores((instaladoresRes.data as Instalador[]) || []);
     } catch (error) {
@@ -265,7 +282,49 @@ export default function ExtrasPage() {
   };
 
   const canEditOrDelete = (extra: ExtraWithDetails) => {
-    return extra.estado === 'pendiente';
+    return extra.estado === 'pendiente' && !extra.solicitudRechazada;
+  };
+
+  const handleNuevaSolicitud = async (extra: ExtraWithDetails) => {
+    if (!user) return;
+    
+    try {
+      setCreatingSolicitud(true);
+      
+      // Delete the rejected solicitud first
+      await supabase
+        .from('solicitudes_pago')
+        .delete()
+        .contains('extras_ids', [extra.id])
+        .eq('estado', 'rechazada');
+      
+      // Create new payment request
+      const { error } = await supabase
+        .from('solicitudes_pago')
+        .insert({
+          obra_id: extra.obra_id,
+          instalador_id: extra.instalador_id,
+          tipo: 'extra',
+          total_solicitado: extra.monto,
+          subtotal_extras: extra.monto,
+          extras_ids: [extra.id],
+          solicitado_por: user.id,
+        });
+      
+      if (error) throw error;
+      
+      toast({ title: 'Éxito', description: 'Nueva solicitud de pago creada' });
+      fetchData();
+    } catch (error) {
+      console.error('Error creating new solicitud:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo crear la solicitud',
+        variant: 'destructive',
+      });
+    } finally {
+      setCreatingSolicitud(false);
+    }
   };
 
   const formatCurrency = (amount: number) => {
@@ -279,6 +338,10 @@ export default function ExtrasPage() {
     const matchesSearch = extra.descripcion.toLowerCase().includes(searchTerm.toLowerCase()) ||
       extra.obras?.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
       extra.instaladores?.nombre.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    if (statusFilter === 'rechazado') {
+      return matchesSearch && extra.solicitudRechazada;
+    }
     const matchesStatus = statusFilter === 'todos' || extra.estado === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -314,35 +377,58 @@ export default function ExtrasPage() {
     {
       key: 'estado',
       header: 'Estado',
-      cell: (item: ExtraWithDetails) => <StatusBadge status={item.estado} />,
+      cell: (item: ExtraWithDetails) => (
+        <div className="flex items-center gap-2">
+          <StatusBadge status={item.solicitudRechazada ? 'rechazado' : item.estado} />
+        </div>
+      ),
     },
     {
       key: 'acciones',
       header: '',
-      cell: (item: ExtraWithDetails) => canEditOrDelete(item) ? (
+      cell: (item: ExtraWithDetails) => (
         <div className="flex gap-1 justify-end">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              openEditModal(item);
-            }}
-          >
-            <Pencil className="w-4 h-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              setDeleteExtra(item);
-            }}
-          >
-            <Trash2 className="w-4 h-4 text-destructive" />
-          </Button>
+          {item.solicitudRechazada && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-amber-600 border-amber-200 hover:bg-amber-50"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleNuevaSolicitud(item);
+              }}
+              disabled={creatingSolicitud}
+            >
+              <RotateCcw className="w-4 h-4 mr-1" />
+              Nueva solicitud
+            </Button>
+          )}
+          {canEditOrDelete(item) && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openEditModal(item);
+                }}
+              >
+                <Pencil className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeleteExtra(item);
+                }}
+              >
+                <Trash2 className="w-4 h-4 text-destructive" />
+              </Button>
+            </>
+          )}
         </div>
-      ) : null,
+      ),
     },
   ];
 
@@ -379,7 +465,7 @@ export default function ExtrasPage() {
             className="pl-10"
           />
         </div>
-        <Select value={statusFilter} onValueChange={(value: 'todos' | 'pendiente' | 'aprobado') => setStatusFilter(value)}>
+        <Select value={statusFilter} onValueChange={(value: 'todos' | 'pendiente' | 'aprobado' | 'rechazado') => setStatusFilter(value)}>
           <SelectTrigger className="w-full sm:w-48">
             <SelectValue placeholder="Estado" />
           </SelectTrigger>
@@ -387,6 +473,7 @@ export default function ExtrasPage() {
             <SelectItem value="todos">Todos</SelectItem>
             <SelectItem value="pendiente">Pendientes</SelectItem>
             <SelectItem value="aprobado">Aprobados</SelectItem>
+            <SelectItem value="rechazado">Rechazados</SelectItem>
           </SelectContent>
         </Select>
       </div>
