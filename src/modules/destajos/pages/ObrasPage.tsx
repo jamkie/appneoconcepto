@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, Plus, Search, Pencil, Trash2, X } from 'lucide-react';
+import { Building2, Plus, Search, Pencil, Trash2, X, FileText, Download } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -36,6 +36,8 @@ import type { Obra, ObraStatus, ObraItem } from '../types';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useUserRole } from '@/hooks/useUserRole';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 interface MobiliarioItem {
   id?: string;
@@ -51,12 +53,21 @@ interface ExtraInfo {
   estado: string;
 }
 
+interface PagoInfo {
+  id: string;
+  fecha: string;
+  monto: number;
+  instalador_nombre: string;
+  metodo_pago: string;
+}
+
 interface ObraWithItems extends Obra {
   items: ObraItem[];
   avances: { [itemId: string]: number };
   totalPagado: number;
   totalExtras: number;
   extras: ExtraInfo[];
+  pagos: PagoInfo[];
 }
 
 export default function ObrasPage() {
@@ -77,6 +88,8 @@ export default function ObrasPage() {
     estado: 'activa' as ObraStatus,
   });
   const [mobiliarioItems, setMobiliarioItems] = useState<MobiliarioItem[]>([]);
+  const [extrasDialogOpen, setExtrasDialogOpen] = useState(false);
+  const [extrasDialogObra, setExtrasDialogObra] = useState<ObraWithItems | null>(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -112,10 +125,15 @@ export default function ObrasPage() {
         .from('avance_items')
         .select('obra_item_id, cantidad_completada');
 
-      // Fetch all pagos_destajos
+      // Fetch all pagos_destajos with instalador info
       const { data: pagosData } = await supabase
         .from('pagos_destajos')
-        .select('obra_id, monto');
+        .select('id, obra_id, monto, fecha, metodo_pago, instalador_id');
+
+      // Fetch instaladores for pagos
+      const { data: instaladoresData } = await supabase
+        .from('instaladores')
+        .select('id, nombre');
 
       // Fetch all extras
       const { data: extrasData } = await supabase
@@ -139,10 +157,22 @@ export default function ObrasPage() {
           avances[item.id] = itemAvances;
         });
 
-        // Calculate total pagado
-        const totalPagado = (pagosData || [])
+        // Get pagos for this obra with instalador info
+        const obraPagos = (pagosData || [])
           .filter((p) => p.obra_id === obra.id)
-          .reduce((sum, p) => sum + Number(p.monto), 0);
+          .map((p) => {
+            const instalador = (instaladoresData || []).find((i) => i.id === p.instalador_id);
+            return {
+              id: p.id,
+              fecha: p.fecha,
+              monto: Number(p.monto),
+              instalador_nombre: instalador?.nombre || 'Desconocido',
+              metodo_pago: p.metodo_pago,
+            };
+          });
+
+        // Calculate total pagado
+        const totalPagado = obraPagos.reduce((sum, p) => sum + p.monto, 0);
 
         // Get extras for this obra
         const obraExtras = (extrasData || [])
@@ -166,6 +196,7 @@ export default function ObrasPage() {
           totalPagado,
           totalExtras,
           extras: obraExtras,
+          pagos: obraPagos,
         };
       });
 
@@ -325,6 +356,68 @@ export default function ObrasPage() {
     }).format(amount);
   };
 
+  const generateEstadoDeCuenta = (obra: ObraWithItems) => {
+    const totalItems = obra.items.reduce((sum, pieza) => sum + pieza.cantidad * pieza.precio_unitario, 0);
+    const total = totalItems + obra.totalExtras;
+    const porPagar = total - obra.totalPagado;
+
+    let content = `ESTADO DE CUENTA\n`;
+    content += `================\n\n`;
+    content += `Obra: ${obra.nombre}\n`;
+    if (obra.cliente) content += `Cliente: ${obra.cliente}\n`;
+    content += `Fecha: ${format(new Date(), "d 'de' MMMM 'de' yyyy", { locale: es })}\n`;
+    content += `\n`;
+
+    // Piezas
+    content += `PIEZAS\n`;
+    content += `------\n`;
+    obra.items.forEach((pieza) => {
+      const completado = obra.avances[pieza.id] || 0;
+      const subtotal = pieza.cantidad * pieza.precio_unitario;
+      content += `${pieza.descripcion}: ${completado}/${pieza.cantidad} x ${formatCurrency(pieza.precio_unitario)} = ${formatCurrency(subtotal)}\n`;
+    });
+    content += `Subtotal Piezas: ${formatCurrency(totalItems)}\n\n`;
+
+    // Extras
+    const extrasAprobados = obra.extras.filter((e) => e.estado === 'aprobado');
+    if (extrasAprobados.length > 0) {
+      content += `EXTRAS APROBADOS\n`;
+      content += `----------------\n`;
+      extrasAprobados.forEach((extra) => {
+        content += `${extra.descripcion}: ${formatCurrency(extra.monto)}\n`;
+      });
+      content += `Subtotal Extras: ${formatCurrency(obra.totalExtras)}\n\n`;
+    }
+
+    // Pagos
+    if (obra.pagos.length > 0) {
+      content += `PAGOS REALIZADOS\n`;
+      content += `----------------\n`;
+      obra.pagos.forEach((pago) => {
+        content += `${format(new Date(pago.fecha), 'dd/MM/yyyy')} - ${pago.instalador_nombre}: ${formatCurrency(pago.monto)} (${pago.metodo_pago})\n`;
+      });
+      content += `Total Pagado: ${formatCurrency(obra.totalPagado)}\n\n`;
+    }
+
+    // Resumen
+    content += `RESUMEN\n`;
+    content += `-------\n`;
+    content += `Total Obra: ${formatCurrency(total)}\n`;
+    content += `Total Pagado: ${formatCurrency(obra.totalPagado)}\n`;
+    content += `Por Pagar: ${formatCurrency(porPagar)}\n`;
+
+    // Download
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `estado-cuenta-${obra.nombre.toLowerCase().replace(/\s+/g, '-')}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const columns = [
     {
       key: 'nombre',
@@ -389,28 +482,21 @@ export default function ObrasPage() {
       header: 'Extras',
       cell: (item: ObraWithItems) => {
         if (item.extras.length === 0) {
-          return <span className="text-muted-foreground text-xs">Sin extras</span>;
+          return <span className="text-muted-foreground text-xs">-</span>;
         }
-        const aprobados = item.extras.filter((e) => e.estado === 'aprobado');
-        const pendientes = item.extras.filter((e) => e.estado === 'pendiente');
         return (
-          <div className="space-y-1 text-xs min-w-[150px]">
-            {aprobados.map((extra) => (
-              <div key={extra.id} className="flex justify-between gap-2">
-                <span className="truncate max-w-[100px]" title={extra.descripcion}>{extra.descripcion}</span>
-                <span className="font-medium text-emerald-600">{formatCurrency(extra.monto)}</span>
-              </div>
-            ))}
-            {pendientes.map((extra) => (
-              <div key={extra.id} className="flex justify-between gap-2 text-muted-foreground">
-                <span className="truncate max-w-[100px]" title={extra.descripcion}>{extra.descripcion}</span>
-                <span className="italic">{formatCurrency(extra.monto)}</span>
-              </div>
-            ))}
-            {pendientes.length > 0 && (
-              <p className="text-muted-foreground italic">({pendientes.length} pendiente{pendientes.length > 1 ? 's' : ''})</p>
-            )}
-          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-auto py-1 px-2 text-xs font-medium hover:bg-accent"
+            onClick={(e) => {
+              e.stopPropagation();
+              setExtrasDialogObra(item);
+              setExtrasDialogOpen(true);
+            }}
+          >
+            {formatCurrency(item.totalExtras)}
+          </Button>
         );
       },
       hideOnMobile: true,
@@ -460,39 +546,50 @@ export default function ObrasPage() {
         </Badge>
       ),
     },
-    ...(isAdmin
-      ? [
-          {
-            key: 'actions',
-            header: 'Acciones',
-            cell: (item: ObraWithItems) => (
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenModal(item);
-                  }}
-                >
-                  <Pencil className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedObra(item);
-                    setIsDeleteDialogOpen(true);
-                  }}
-                >
-                  <Trash2 className="w-4 h-4 text-destructive" />
-                </Button>
-              </div>
-            ),
-          },
-        ]
-      : []),
+    {
+      key: 'actions',
+      header: 'Acciones',
+      cell: (item: ObraWithItems) => (
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            title="Descargar estado de cuenta"
+            onClick={(e) => {
+              e.stopPropagation();
+              generateEstadoDeCuenta(item);
+            }}
+          >
+            <Download className="w-4 h-4" />
+          </Button>
+          {isAdmin && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenModal(item);
+                }}
+              >
+                <Pencil className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedObra(item);
+                  setIsDeleteDialogOpen(true);
+                }}
+              >
+                <Trash2 className="w-4 h-4 text-destructive" />
+              </Button>
+            </>
+          )}
+        </div>
+      ),
+    },
   ];
 
   if (loading || loadingData) {
@@ -685,6 +782,58 @@ export default function ObrasPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Extras Dialog */}
+      <Dialog open={extrasDialogOpen} onOpenChange={setExtrasDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Extras - {extrasDialogObra?.nombre}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {extrasDialogObra?.extras.length === 0 ? (
+              <p className="text-muted-foreground text-sm">Sin extras registrados</p>
+            ) : (
+              <>
+                {extrasDialogObra?.extras.map((extra) => (
+                  <div
+                    key={extra.id}
+                    className="flex justify-between items-center p-3 rounded-lg border bg-card"
+                  >
+                    <div>
+                      <p className="font-medium text-sm">{extra.descripcion}</p>
+                      <Badge
+                        variant="outline"
+                        className={
+                          extra.estado === 'aprobado'
+                            ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-xs'
+                            : extra.estado === 'pendiente'
+                            ? 'bg-amber-500/10 text-amber-600 border-amber-500/20 text-xs'
+                            : 'bg-red-500/10 text-red-600 border-red-500/20 text-xs'
+                        }
+                      >
+                        {extra.estado.charAt(0).toUpperCase() + extra.estado.slice(1)}
+                      </Badge>
+                    </div>
+                    <span
+                      className={`font-semibold ${
+                        extra.estado === 'aprobado' ? 'text-emerald-600' : 'text-muted-foreground'
+                      }`}
+                    >
+                      {formatCurrency(extra.monto)}
+                    </span>
+                  </div>
+                ))}
+                <div className="flex justify-between items-center pt-3 border-t">
+                  <span className="font-medium">Total Aprobados:</span>
+                  <span className="font-bold text-emerald-600">
+                    {formatCurrency(extrasDialogObra?.totalExtras || 0)}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
