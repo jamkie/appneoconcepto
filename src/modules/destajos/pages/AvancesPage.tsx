@@ -1,14 +1,15 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ClipboardList, Plus, Search, Pencil, Trash2 } from 'lucide-react';
+import { ClipboardList, Plus, Search, Pencil, Trash2, Calendar, Box } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { PageHeader, DataTable, EmptyState } from '../components';
+import { PageHeader, EmptyState, StatCard } from '../components';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -33,6 +34,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import type { Obra, Instalador, ObraItem } from '../types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -91,6 +100,9 @@ export default function AvancesPage() {
   const [obraItems, setObraItems] = useState<AvanceItemDisplay[]>([]);
   const [loadingObraItems, setLoadingObraItems] = useState(false);
 
+  // Solicitudes for payment status
+  const [solicitudes, setSolicitudes] = useState<Record<string, { estado: string }>>({});
+
   useEffect(() => {
     if (!loading && !user) {
       navigate('/auth');
@@ -116,7 +128,7 @@ export default function AvancesPage() {
     try {
       setLoadingData(true);
       
-      const [avancesRes, obrasRes, instaladoresRes] = await Promise.all([
+      const [avancesRes, obrasRes, instaladoresRes, solicitudesRes] = await Promise.all([
         supabase
           .from('avances')
           .select(`
@@ -139,6 +151,7 @@ export default function AvancesPage() {
           .order('fecha', { ascending: false }),
         supabase.from('obras').select('*').eq('estado', 'activa'),
         supabase.from('instaladores').select('*').eq('activo', true),
+        supabase.from('solicitudes_pago').select('id, estado, tipo, created_at'),
       ]);
 
       if (avancesRes.error) throw avancesRes.error;
@@ -148,6 +161,15 @@ export default function AvancesPage() {
       setAvances((avancesRes.data as AvanceRecord[]) || []);
       setObras((obrasRes.data as Obra[]) || []);
       setInstaladores((instaladoresRes.data as Instalador[]) || []);
+
+      // Create a map of solicitudes by approximate creation time for matching
+      const solMap: Record<string, { estado: string }> = {};
+      (solicitudesRes.data || []).forEach((s: any) => {
+        if (s.tipo === 'avance') {
+          solMap[s.id] = { estado: s.estado };
+        }
+      });
+      setSolicitudes(solMap);
     } catch (error) {
       console.error('Error fetching data:', error);
       toast({
@@ -164,7 +186,6 @@ export default function AvancesPage() {
     try {
       setLoadingObraItems(true);
       
-      // Get all items for this obra
       const { data: items, error: itemsError } = await supabase
         .from('obra_items')
         .select('*')
@@ -172,8 +193,7 @@ export default function AvancesPage() {
       
       if (itemsError) throw itemsError;
       
-      // Get all avance_items for this obra to calculate progress
-      let avanceItemsQuery = supabase
+      const { data: avanceItems, error: avanceError } = await supabase
         .from('avance_items')
         .select(`
           obra_item_id,
@@ -183,18 +203,14 @@ export default function AvancesPage() {
         `)
         .eq('avances.obra_id', obraId);
       
-      const { data: avanceItems, error: avanceError } = await avanceItemsQuery;
-      
       if (avanceError) throw avanceError;
       
-      // Calculate totals per obra_item (excluding the one being edited)
       const avanceTotals: Record<string, number> = {};
       (avanceItems || []).forEach((ai: any) => {
         if (excludeAvanceId && ai.avance_id === excludeAvanceId) return;
         avanceTotals[ai.obra_item_id] = (avanceTotals[ai.obra_item_id] || 0) + ai.cantidad_completada;
       });
       
-      // Build display items with pending quantities
       const displayItems: AvanceItemDisplay[] = (items || [])
         .map((item: ObraItem) => {
           const avanzado = avanceTotals[item.id] || 0;
@@ -231,7 +247,6 @@ export default function AvancesPage() {
     setFecha(avance.fecha);
     setObservaciones(avance.observaciones || '');
     
-    // Fetch obra items excluding current avance progress
     try {
       setLoadingObraItems(true);
       
@@ -242,7 +257,6 @@ export default function AvancesPage() {
       
       if (itemsError) throw itemsError;
       
-      // Get all avance_items for this obra excluding current avance
       const { data: avanceItems, error: avanceError } = await supabase
         .from('avance_items')
         .select(`
@@ -255,20 +269,17 @@ export default function AvancesPage() {
       
       if (avanceError) throw avanceError;
       
-      // Calculate totals per obra_item excluding current avance
       const avanceTotals: Record<string, number> = {};
       (avanceItems || []).forEach((ai: any) => {
         if (ai.avance_id === avance.id) return;
         avanceTotals[ai.obra_item_id] = (avanceTotals[ai.obra_item_id] || 0) + ai.cantidad_completada;
       });
       
-      // Get current avance items
       const currentItems: Record<string, number> = {};
       avance.avance_items.forEach((ai) => {
         currentItems[ai.obra_item_id] = ai.cantidad_completada;
       });
       
-      // Build display items
       const displayItems: AvanceItemDisplay[] = (items || [])
         .map((item: ObraItem) => {
           const avanzadoOtros = avanceTotals[item.id] || 0;
@@ -321,7 +332,6 @@ export default function AvancesPage() {
       return;
     }
 
-    // Validate at least one item has progress
     const itemsWithProgress = obraItems.filter(
       (item) => parseInt(item.cantidad_a_avanzar) > 0
     );
@@ -335,7 +345,6 @@ export default function AvancesPage() {
       return;
     }
 
-    // Validate quantities don't exceed pending
     for (const item of itemsWithProgress) {
       const cantidad = parseInt(item.cantidad_a_avanzar);
       if (cantidad > item.cantidad_pendiente) {
@@ -352,7 +361,6 @@ export default function AvancesPage() {
       setSaving(true);
       
       if (editingAvance) {
-        // Update existing avance
         const { error: avanceError } = await supabase
           .from('avances')
           .update({
@@ -363,7 +371,6 @@ export default function AvancesPage() {
         
         if (avanceError) throw avanceError;
         
-        // Delete old avance_items
         const { error: deleteError } = await supabase
           .from('avance_items')
           .delete()
@@ -371,7 +378,6 @@ export default function AvancesPage() {
         
         if (deleteError) throw deleteError;
         
-        // Insert new avance_items
         const avanceItemsToInsert = itemsWithProgress.map((item) => ({
           avance_id: editingAvance.id,
           obra_item_id: item.obra_item_id,
@@ -386,7 +392,6 @@ export default function AvancesPage() {
 
         toast({ title: 'Éxito', description: 'Avance actualizado correctamente' });
       } else {
-        // Create the avance record
         const { data: avanceData, error: avanceError } = await supabase
           .from('avances')
           .insert({
@@ -401,7 +406,6 @@ export default function AvancesPage() {
         
         if (avanceError) throw avanceError;
         
-        // Create avance_items for each item with progress
         const avanceItemsToInsert = itemsWithProgress.map((item) => ({
           avance_id: avanceData.id,
           obra_item_id: item.obra_item_id,
@@ -414,12 +418,10 @@ export default function AvancesPage() {
         
         if (itemsError) throw itemsError;
 
-        // Calculate total for solicitud de pago
         const subtotalPiezas = itemsWithProgress.reduce((acc, item) => {
           return acc + (parseInt(item.cantidad_a_avanzar) * item.precio_unitario);
         }, 0);
 
-        // Create solicitud de pago
         const { error: solicitudError } = await supabase
           .from('solicitudes_pago')
           .insert({
@@ -436,7 +438,6 @@ export default function AvancesPage() {
 
         if (solicitudError) {
           console.error('Error creating solicitud:', solicitudError);
-          // Don't throw - avance was created successfully
           toast({ 
             title: 'Aviso', 
             description: 'Avance registrado, pero hubo un error al crear la solicitud de pago',
@@ -468,7 +469,6 @@ export default function AvancesPage() {
     try {
       setDeleting(true);
       
-      // Delete avance_items first
       const { error: itemsError } = await supabase
         .from('avance_items')
         .delete()
@@ -476,7 +476,6 @@ export default function AvancesPage() {
       
       if (itemsError) throw itemsError;
       
-      // Delete avance
       const { error: avanceError } = await supabase
         .from('avances')
         .delete()
@@ -514,67 +513,18 @@ export default function AvancesPage() {
     avance.instaladores?.nombre.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Format avance items for display in table
-  const formatAvanceItems = (items: AvanceRecord['avance_items']) => {
-    if (!items || items.length === 0) return 'Sin items';
-    return items
-      .map((item) => `${item.obra_items?.descripcion || 'Item'}: ${item.cantidad_completada}`)
-      .join(', ');
-  };
+  // Calculate totals for stat cards
+  const totalsByItem = avances.reduce((acc, avance) => {
+    avance.avance_items.forEach((item) => {
+      const desc = item.obra_items?.descripcion || 'Otro';
+      acc[desc] = (acc[desc] || 0) + item.cantidad_completada;
+    });
+    return acc;
+  }, {} as Record<string, number>);
 
-  const columns = [
-    {
-      key: 'fecha',
-      header: 'Fecha',
-      cell: (item: AvanceRecord) => format(new Date(item.fecha), 'dd/MM/yyyy', { locale: es }),
-    },
-    {
-      key: 'obra',
-      header: 'Obra',
-      cell: (item: AvanceRecord) => <span className="font-medium">{item.obras?.nombre || 'N/A'}</span>,
-    },
-    {
-      key: 'instalador',
-      header: 'Instalador',
-      cell: (item: AvanceRecord) => item.instaladores?.nombre || 'N/A',
-      hideOnMobile: true,
-    },
-    {
-      key: 'items',
-      header: 'Items Avanzados',
-      cell: (item: AvanceRecord) => (
-        <span className="text-sm text-muted-foreground truncate max-w-[200px] block">
-          {formatAvanceItems(item.avance_items)}
-        </span>
-      ),
-      hideOnMobile: true,
-    },
-    {
-      key: 'actions',
-      header: 'Acciones',
-      cell: (item: AvanceRecord) => (
-        <div className="flex gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => handleOpenEdit(item)}
-          >
-            <Pencil className="w-4 h-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => {
-              setAvanceToDelete(item);
-              setIsDeleteOpen(true);
-            }}
-          >
-            <Trash2 className="w-4 h-4 text-destructive" />
-          </Button>
-        </div>
-      ),
-    },
-  ];
+  const topItems = Object.entries(totalsByItem)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
 
   if (loading || loadingData) {
     return (
@@ -587,23 +537,40 @@ export default function AvancesPage() {
   return (
     <div>
       <PageHeader
-        title="Avances"
-        description="Registro de avances de trabajo"
+        title="Avances de Obra"
+        description="Registro de piezas completadas por los instaladores"
         icon={ClipboardList}
         actions={
           <Button onClick={() => setIsModalOpen(true)}>
             <Plus className="w-4 h-4 mr-2" />
-            Nuevo Avance
+            Registrar Avance
           </Button>
         }
       />
+
+      {/* Stat Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        {topItems.map(([name, count]) => (
+          <StatCard
+            key={name}
+            title={name}
+            value={count}
+            icon={<Box className="w-5 h-5" />}
+          />
+        ))}
+        {topItems.length === 0 && (
+          <div className="col-span-3 text-center text-muted-foreground py-4">
+            Sin avances registrados aún
+          </div>
+        )}
+      </div>
 
       {/* Search */}
       <div className="mb-6">
         <div className="relative max-w-sm">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Buscar avances..."
+            placeholder="Buscar por obra o instalador..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10"
@@ -612,24 +579,93 @@ export default function AvancesPage() {
       </div>
 
       {/* Table */}
-      <DataTable
-        columns={columns}
-        data={filteredAvances}
-        keyExtractor={(item) => item.id}
-        emptyState={
-          <EmptyState
-            icon={ClipboardList}
-            title="Sin avances"
-            description="No hay avances registrados"
-            action={
-              <Button onClick={() => setIsModalOpen(true)}>
-                <Plus className="w-4 h-4 mr-2" />
-                Nuevo Avance
-              </Button>
-            }
-          />
-        }
-      />
+      {filteredAvances.length === 0 ? (
+        <EmptyState
+          icon={ClipboardList}
+          title="Sin avances"
+          description="No hay avances registrados"
+          action={
+            <Button onClick={() => setIsModalOpen(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Registrar Avance
+            </Button>
+          }
+        />
+      ) : (
+        <div className="rounded-lg border bg-card">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Fecha</TableHead>
+                <TableHead>Obra</TableHead>
+                <TableHead className="hidden md:table-cell">Instalador</TableHead>
+                <TableHead>Piezas Completadas</TableHead>
+                <TableHead className="hidden lg:table-cell">Estado Pago</TableHead>
+                <TableHead className="hidden lg:table-cell">Observaciones</TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredAvances.map((avance) => (
+                <TableRow key={avance.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-2 text-sm">
+                      <Calendar className="w-4 h-4 text-muted-foreground" />
+                      {format(new Date(avance.fecha), 'dd MMM yyyy', { locale: es })}
+                    </div>
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    {avance.obras?.nombre || 'N/A'}
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell">
+                    {avance.instaladores?.nombre || 'N/A'}
+                  </TableCell>
+                  <TableCell>
+                    <div className="space-y-1">
+                      {avance.avance_items.map((item) => (
+                        <div key={item.id} className="flex items-center gap-2 text-sm">
+                          <Box className="w-3 h-3 text-muted-foreground" />
+                          <span>{item.obra_items?.descripcion || 'Item'}:</span>
+                          <span className="font-medium">{item.cantidad_completada}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell">
+                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                      Pendiente
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell text-muted-foreground">
+                    {avance.observaciones || '-'}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleOpenEdit(avance)}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setAvanceToDelete(avance);
+                          setIsDeleteOpen(true);
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       {/* Create/Edit Modal */}
       <Dialog open={isModalOpen} onOpenChange={(open) => {
@@ -638,7 +674,7 @@ export default function AvancesPage() {
       }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingAvance ? 'Editar Avance' : 'Nuevo Avance'}</DialogTitle>
+            <DialogTitle>{editingAvance ? 'Editar Avance' : 'Registrar Avance'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
