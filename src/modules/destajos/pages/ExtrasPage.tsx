@@ -282,7 +282,8 @@ export default function ExtrasPage() {
   };
 
   const canEditOrDelete = (extra: ExtraWithDetails) => {
-    return extra.estado === 'pendiente' && !extra.solicitudRechazada;
+    // Permitir editar/eliminar si está pendiente o si fue rechazado
+    return extra.estado === 'pendiente' || extra.solicitudRechazada;
   };
 
   const handleNuevaSolicitud = async (extra: ExtraWithDetails) => {
