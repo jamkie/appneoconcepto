@@ -71,6 +71,9 @@ export default function AdminPage() {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [filterRole, setFilterRole] = useState<'all' | AppRole>('all');
+  const [filterModule, setFilterModule] = useState<string>('all');
+  const [filterSeller, setFilterSeller] = useState<'all' | 'yes' | 'no'>('all');
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
   const [editRole, setEditRole] = useState<AppRole>('user');
   const [editModules, setEditModules] = useState<string[]>([]);
@@ -342,11 +345,21 @@ export default function AdminPage() {
     return <Navigate to="/dashboard" replace />;
   }
 
-  const filteredUsers = users.filter(
-    (u) =>
+  const filteredUsers = users.filter((u) => {
+    const matchesSearch =
       u.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-      u.email?.toLowerCase().includes(search.toLowerCase())
-  );
+      u.email?.toLowerCase().includes(search.toLowerCase());
+    const matchesRole = filterRole === 'all' || u.role === filterRole;
+    const matchesModule =
+      filterModule === 'all' ||
+      u.role === 'admin' ||
+      u.moduleIds?.includes(filterModule);
+    const matchesSeller =
+      filterSeller === 'all' ||
+      (filterSeller === 'yes' && u.isSeller) ||
+      (filterSeller === 'no' && !u.isSeller);
+    return matchesSearch && matchesRole && matchesModule && matchesSeller;
+  });
 
   const activeModules = modules.filter((m) => m.status === 'active');
 
@@ -422,15 +435,50 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* Search */}
-        <div className="relative max-w-md mb-6">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar usuarios..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
+        {/* Filters */}
+        <div className="flex flex-wrap gap-4 mb-6">
+          <div className="relative flex-1 min-w-[200px] max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar usuarios..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={filterRole} onValueChange={(v) => setFilterRole(v as 'all' | AppRole)}>
+            <SelectTrigger className="w-[150px]">
+              <SelectValue placeholder="Rol" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los roles</SelectItem>
+              <SelectItem value="admin">Admin</SelectItem>
+              <SelectItem value="user">Usuario</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={filterModule} onValueChange={setFilterModule}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Módulo" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los módulos</SelectItem>
+              {activeModules.map((m) => (
+                <SelectItem key={m.id} value={m.id}>
+                  {m.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={filterSeller} onValueChange={(v) => setFilterSeller(v as 'all' | 'yes' | 'no')}>
+            <SelectTrigger className="w-[150px]">
+              <SelectValue placeholder="Vendedor" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="yes">Vendedores</SelectItem>
+              <SelectItem value="no">No vendedores</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Users Table */}
