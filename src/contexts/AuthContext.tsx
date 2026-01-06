@@ -18,6 +18,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const checkUserActive = async (userId: string): Promise<boolean> => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('activo')
+      .eq('id', userId)
+      .single();
+    return data?.activo !== false;
+  };
+
   useEffect(() => {
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -25,11 +34,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         setLoading(false);
+        
+        // Check if user is active after auth state change
+        if (session?.user) {
+          setTimeout(async () => {
+            const isActive = await checkUserActive(session.user.id);
+            if (!isActive) {
+              await supabase.auth.signOut();
+            }
+          }, 0);
+        }
       }
     );
 
     // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        const isActive = await checkUserActive(session.user.id);
+        if (!isActive) {
+          await supabase.auth.signOut();
+          setSession(null);
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+      }
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);

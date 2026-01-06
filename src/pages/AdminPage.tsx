@@ -33,6 +33,16 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   ArrowLeft,
   Users,
   Shield,
@@ -42,6 +52,7 @@ import {
   Save,
   UserPlus,
   Power,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -92,6 +103,11 @@ export default function AdminPage() {
   const [newUserModules, setNewUserModules] = useState<string[]>([]);
   const [newUserIsSeller, setNewUserIsSeller] = useState(false);
   const [creating, setCreating] = useState(false);
+
+  // Delete user state
+  const [deleteUser, setDeleteUser] = useState<UserProfile | null>(null);
+  const [deleteHasMovements, setDeleteHasMovements] = useState(false);
+  const [checkingMovements, setCheckingMovements] = useState(false);
 
   useEffect(() => {
     if (isAdmin) {
@@ -353,6 +369,78 @@ export default function AdminPage() {
         ? prev.filter((id) => id !== moduleId)
         : [...prev, moduleId]
     );
+  };
+
+  const checkUserHasMovements = async (userId: string): Promise<boolean> => {
+    // Check all tables that reference user_id
+    const tables = [
+      { table: 'avances', column: 'registrado_por' },
+      { table: 'extras', column: 'solicitado_por' },
+      { table: 'extras', column: 'aprobado_por' },
+      { table: 'obra_supervisores', column: 'supervisor_id' },
+      { table: 'pagos_destajos', column: 'registrado_por' },
+      { table: 'solicitudes_pago', column: 'solicitado_por' },
+      { table: 'solicitudes_pago', column: 'aprobado_por' },
+      { table: 'sales', column: 'created_by' },
+      { table: 'payments', column: 'created_by' },
+      { table: 'sale_commissions', column: 'seller_id' },
+    ];
+
+    for (const { table, column } of tables) {
+      const { count } = await supabase
+        .from(table as any)
+        .select('*', { count: 'exact', head: true })
+        .eq(column, userId);
+      
+      if (count && count > 0) return true;
+    }
+    return false;
+  };
+
+  const handleOpenDeleteDialog = async (userProfile: UserProfile) => {
+    setDeleteUser(userProfile);
+    setCheckingMovements(true);
+    const hasMovements = await checkUserHasMovements(userProfile.id);
+    setDeleteHasMovements(hasMovements);
+    setCheckingMovements(false);
+  };
+
+  const handleDeleteUser = async () => {
+    if (!deleteUser || deleteHasMovements) return;
+
+    try {
+      // Delete from sellers if exists
+      await supabase.from('sellers').delete().eq('user_id', deleteUser.id);
+      
+      // Delete module permissions
+      const session = await supabase.auth.getSession();
+      await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/user_module_permissions?user_id=eq.${deleteUser.id}`,
+        {
+          method: 'DELETE',
+          headers: {
+            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            Authorization: `Bearer ${session.data.session?.access_token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      // Delete user roles
+      await supabase.from('user_roles').delete().eq('user_id', deleteUser.id);
+
+      // Delete profile (this should cascade or be handled by trigger)
+      const { error } = await supabase.from('profiles').delete().eq('id', deleteUser.id);
+      
+      if (error) throw error;
+
+      toast.success('Usuario eliminado permanentemente');
+      setDeleteUser(null);
+      fetchUsers();
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      toast.error('Error al eliminar usuario');
+    }
   };
 
   if (authLoading || permLoading) {
@@ -617,6 +705,15 @@ export default function AdminPage() {
                         </Button>
                         <Button
                           variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive/80"
+                          onClick={() => handleOpenDeleteDialog(userProfile)}
+                          title="Eliminar usuario"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
                           size="sm"
                           onClick={() => openEditDialog(userProfile)}
                         >
@@ -855,6 +952,58 @@ export default function AdminPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={!!deleteUser} onOpenChange={() => setDeleteUser(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {checkingMovements ? 'Verificando...' : deleteHasMovements ? 'No se puede eliminar' : 'Eliminar usuario'}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {checkingMovements ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Verificando si el usuario tiene movimientos...
+                  </span>
+                ) : deleteHasMovements ? (
+                  <span>
+                    El usuario <strong>{deleteUser?.full_name}</strong> tiene movimientos registrados en el sistema y no puede ser eliminado permanentemente.
+                    <br /><br />
+                    <strong>Recomendación:</strong> Desactiva el usuario para que no pueda acceder al sistema, pero sus datos históricos se conservarán.
+                  </span>
+                ) : (
+                  <span>
+                    ¿Estás seguro de que deseas eliminar permanentemente a <strong>{deleteUser?.full_name}</strong>?
+                    <br /><br />
+                    Esta acción no se puede deshacer.
+                  </span>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              {!checkingMovements && !deleteHasMovements && (
+                <AlertDialogAction
+                  onClick={handleDeleteUser}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Eliminar permanentemente
+                </AlertDialogAction>
+              )}
+              {!checkingMovements && deleteHasMovements && (
+                <AlertDialogAction
+                  onClick={() => {
+                    if (deleteUser) handleToggleActivo(deleteUser);
+                    setDeleteUser(null);
+                  }}
+                >
+                  Desactivar usuario
+                </AlertDialogAction>
+              )}
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );
