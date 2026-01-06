@@ -77,6 +77,10 @@ export default function SolicitudesPage() {
   const [avanceItems, setAvanceItems] = useState<{ descripcion: string; cantidad: number; precio: number }[]>([]);
   const [extrasInfo, setExtrasInfo] = useState<{ descripcion: string; monto: number }[]>([]);
   
+  // Delete from detail dialog states
+  const [confirmDeleteType, setConfirmDeleteType] = useState<'avance' | 'extra' | null>(null);
+  const [deletingFromDetail, setDeletingFromDetail] = useState(false);
+  
   // Anticipo states
   const [isAnticipoModalOpen, setIsAnticipoModalOpen] = useState(false);
   const [obras, setObras] = useState<Obra[]>([]);
@@ -467,6 +471,93 @@ export default function SolicitudesPage() {
     }));
   };
 
+  // Delete avance directly from detail dialog
+  const handleDeleteAvanceFromDetail = async () => {
+    if (!viewingSolicitud || !viewingSolicitud.avance_id) return;
+    
+    try {
+      setDeletingFromDetail(true);
+      
+      // Delete the solicitud first
+      const { error: solicitudError } = await supabase
+        .from('solicitudes_pago')
+        .delete()
+        .eq('id', viewingSolicitud.id);
+      
+      if (solicitudError) throw solicitudError;
+      
+      // Delete avance items
+      const { error: itemsError } = await supabase
+        .from('avance_items')
+        .delete()
+        .eq('avance_id', viewingSolicitud.avance_id);
+      
+      if (itemsError) throw itemsError;
+      
+      // Delete the avance
+      const { error: avanceError } = await supabase
+        .from('avances')
+        .delete()
+        .eq('id', viewingSolicitud.avance_id);
+      
+      if (avanceError) throw avanceError;
+      
+      toast({ title: 'Éxito', description: 'Avance eliminado correctamente' });
+      setConfirmDeleteType(null);
+      setViewingSolicitud(null);
+      fetchSolicitudes();
+    } catch (error) {
+      console.error('Error deleting avance:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo eliminar el avance',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeletingFromDetail(false);
+    }
+  };
+
+  // Delete extra directly from detail dialog
+  const handleDeleteExtraFromDetail = async () => {
+    if (!viewingSolicitud || !viewingSolicitud.extras_ids || viewingSolicitud.extras_ids.length === 0) return;
+    
+    try {
+      setDeletingFromDetail(true);
+      
+      const extraId = viewingSolicitud.extras_ids[0];
+      
+      // Delete the solicitud
+      const { error: solicitudError } = await supabase
+        .from('solicitudes_pago')
+        .delete()
+        .eq('id', viewingSolicitud.id);
+      
+      if (solicitudError) throw solicitudError;
+      
+      // Delete the extra
+      const { error: extraError } = await supabase
+        .from('extras')
+        .delete()
+        .eq('id', extraId);
+      
+      if (extraError) throw extraError;
+      
+      toast({ title: 'Éxito', description: 'Extra eliminado correctamente' });
+      setConfirmDeleteType(null);
+      setViewingSolicitud(null);
+      fetchSolicitudes();
+    } catch (error) {
+      console.error('Error deleting extra:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo eliminar el extra',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeletingFromDetail(false);
+    }
+  };
 
   const handleRechazar = async () => {
     if (!selectedSolicitud || !user) return;
@@ -943,7 +1034,16 @@ export default function SolicitudesPage() {
                       }}
                     >
                       <Pencil className="w-4 h-4 mr-1" />
-                      Editar Avance
+                      Editar
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-red-600 border-red-200 hover:bg-red-50"
+                      onClick={() => setConfirmDeleteType('avance')}
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      Eliminar
                     </Button>
                   </div>
                 )}
@@ -959,7 +1059,16 @@ export default function SolicitudesPage() {
                       }}
                     >
                       <Pencil className="w-4 h-4 mr-1" />
-                      Editar Extra
+                      Editar
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-red-600 border-red-200 hover:bg-red-50"
+                      onClick={() => setConfirmDeleteType('extra')}
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      Eliminar
                     </Button>
                   </div>
                 )}
@@ -1239,6 +1348,35 @@ export default function SolicitudesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Avance/Extra Confirmation from Detail Dialog */}
+      <AlertDialog 
+        open={confirmDeleteType !== null} 
+        onOpenChange={(open) => !open && setConfirmDeleteType(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              ¿Eliminar {confirmDeleteType === 'avance' ? 'avance' : 'extra'}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmDeleteType === 'avance' 
+                ? 'Se eliminará el avance y su solicitud de pago asociada. Esta acción no se puede deshacer.'
+                : 'Se eliminará el extra y su solicitud de pago asociada. Esta acción no se puede deshacer.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingFromDetail}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteType === 'avance' ? handleDeleteAvanceFromDetail : handleDeleteExtraFromDetail}
+              disabled={deletingFromDetail}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingFromDetail ? 'Eliminando...' : 'Eliminar'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
