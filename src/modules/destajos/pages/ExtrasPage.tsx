@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, Plus, Search, Pencil, Trash2, RotateCcw } from 'lucide-react';
+import { FileText, Plus, Search, Pencil, Trash2, RotateCcw, Calendar } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { PageHeader, DataTable, EmptyState, StatusBadge } from '../components';
+import { PageHeader, EmptyState } from '../components';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,6 +37,14 @@ import {
 import type { Obra, Instalador, Extra } from '../types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 interface ExtraWithDetails extends Extra {
   obras: { nombre: string } | null;
@@ -356,99 +365,33 @@ export default function ExtrasPage() {
     return matchesSearch && matchesStatus;
   });
 
-  const columns = [
-    {
-      key: 'fecha',
-      header: 'Fecha',
-      cell: (item: ExtraWithDetails) => format(new Date(item.created_at), 'dd/MM/yyyy', { locale: es }),
-    },
-    {
-      key: 'descripcion',
-      header: 'Descripción',
-      cell: (item: ExtraWithDetails) => <span className="font-medium">{item.descripcion}</span>,
-    },
-    {
-      key: 'obra',
-      header: 'Obra',
-      cell: (item: ExtraWithDetails) => item.obras?.nombre || 'N/A',
-      hideOnMobile: true,
-    },
-    {
-      key: 'instalador',
-      header: 'Instalador',
-      cell: (item: ExtraWithDetails) => item.instaladores?.nombre || 'N/A',
-      hideOnMobile: true,
-    },
-    {
-      key: 'monto',
-      header: 'Monto',
-      cell: (item: ExtraWithDetails) => formatCurrency(Number(item.monto)),
-    },
-    {
-      key: 'estado',
-      header: 'Estado',
-      cell: (item: ExtraWithDetails) => {
-        let displayStatus: string = item.estado;
-        if (item.solicitudPagada) {
-          displayStatus = 'pagado';
-        } else if (item.solicitudRechazada) {
-          displayStatus = 'rechazado';
-        }
-        return (
-          <div className="flex items-center gap-2">
-            <StatusBadge status={displayStatus} />
-          </div>
-        );
-      },
-    },
-    {
-      key: 'acciones',
-      header: '',
-      cell: (item: ExtraWithDetails) => (
-        <div className="flex gap-1 justify-end">
-          {item.solicitudRechazada && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-amber-600 border-amber-200 hover:bg-amber-50"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleNuevaSolicitud(item);
-              }}
-              disabled={creatingSolicitud}
-            >
-              <RotateCcw className="w-4 h-4 mr-1" />
-              Nueva solicitud
-            </Button>
-          )}
-          {canEditOrDelete(item) && (
-            <>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openEditModal(item);
-                }}
-              >
-                <Pencil className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDeleteExtra(item);
-                }}
-              >
-                <Trash2 className="w-4 h-4 text-destructive" />
-              </Button>
-            </>
-          )}
-        </div>
-      ),
-    },
-  ];
+  const renderEstadoBadge = (extra: ExtraWithDetails) => {
+    if (extra.solicitudPagada) {
+      return (
+        <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+          ✓ Pagado
+        </Badge>
+      );
+    } else if (extra.solicitudRechazada) {
+      return (
+        <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+          Rechazado
+        </Badge>
+      );
+    } else if (extra.estado === 'aprobado') {
+      return (
+        <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+          Aprobado
+        </Badge>
+      );
+    } else {
+      return (
+        <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+          Pendiente
+        </Badge>
+      );
+    }
+  };
 
   if (loading || loadingData) {
     return (
@@ -498,24 +441,98 @@ export default function ExtrasPage() {
       </div>
 
       {/* Table */}
-      <DataTable
-        columns={columns}
-        data={filteredExtras}
-        keyExtractor={(item) => item.id}
-        emptyState={
-          <EmptyState
-            icon={FileText}
-            title="Sin extras"
-            description="No hay extras registrados"
-            action={
-              <Button onClick={openCreateModal}>
-                <Plus className="w-4 h-4 mr-2" />
-                Nuevo Extra
-              </Button>
-            }
-          />
-        }
-      />
+      {filteredExtras.length === 0 ? (
+        <EmptyState
+          icon={FileText}
+          title="Sin extras"
+          description="No hay extras registrados"
+          action={
+            <Button onClick={openCreateModal}>
+              <Plus className="w-4 h-4 mr-2" />
+              Nuevo Extra
+            </Button>
+          }
+        />
+      ) : (
+        <div className="rounded-lg border bg-card">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Fecha</TableHead>
+                <TableHead>Descripción</TableHead>
+                <TableHead className="hidden md:table-cell">Obra</TableHead>
+                <TableHead className="hidden md:table-cell">Instalador</TableHead>
+                <TableHead>Monto</TableHead>
+                <TableHead className="hidden lg:table-cell">Estado</TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredExtras.map((extra) => (
+                <TableRow key={extra.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-2 text-sm">
+                      <Calendar className="w-4 h-4 text-muted-foreground" />
+                      {format(new Date(extra.created_at), 'dd MMM yyyy', { locale: es })}
+                    </div>
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    {extra.descripcion}
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell">
+                    {extra.obras?.nombre || 'N/A'}
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell">
+                    {extra.instaladores?.nombre || 'N/A'}
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    {formatCurrency(Number(extra.monto))}
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell">
+                    <div className="flex items-center gap-2">
+                      {renderEstadoBadge(extra)}
+                      {extra.solicitudRechazada && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleNuevaSolicitud(extra)}
+                          disabled={creatingSolicitud}
+                          className="h-6 text-xs"
+                        >
+                          <RotateCcw className={`w-3 h-3 mr-1 ${creatingSolicitud ? 'animate-spin' : ''}`} />
+                          Nueva solicitud
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-1">
+                      {canEditOrDelete(extra) && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openEditModal(extra)}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setDeleteExtra(extra)}
+                          >
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       {/* Create/Edit Modal */}
       <Dialog open={isModalOpen} onOpenChange={(open) => {
