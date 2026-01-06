@@ -225,18 +225,43 @@ export default function PagosPage() {
     try {
       setCancelling(true);
 
-      // If there's a linked solicitud, set it back to pendiente
+      // Find all solicitudes that should be reverted to pendiente
+      // For consolidated payments, we need to find all solicitudes approved around the same time
+      // for the same obra/instalador combination mentioned in the observaciones
       if (pagoToCancel.solicitud_id) {
-        const { error: updateError } = await supabase
+        // First, get the linked solicitud to find its approval timestamp
+        const { data: linkedSolicitud } = await supabase
           .from('solicitudes_pago')
-          .update({
-            estado: 'pendiente',
-            aprobado_por: null,
-            fecha_aprobacion: null,
-          })
-          .eq('id', pagoToCancel.solicitud_id);
+          .select('fecha_aprobacion, obra_id, instalador_id')
+          .eq('id', pagoToCancel.solicitud_id)
+          .single();
 
-        if (updateError) throw updateError;
+        if (linkedSolicitud?.fecha_aprobacion) {
+          // Find all solicitudes approved at the same timestamp (consolidated payment)
+          const { error: updateError } = await supabase
+            .from('solicitudes_pago')
+            .update({
+              estado: 'pendiente',
+              aprobado_por: null,
+              fecha_aprobacion: null,
+            })
+            .eq('fecha_aprobacion', linkedSolicitud.fecha_aprobacion)
+            .eq('estado', 'aprobada');
+
+          if (updateError) throw updateError;
+        } else {
+          // Fallback: just update the single linked solicitud
+          const { error: updateError } = await supabase
+            .from('solicitudes_pago')
+            .update({
+              estado: 'pendiente',
+              aprobado_por: null,
+              fecha_aprobacion: null,
+            })
+            .eq('id', pagoToCancel.solicitud_id);
+
+          if (updateError) throw updateError;
+        }
       }
 
       // Delete the payment
@@ -247,7 +272,7 @@ export default function PagosPage() {
 
       if (deleteError) throw deleteError;
 
-      toast({ title: 'Pago cancelado', description: 'El pago ha sido eliminado y la solicitud vuelve a estar pendiente' });
+      toast({ title: 'Pago cancelado', description: 'El pago ha sido eliminado y las solicitudes vuelven a estar pendientes' });
       setPagoToCancel(null);
       fetchData();
     } catch (error) {
