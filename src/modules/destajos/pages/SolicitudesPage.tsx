@@ -324,6 +324,41 @@ export default function SolicitudesPage() {
         }
       }
       
+      // If solicitud has associated extras, approve them automatically
+      if (selectedSolicitud.extras_ids && selectedSolicitud.extras_ids.length > 0) {
+        const { error: extrasError } = await supabase
+          .from('extras')
+          .update({
+            estado: 'aprobado',
+            aprobado_por: user.id,
+            fecha_aprobacion: new Date().toISOString(),
+          })
+          .in('id', selectedSolicitud.extras_ids);
+        
+        if (extrasError) {
+          console.error('Error approving extras:', extrasError);
+        }
+      }
+      
+      // If this is an extra type solicitud, approve the extra by matching obra/instalador/monto
+      if (selectedSolicitud.tipo === 'extra') {
+        const { error: extraError } = await supabase
+          .from('extras')
+          .update({
+            estado: 'aprobado',
+            aprobado_por: user.id,
+            fecha_aprobacion: new Date().toISOString(),
+          })
+          .eq('obra_id', selectedSolicitud.obra_id)
+          .eq('instalador_id', selectedSolicitud.instalador_id)
+          .eq('monto', montoSolicitud)
+          .eq('estado', 'pendiente');
+        
+        if (extraError) {
+          console.error('Error approving extra:', extraError);
+        }
+      }
+      
       // Apply anticipos: update monto_disponible and create aplicaciones
       for (const [anticipoId, montoAplicado] of selectedAnticipos) {
         const anticipo = availableAnticipos.find(a => a.id === anticipoId);
