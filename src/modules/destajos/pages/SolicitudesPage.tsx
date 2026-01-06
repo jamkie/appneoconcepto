@@ -80,11 +80,8 @@ export default function SolicitudesPage() {
   });
   const [savingAnticipo, setSavingAnticipo] = useState(false);
   
-  // Anticipos selection for approval
-  const [selectedAnticipos, setSelectedAnticipos] = useState<Map<string, number>>(new Map());
-  const [availableAnticipos, setAvailableAnticipos] = useState<AnticipoWithDetails[]>([]);
-  const [obraLimits, setObraLimits] = useState<{ totalObra: number; totalPagado: number; saldoPendiente: number } | null>(null);
-  const [aplicarAnticipo, setAplicarAnticipo] = useState(false);
+
+
   useEffect(() => {
     if (!loading && !user) {
       navigate('/auth');
@@ -168,111 +165,64 @@ export default function SolicitudesPage() {
     }
   };
 
-  // When opening approve modal, load available anticipos and obra limits
-  const openApproveModal = async (solicitud: SolicitudWithDetails) => {
-    setSelectedSolicitud(solicitud);
-    const available = anticipos.filter(
-      a => a.instalador_id === solicitud.instalador_id && a.obra_id === solicitud.obra_id && a.monto_disponible > 0
-    );
-    setAvailableAnticipos(available);
-    setSelectedAnticipos(new Map());
-    setAplicarAnticipo(false);
+  // Direct approval without modal - just validate obra limits
+  const handleAprobarDirecto = async (solicitud: SolicitudWithDetails) => {
+    if (!user) return;
     
-    // Calculate obra limits
-    try {
-      const [itemsRes, extrasRes, pagosRes] = await Promise.all([
-        supabase
-          .from('obra_items')
-          .select('cantidad, precio_unitario')
-          .eq('obra_id', solicitud.obra_id),
-        supabase
-          .from('extras')
-          .select('monto')
-          .eq('obra_id', solicitud.obra_id)
-          .eq('estado', 'aprobado'),
-        supabase
-          .from('pagos_destajos')
-          .select('monto')
-          .eq('obra_id', solicitud.obra_id),
-      ]);
-      
-      const totalItems = (itemsRes.data || []).reduce((sum, item) => 
-        sum + (Number(item.cantidad) * Number(item.precio_unitario)), 0);
-      const totalExtras = (extrasRes.data || []).reduce((sum, extra) => 
-        sum + Number(extra.monto), 0);
-      const totalPagado = (pagosRes.data || []).reduce((sum, pago) => 
-        sum + Number(pago.monto), 0);
-      
-      const totalObra = totalItems + totalExtras;
-      const saldoPendiente = totalObra - totalPagado;
-      
-      setObraLimits({ totalObra, totalPagado, saldoPendiente });
-    } catch (error) {
-      console.error('Error loading obra limits:', error);
-      setObraLimits(null);
-    }
+    const isAnticipo = solicitud.tipo === 'anticipo';
+    const montoSolicitud = Number(solicitud.total_solicitado);
     
-    setActionType('aprobar');
-  };
-
-  const toggleAnticipoSelection = (anticipo: AnticipoWithDetails, apply: boolean) => {
-    const newMap = new Map(selectedAnticipos);
-    if (apply) {
-      newMap.set(anticipo.id, anticipo.monto_disponible);
-    } else {
-      newMap.delete(anticipo.id);
-    }
-    setSelectedAnticipos(newMap);
-  };
-
-  const updateAnticipoAmount = (anticipoId: string, amount: number, maxAmount: number) => {
-    const newMap = new Map(selectedAnticipos);
-    // Calculate max allowed based on obra limits
-    const maxAllowedByObra = obraLimits 
-      ? Math.max(0, obraLimits.saldoPendiente - Number(selectedSolicitud?.total_solicitado || 0))
-      : maxAmount;
-    const effectiveMax = Math.min(maxAmount, maxAllowedByObra);
-    const validAmount = Math.min(Math.max(0, amount), effectiveMax);
-    if (validAmount > 0) {
-      newMap.set(anticipoId, validAmount);
-    } else {
-      newMap.delete(anticipoId);
-    }
-    setSelectedAnticipos(newMap);
-  };
-
-  const totalAnticiposAplicados = aplicarAnticipo 
-    ? Array.from(selectedAnticipos.values()).reduce((sum, val) => sum + val, 0)
-    : 0;
-  
-  // Calculate the max anticipo that can be applied without exceeding obra total
-  const maxAnticipoAllowed = obraLimits 
-    ? Math.max(0, obraLimits.saldoPendiente - Number(selectedSolicitud?.total_solicitado || 0))
-    : 0;
-
-  const handleAprobar = async () => {
-    if (!selectedSolicitud || !user) return;
-    
-    // Validate we don't exceed obra total (only for non-anticipo solicitudes)
-    const isAnticipo = selectedSolicitud.tipo === 'anticipo';
-    const montoSolicitud = Number(selectedSolicitud.total_solicitado);
-    
-    if (!isAnticipo && obraLimits) {
-      const montoAPagar = montoSolicitud - totalAnticiposAplicados;
-      if (montoAPagar > obraLimits.saldoPendiente) {
+    // For non-anticipo, validate obra limits
+    if (!isAnticipo) {
+      try {
+        const [itemsRes, extrasRes, pagosRes] = await Promise.all([
+          supabase
+            .from('obra_items')
+            .select('cantidad, precio_unitario')
+            .eq('obra_id', solicitud.obra_id),
+          supabase
+            .from('extras')
+            .select('monto')
+            .eq('obra_id', solicitud.obra_id)
+            .eq('estado', 'aprobado'),
+          supabase
+            .from('pagos_destajos')
+            .select('monto')
+            .eq('obra_id', solicitud.obra_id),
+        ]);
+        
+        const totalItems = (itemsRes.data || []).reduce((sum, item) => 
+          sum + (Number(item.cantidad) * Number(item.precio_unitario)), 0);
+        const totalExtras = (extrasRes.data || []).reduce((sum, extra) => 
+          sum + Number(extra.monto), 0);
+        const totalPagado = (pagosRes.data || []).reduce((sum, pago) => 
+          sum + Number(pago.monto), 0);
+        
+        const totalObra = totalItems + totalExtras;
+        const saldoPendiente = totalObra - totalPagado;
+        
+        if (montoSolicitud > saldoPendiente) {
+          toast({
+            title: 'Error',
+            description: `No se puede aprobar. El pago de ${formatCurrency(montoSolicitud)} excede el saldo pendiente de ${formatCurrency(saldoPendiente)}`,
+            variant: 'destructive',
+          });
+          return;
+        }
+      } catch (error) {
+        console.error('Error validating obra limits:', error);
         toast({
           title: 'Error',
-          description: `No se puede aprobar. El pago de ${formatCurrency(montoAPagar)} excede el saldo pendiente de ${formatCurrency(obraLimits.saldoPendiente)}`,
+          description: 'No se pudo validar el límite de la obra',
           variant: 'destructive',
         });
         return;
       }
     }
     
+    // Proceed with approval
     try {
       setProcessing(true);
-      
-      const montoFinal = Math.max(0, montoSolicitud - totalAnticiposAplicados);
       
       const { error: updateError } = await supabase
         .from('solicitudes_pago')
@@ -281,7 +231,7 @@ export default function SolicitudesPage() {
           aprobado_por: user.id,
           fecha_aprobacion: new Date().toISOString(),
         })
-        .eq('id', selectedSolicitud.id);
+        .eq('id', solicitud.id);
       
       if (updateError) throw updateError;
       
@@ -289,33 +239,31 @@ export default function SolicitudesPage() {
       const { data: pagoData, error: pagoError } = await supabase
         .from('pagos_destajos')
         .insert({
-          obra_id: selectedSolicitud.obra_id,
-          instalador_id: selectedSolicitud.instalador_id,
-          monto: isAnticipo ? montoSolicitud : montoFinal,
+          obra_id: solicitud.obra_id,
+          instalador_id: solicitud.instalador_id,
+          monto: montoSolicitud,
           metodo_pago: 'transferencia',
-          solicitud_id: selectedSolicitud.id,
+          solicitud_id: solicitud.id,
           registrado_por: user.id,
           observaciones: isAnticipo 
-            ? `Anticipo - ${selectedSolicitud.observaciones || 'Pago adelantado'}`
-            : totalAnticiposAplicados > 0 
-              ? `Pago pendiente - Anticipo aplicado: ${formatCurrency(totalAnticiposAplicados)}`
-              : `Pago pendiente - Solicitud aprobada`,
+            ? `Anticipo - ${solicitud.observaciones || 'Pago adelantado'}`
+            : `Pago - Solicitud aprobada`,
         })
         .select()
         .single();
       
       if (pagoError) throw pagoError;
       
-      // If this is an anticipo, create the anticipo record with available balance
+      // If this is an anticipo, create the anticipo record
       if (isAnticipo) {
         const { error: anticipoError } = await supabase
           .from('anticipos')
           .insert({
-            obra_id: selectedSolicitud.obra_id,
-            instalador_id: selectedSolicitud.instalador_id,
+            obra_id: solicitud.obra_id,
+            instalador_id: solicitud.instalador_id,
             monto_original: montoSolicitud,
             monto_disponible: montoSolicitud,
-            observaciones: selectedSolicitud.observaciones,
+            observaciones: solicitud.observaciones,
             registrado_por: user.id,
           });
         
@@ -325,72 +273,38 @@ export default function SolicitudesPage() {
       }
       
       // If solicitud has associated extras, approve them automatically
-      if (selectedSolicitud.extras_ids && selectedSolicitud.extras_ids.length > 0) {
-        const { error: extrasError } = await supabase
+      if (solicitud.extras_ids && solicitud.extras_ids.length > 0) {
+        await supabase
           .from('extras')
           .update({
             estado: 'aprobado',
             aprobado_por: user.id,
             fecha_aprobacion: new Date().toISOString(),
           })
-          .in('id', selectedSolicitud.extras_ids);
-        
-        if (extrasError) {
-          console.error('Error approving extras:', extrasError);
-        }
+          .in('id', solicitud.extras_ids);
       }
       
-      // If this is an extra type solicitud, approve the extra by matching obra/instalador/monto
-      if (selectedSolicitud.tipo === 'extra') {
-        const { error: extraError } = await supabase
+      // If this is an extra type solicitud, approve the extra
+      if (solicitud.tipo === 'extra') {
+        await supabase
           .from('extras')
           .update({
             estado: 'aprobado',
             aprobado_por: user.id,
             fecha_aprobacion: new Date().toISOString(),
           })
-          .eq('obra_id', selectedSolicitud.obra_id)
-          .eq('instalador_id', selectedSolicitud.instalador_id)
+          .eq('obra_id', solicitud.obra_id)
+          .eq('instalador_id', solicitud.instalador_id)
           .eq('monto', montoSolicitud)
           .eq('estado', 'pendiente');
-        
-        if (extraError) {
-          console.error('Error approving extra:', extraError);
-        }
-      }
-      
-      // Apply anticipos: update monto_disponible and create aplicaciones
-      for (const [anticipoId, montoAplicado] of selectedAnticipos) {
-        const anticipo = availableAnticipos.find(a => a.id === anticipoId);
-        if (!anticipo) continue;
-        
-        const nuevoDisponible = anticipo.monto_disponible - montoAplicado;
-        
-        await supabase
-          .from('anticipos')
-          .update({ monto_disponible: nuevoDisponible })
-          .eq('id', anticipoId);
-        
-        await supabase
-          .from('anticipo_aplicaciones')
-          .insert({
-            anticipo_id: anticipoId,
-            pago_id: pagoData.id,
-            monto_aplicado: montoAplicado,
-          });
       }
       
       toast({ 
         title: 'Éxito', 
         description: isAnticipo
-          ? 'Anticipo aprobado. El saldo quedará disponible para descuentos.'
-          : totalAnticiposAplicados > 0
-            ? `Solicitud aprobada. Anticipo de ${formatCurrency(totalAnticiposAplicados)} aplicado.`
-            : 'Solicitud aprobada y pago creado'
+          ? 'Anticipo aprobado'
+          : 'Solicitud aprobada y pago creado'
       });
-      setActionType(null);
-      setSelectedSolicitud(null);
-      setSelectedAnticipos(new Map());
       fetchSolicitudes();
     } catch (error) {
       console.error('Error approving solicitud:', error);
@@ -403,6 +317,7 @@ export default function SolicitudesPage() {
       setProcessing(false);
     }
   };
+
 
   // Build breakdown by installer for bulk approval modal
   const instaladorBreakdown = (() => {
@@ -708,7 +623,8 @@ export default function SolicitudesPage() {
                 size="sm"
                 variant="outline"
                 className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
-                onClick={() => openApproveModal(item)}
+                onClick={() => handleAprobarDirecto(item)}
+                disabled={processing}
               >
                 <Check className="w-4 h-4 mr-1" />
                 Aprobar
@@ -859,140 +775,6 @@ export default function SolicitudesPage() {
         }
       />
 
-      {/* Approve Single Confirmation with Anticipos */}
-      <AlertDialog open={actionType === 'aprobar'} onOpenChange={(open) => {
-        if (!open) {
-          setActionType(null);
-          setSelectedAnticipos(new Map());
-          setAplicarAnticipo(false);
-          setObraLimits(null);
-        }
-      }}>
-        <AlertDialogContent className="max-w-lg">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Aprobar solicitud</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-4">
-                <p>
-                  Solicitud de pago por <span className="font-semibold">{selectedSolicitud && formatCurrency(Number(selectedSolicitud.total_solicitado))}</span> 
-                  {' '}para <span className="font-semibold">{selectedSolicitud?.instaladores?.nombre}</span>.
-                </p>
-                
-                {/* Obra limits info */}
-                {obraLimits && (
-                  <div className="p-3 rounded-lg bg-muted/50 border text-sm space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Total obra (items + extras):</span>
-                      <span className="font-medium">{formatCurrency(obraLimits.totalObra)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Ya pagado:</span>
-                      <span>{formatCurrency(obraLimits.totalPagado)}</span>
-                    </div>
-                    <div className="flex justify-between border-t pt-1">
-                      <span className="text-muted-foreground">Saldo pendiente:</span>
-                      <span className="font-semibold">{formatCurrency(obraLimits.saldoPendiente)}</span>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Option to apply anticipo */}
-                {availableAnticipos.length > 0 && selectedSolicitud?.tipo !== 'anticipo' && (
-                  <div className="space-y-3 pt-2">
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="aplicar-anticipo"
-                        checked={aplicarAnticipo}
-                        onCheckedChange={(checked) => {
-                          setAplicarAnticipo(!!checked);
-                          if (!checked) {
-                            setSelectedAnticipos(new Map());
-                          }
-                        }}
-                      />
-                      <label htmlFor="aplicar-anticipo" className="text-sm font-medium cursor-pointer">
-                        Aplicar anticipo a este pago
-                      </label>
-                    </div>
-                    
-                    {aplicarAnticipo && (
-                      <>
-                        {maxAnticipoAllowed <= 0 ? (
-                          <div className="p-2 rounded border bg-red-50 border-red-200 text-red-700 text-sm">
-                            No se puede aplicar anticipo: el pago de esta solicitud ya cubre o excede el saldo pendiente de la obra.
-                          </div>
-                        ) : (
-                          <>
-                            <p className="text-xs text-muted-foreground">
-                              Máximo aplicable sin exceder el total de la obra: {formatCurrency(maxAnticipoAllowed)}
-                            </p>
-                            <div className="space-y-2 max-h-40 overflow-y-auto">
-                              {availableAnticipos.map((anticipo) => {
-                                const maxForThis = Math.min(anticipo.monto_disponible, maxAnticipoAllowed);
-                                return (
-                                  <div key={anticipo.id} className="flex items-center gap-3 p-2 rounded border bg-muted/30">
-                                    <Checkbox
-                                      checked={selectedAnticipos.has(anticipo.id)}
-                                      onCheckedChange={(checked) => toggleAnticipoSelection(anticipo, !!checked)}
-                                    />
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium truncate">{anticipo.observaciones || 'Anticipo'}</p>
-                                      <p className="text-xs text-muted-foreground">
-                                        Disponible: {formatCurrency(anticipo.monto_disponible)}
-                                      </p>
-                                    </div>
-                                    {selectedAnticipos.has(anticipo.id) && (
-                                      <Input
-                                        type="number"
-                                        min="0"
-                                        max={maxForThis}
-                                        value={selectedAnticipos.get(anticipo.id) || 0}
-                                        onChange={(e) => updateAnticipoAmount(anticipo.id, parseFloat(e.target.value) || 0, maxForThis)}
-                                        className="w-24 text-right"
-                                      />
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </>
-                        )}
-                        
-                        {totalAnticiposAplicados > 0 && (
-                          <div className="pt-2 border-t space-y-1">
-                            <div className="flex justify-between text-sm">
-                              <span>Total solicitado:</span>
-                              <span>{selectedSolicitud && formatCurrency(Number(selectedSolicitud.total_solicitado))}</span>
-                            </div>
-                            <div className="flex justify-between text-sm text-amber-600">
-                              <span>Anticipo aplicado:</span>
-                              <span>- {formatCurrency(totalAnticiposAplicados)}</span>
-                            </div>
-                            <div className="flex justify-between text-sm font-semibold">
-                              <span>A pagar:</span>
-                              <span>{formatCurrency(Math.max(0, Number(selectedSolicitud?.total_solicitado || 0) - totalAnticiposAplicados))}</span>
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleAprobar}
-              disabled={processing}
-              className="bg-emerald-600 hover:bg-emerald-700"
-            >
-              {processing ? 'Procesando...' : 'Aprobar'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* Bulk Approve Confirmation */}
       <AlertDialog open={actionType === 'masivo'} onOpenChange={(open) => !open && setActionType(null)}>
