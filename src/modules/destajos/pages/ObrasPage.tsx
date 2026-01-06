@@ -140,6 +140,13 @@ export default function ObrasPage() {
         .from('extras')
         .select('id, obra_id, descripcion, monto, estado');
 
+      // Fetch rejected solicitudes to mark extras as rejected
+      const { data: solicitudesRechazadas } = await supabase
+        .from('solicitudes_pago')
+        .select('extras_ids')
+        .eq('tipo', 'extra')
+        .eq('estado', 'rechazada');
+
       // Build the enriched obras
       const enrichedObras: ObraWithItems[] = (obrasData || []).map((obra) => {
         const items = (itemsData || []).filter((item) => item.obra_id === obra.id).map((item) => ({
@@ -174,14 +181,17 @@ export default function ObrasPage() {
         // Calculate total pagado
         const totalPagado = obraPagos.reduce((sum, p) => sum + p.monto, 0);
 
-        // Get extras for this obra
+        // Get extras for this obra with rejected status from solicitudes
+        const rejectedExtraIds = (solicitudesRechazadas || [])
+          .flatMap(s => s.extras_ids || []);
+        
         const obraExtras = (extrasData || [])
           .filter((e) => e.obra_id === obra.id)
           .map((e) => ({
             id: e.id,
             descripcion: e.descripcion,
             monto: Number(e.monto),
-            estado: e.estado || 'pendiente',
+            estado: rejectedExtraIds.includes(e.id) ? 'rechazado' : (e.estado || 'pendiente'),
           }));
 
         // Calculate total extras (solo aprobados)
