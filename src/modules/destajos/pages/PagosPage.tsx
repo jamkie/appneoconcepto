@@ -229,20 +229,20 @@ export default function PagosPage() {
       // For consolidated payments, we need to find all solicitudes approved around the same time
       // for the same obra/instalador combination mentioned in the observaciones
       if (pagoToCancel.solicitud_id) {
-        // First, get the linked solicitud to find its approval timestamp
+        // First, get the linked solicitud to find its approval timestamp and type
         const { data: linkedSolicitud } = await supabase
           .from('solicitudes_pago')
-          .select('fecha_aprobacion, obra_id, instalador_id, extras_ids')
+          .select('fecha_aprobacion, obra_id, instalador_id, extras_ids, tipo')
           .eq('id', pagoToCancel.solicitud_id)
           .single();
 
-        let solicitudesToRevert: { id: string; extras_ids: string[] | null }[] = [];
+        let solicitudesToRevert: { id: string; extras_ids: string[] | null; tipo: string }[] = [];
 
         if (linkedSolicitud?.fecha_aprobacion) {
           // Find all solicitudes approved at the same timestamp (consolidated payment)
           const { data: allSolicitudes, error: fetchError } = await supabase
             .from('solicitudes_pago')
-            .select('id, extras_ids')
+            .select('id, extras_ids, tipo')
             .eq('fecha_aprobacion', linkedSolicitud.fecha_aprobacion)
             .eq('estado', 'aprobada');
 
@@ -263,7 +263,11 @@ export default function PagosPage() {
           if (updateError) throw updateError;
         } else {
           // Fallback: just update the single linked solicitud
-          solicitudesToRevert = [{ id: pagoToCancel.solicitud_id, extras_ids: linkedSolicitud?.extras_ids || null }];
+          solicitudesToRevert = [{ 
+            id: pagoToCancel.solicitud_id, 
+            extras_ids: linkedSolicitud?.extras_ids || null,
+            tipo: linkedSolicitud?.tipo || ''
+          }];
 
           const { error: updateError } = await supabase
             .from('solicitudes_pago')
@@ -293,6 +297,23 @@ export default function PagosPage() {
             .in('id', allExtrasIds);
 
           if (extrasError) throw extrasError;
+        }
+
+        // If any of the solicitudes are anticipos, delete the corresponding anticipo records
+        const anticipoSolicitudes = solicitudesToRevert.filter(s => s.tipo === 'anticipo');
+        if (anticipoSolicitudes.length > 0 && linkedSolicitud) {
+          // Delete anticipos that were created for these solicitudes
+          // We match by obra_id, instalador_id and approximate creation time
+          const { error: anticipoDeleteError } = await supabase
+            .from('anticipos')
+            .delete()
+            .eq('obra_id', linkedSolicitud.obra_id)
+            .eq('instalador_id', linkedSolicitud.instalador_id)
+            .eq('monto_original', pagoToCancel.monto);
+
+          if (anticipoDeleteError) {
+            console.error('Error deleting anticipo:', anticipoDeleteError);
+          }
         }
       }
 
