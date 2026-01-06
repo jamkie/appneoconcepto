@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Wallet, Search, Check, X, CheckCheck, Trash2, Plus, Banknote, ArrowDownCircle } from 'lucide-react';
+import { Wallet, Search, Check, X, CheckCheck, Trash2, Plus, Banknote, ArrowDownCircle, Eye } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -66,6 +66,10 @@ export default function SolicitudesPage() {
   
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  
+  // View detail state
+  const [viewingSolicitud, setViewingSolicitud] = useState<SolicitudWithDetails | null>(null);
+  const [avanceItems, setAvanceItems] = useState<{ descripcion: string; cantidad: number; precio: number }[]>([]);
   
   // Anticipo states
   const [isAnticipoModalOpen, setIsAnticipoModalOpen] = useState(false);
@@ -165,7 +169,39 @@ export default function SolicitudesPage() {
     }
   };
 
-  // Direct approval without modal - just validate obra limits
+  // Handle viewing solicitud detail
+  const handleViewSolicitud = async (solicitud: SolicitudWithDetails) => {
+    setViewingSolicitud(solicitud);
+    
+    // If it has an avance_id, fetch the avance items
+    if (solicitud.avance_id) {
+      try {
+        const { data: avanceItemsData } = await supabase
+          .from('avance_items')
+          .select(`
+            cantidad_completada,
+            obra_items(descripcion, precio_unitario)
+          `)
+          .eq('avance_id', solicitud.avance_id);
+        
+        if (avanceItemsData) {
+          const items = avanceItemsData.map((item: any) => ({
+            descripcion: item.obra_items?.descripcion || 'N/A',
+            cantidad: item.cantidad_completada,
+            precio: Number(item.obra_items?.precio_unitario || 0),
+          }));
+          setAvanceItems(items);
+        }
+      } catch (error) {
+        console.error('Error fetching avance items:', error);
+        setAvanceItems([]);
+      }
+    } else {
+      setAvanceItems([]);
+    }
+  };
+
+
   const handleAprobarDirecto = async (solicitud: SolicitudWithDetails) => {
     if (!user) return;
     
@@ -566,11 +602,13 @@ export default function SolicitudesPage() {
       ),
       cell: (item: SolicitudWithDetails) => (
         item.estado === 'pendiente' ? (
-          <Checkbox
-            checked={selectedIds.has(item.id)}
-            onCheckedChange={() => toggleSelection(item.id)}
-            aria-label="Seleccionar"
-          />
+          <div onClick={(e) => e.stopPropagation()}>
+            <Checkbox
+              checked={selectedIds.has(item.id)}
+              onCheckedChange={() => toggleSelection(item.id)}
+              aria-label="Seleccionar"
+            />
+          </div>
         ) : null
       ),
     },
@@ -619,7 +657,7 @@ export default function SolicitudesPage() {
       key: 'acciones',
       header: 'Acciones',
       cell: (item: SolicitudWithDetails) => (
-        <div className="flex gap-2">
+        <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
           {item.estado === 'pendiente' && (
             <>
               <Button
@@ -769,6 +807,7 @@ export default function SolicitudesPage() {
         columns={columns}
         data={filteredSolicitudes}
         keyExtractor={(item) => item.id}
+        onRowClick={(item) => handleViewSolicitud(item)}
         emptyState={
           <EmptyState
             icon={Wallet}
@@ -777,6 +816,102 @@ export default function SolicitudesPage() {
           />
         }
       />
+
+      {/* View Solicitud Detail Dialog */}
+      <Dialog open={!!viewingSolicitud} onOpenChange={(open) => !open && setViewingSolicitud(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="w-5 h-5" />
+              Detalle de Solicitud
+            </DialogTitle>
+          </DialogHeader>
+          {viewingSolicitud && (
+            <div className="space-y-4">
+              {/* Basic info */}
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Fecha:</span>
+                  <p className="font-medium">{format(new Date(viewingSolicitud.created_at), "dd/MM/yyyy", { locale: es })}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Tipo:</span>
+                  <p className="font-medium capitalize">{viewingSolicitud.tipo}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Obra:</span>
+                  <p className="font-medium">{viewingSolicitud.obras?.nombre || 'N/A'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Instalador:</span>
+                  <p className="font-medium">{viewingSolicitud.instaladores?.nombre || 'N/A'}</p>
+                </div>
+              </div>
+
+              {/* Avance items breakdown */}
+              {viewingSolicitud.tipo !== 'anticipo' && avanceItems.length > 0 && (
+                <div className="border rounded-lg p-3 space-y-2">
+                  <h4 className="font-semibold text-sm">Desglose de Avance</h4>
+                  <div className="space-y-1">
+                    {avanceItems.map((item, idx) => (
+                      <div key={idx} className="flex justify-between text-sm">
+                        <span>{item.descripcion} x{item.cantidad}</span>
+                        <span className="font-medium">{formatCurrency(item.cantidad * item.precio)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Amounts breakdown */}
+              <div className="border rounded-lg p-3 space-y-2 bg-muted/30">
+                <h4 className="font-semibold text-sm">Montos</h4>
+                {viewingSolicitud.subtotal_piezas > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Subtotal Piezas:</span>
+                    <span>{formatCurrency(Number(viewingSolicitud.subtotal_piezas))}</span>
+                  </div>
+                )}
+                {viewingSolicitud.subtotal_extras > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Subtotal Extras:</span>
+                    <span>{formatCurrency(Number(viewingSolicitud.subtotal_extras))}</span>
+                  </div>
+                )}
+                {viewingSolicitud.monto_libre > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Monto Libre:</span>
+                    <span>{formatCurrency(Number(viewingSolicitud.monto_libre))}</span>
+                  </div>
+                )}
+                {viewingSolicitud.retencion > 0 && (
+                  <div className="flex justify-between text-sm text-red-600">
+                    <span>Retención:</span>
+                    <span>-{formatCurrency(Number(viewingSolicitud.retencion))}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm font-semibold border-t pt-2">
+                  <span>Total Solicitado:</span>
+                  <span className="text-emerald-600">{formatCurrency(Number(viewingSolicitud.total_solicitado))}</span>
+                </div>
+              </div>
+
+              {/* Observations */}
+              {viewingSolicitud.observaciones && (
+                <div className="text-sm">
+                  <span className="text-muted-foreground">Observaciones:</span>
+                  <p className="mt-1 p-2 bg-muted/50 rounded">{viewingSolicitud.observaciones}</p>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewingSolicitud(null)}>
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
 
       {/* Bulk Approve Confirmation */}
