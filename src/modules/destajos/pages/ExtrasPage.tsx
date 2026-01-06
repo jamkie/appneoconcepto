@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { FileText, Plus, Search, Pencil, Trash2, RotateCcw, Calendar } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -56,6 +56,7 @@ interface ExtraWithDetails extends Extra {
 export default function ExtrasPage() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
   const [extras, setExtras] = useState<ExtraWithDetails[]>([]);
   const [obras, setObras] = useState<Obra[]>([]);
@@ -87,6 +88,19 @@ export default function ExtrasPage() {
       fetchData();
     }
   }, [user]);
+
+  // Handle edit param from URL
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (editId && extras.length > 0 && !loadingData) {
+      const extraToEdit = extras.find(e => e.id === editId);
+      if (extraToEdit) {
+        openEditModal(extraToEdit);
+        // Clear the search param
+        setSearchParams({});
+      }
+    }
+  }, [searchParams, extras, loadingData]);
 
   const fetchData = async () => {
     try {

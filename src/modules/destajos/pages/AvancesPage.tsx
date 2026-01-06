@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ClipboardList, Plus, Search, Pencil, Trash2, Calendar, Box, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -78,6 +78,7 @@ interface AvanceRecord {
 export default function AvancesPage() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
   const [avances, setAvances] = useState<AvanceRecord[]>([]);
   const [obras, setObras] = useState<Obra[]>([]);
@@ -114,6 +115,19 @@ export default function AvancesPage() {
       fetchData();
     }
   }, [user]);
+
+  // Handle edit param from URL
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (editId && avances.length > 0 && !loadingData) {
+      const avanceToEdit = avances.find(a => a.id === editId);
+      if (avanceToEdit && canEditAvance(avanceToEdit)) {
+        handleOpenEdit(avanceToEdit);
+        // Clear the search param
+        setSearchParams({});
+      }
+    }
+  }, [searchParams, avances, loadingData]);
 
   // Fetch obra items when obra is selected
   useEffect(() => {
