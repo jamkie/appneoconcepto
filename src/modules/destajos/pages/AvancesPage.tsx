@@ -72,6 +72,7 @@ interface AvanceRecord {
     cantidad_completada: number;
     obra_items: { descripcion: string; precio_unitario: number } | null;
   }[];
+  solicitudes_pago: { id: string; estado: string }[];
 }
 
 export default function AvancesPage() {
@@ -100,9 +101,6 @@ export default function AvancesPage() {
   const [obraItems, setObraItems] = useState<AvanceItemDisplay[]>([]);
   const [loadingObraItems, setLoadingObraItems] = useState(false);
 
-  // Solicitudes for payment status
-  const [solicitudes, setSolicitudes] = useState<Record<string, { estado: string }>>({});
-
   useEffect(() => {
     if (!loading && !user) {
       navigate('/auth');
@@ -128,7 +126,7 @@ export default function AvancesPage() {
     try {
       setLoadingData(true);
       
-      const [avancesRes, obrasRes, instaladoresRes, solicitudesRes] = await Promise.all([
+      const [avancesRes, obrasRes, instaladoresRes] = await Promise.all([
         supabase
           .from('avances')
           .select(`
@@ -146,12 +144,12 @@ export default function AvancesPage() {
               obra_item_id,
               cantidad_completada,
               obra_items(descripcion, precio_unitario)
-            )
+            ),
+            solicitudes_pago(id, estado)
           `)
           .order('fecha', { ascending: false }),
         supabase.from('obras').select('*').eq('estado', 'activa'),
         supabase.from('instaladores').select('*').eq('activo', true),
-        supabase.from('solicitudes_pago').select('id, estado, tipo, created_at'),
       ]);
 
       if (avancesRes.error) throw avancesRes.error;
@@ -161,15 +159,6 @@ export default function AvancesPage() {
       setAvances((avancesRes.data as AvanceRecord[]) || []);
       setObras((obrasRes.data as Obra[]) || []);
       setInstaladores((instaladoresRes.data as Instalador[]) || []);
-
-      // Create a map of solicitudes by approximate creation time for matching
-      const solMap: Record<string, { estado: string }> = {};
-      (solicitudesRes.data || []).forEach((s: any) => {
-        if (s.tipo === 'avance') {
-          solMap[s.id] = { estado: s.estado };
-        }
-      });
-      setSolicitudes(solMap);
     } catch (error) {
       console.error('Error fetching data:', error);
       toast({
@@ -434,6 +423,7 @@ export default function AvancesPage() {
             retencion: 0,
             total_solicitado: subtotalPiezas,
             observaciones: `Avance registrado el ${format(new Date(fecha), 'dd/MM/yyyy')}`,
+            avance_id: avanceData.id,
           });
 
         if (solicitudError) {
@@ -632,9 +622,36 @@ export default function AvancesPage() {
                     </div>
                   </TableCell>
                   <TableCell className="hidden lg:table-cell">
-                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
-                      Pendiente
-                    </Badge>
+                    {(() => {
+                      const solicitud = avance.solicitudes_pago?.[0];
+                      const estado = solicitud?.estado || 'sin_solicitud';
+                      
+                      if (estado === 'aprobada') {
+                        return (
+                          <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                            ✓ Pagado
+                          </Badge>
+                        );
+                      } else if (estado === 'rechazada') {
+                        return (
+                          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+                            Rechazada
+                          </Badge>
+                        );
+                      } else if (estado === 'pendiente') {
+                        return (
+                          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                            Pendiente
+                          </Badge>
+                        );
+                      } else {
+                        return (
+                          <Badge variant="outline" className="bg-muted text-muted-foreground">
+                            Sin solicitud
+                          </Badge>
+                        );
+                      }
+                    })()}
                   </TableCell>
                   <TableCell className="hidden lg:table-cell text-muted-foreground">
                     {avance.observaciones || '-'}
