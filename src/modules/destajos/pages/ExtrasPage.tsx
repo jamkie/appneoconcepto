@@ -459,9 +459,9 @@ export default function ExtrasPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Fecha</TableHead>
-                <TableHead>Descripción</TableHead>
                 <TableHead className="hidden md:table-cell">Obra</TableHead>
                 <TableHead className="hidden md:table-cell">Instalador</TableHead>
+                <TableHead>Descripción</TableHead>
                 <TableHead>Monto</TableHead>
                 <TableHead className="hidden lg:table-cell">Estado</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
@@ -476,14 +476,14 @@ export default function ExtrasPage() {
                       {format(new Date(extra.created_at), 'dd MMM yyyy', { locale: es })}
                     </div>
                   </TableCell>
-                  <TableCell className="font-medium">
-                    {extra.descripcion}
-                  </TableCell>
                   <TableCell className="hidden md:table-cell">
                     {extra.obras?.nombre || 'N/A'}
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
                     {extra.instaladores?.nombre || 'N/A'}
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    {extra.descripcion}
                   </TableCell>
                   <TableCell className="font-medium">
                     {formatCurrency(Number(extra.monto))}
