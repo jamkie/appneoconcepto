@@ -16,6 +16,13 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type { Instalador } from '../types';
 import { useUserRole } from '@/hooks/useUserRole';
 import { cn } from '@/lib/utils';
@@ -28,6 +35,7 @@ export default function InstaladoresPage() {
   const [instaladores, setInstaladores] = useState<Instalador[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'todos' | 'activos' | 'inactivos'>('activos');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedInstalador, setSelectedInstalador] = useState<Instalador | null>(null);
   const [saving, setSaving] = useState(false);
@@ -155,9 +163,15 @@ export default function InstaladoresPage() {
     }
   };
 
-  const filteredInstaladores = instaladores.filter((instalador) =>
-    instalador.nombre.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredInstaladores = instaladores.filter((instalador) => {
+    const matchesSearch = instalador.nombre.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    if (statusFilter === 'todos') return matchesSearch;
+    if (statusFilter === 'activos') return matchesSearch && instalador.activo;
+    if (statusFilter === 'inactivos') return matchesSearch && !instalador.activo;
+    
+    return matchesSearch;
+  });
 
   const columns = [
     {
@@ -241,9 +255,9 @@ export default function InstaladoresPage() {
         }
       />
 
-      {/* Search */}
-      <div className="mb-6">
-        <div className="relative max-w-sm">
+      {/* Filters */}
+      <div className="mb-6 flex flex-col sm:flex-row gap-4">
+        <div className="relative max-w-sm flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Buscar instaladores..."
@@ -252,6 +266,16 @@ export default function InstaladoresPage() {
             className="pl-10"
           />
         </div>
+        <Select value={statusFilter} onValueChange={(value: 'todos' | 'activos' | 'inactivos') => setStatusFilter(value)}>
+          <SelectTrigger className="w-full sm:w-48">
+            <SelectValue placeholder="Estado" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos</SelectItem>
+            <SelectItem value="activos">Activos</SelectItem>
+            <SelectItem value="inactivos">Inactivos</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Table */}
