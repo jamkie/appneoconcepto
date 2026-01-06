@@ -56,6 +56,7 @@ export default function SolicitudesPage() {
   const [solicitudes, setSolicitudes] = useState<SolicitudWithDetails[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterTipo, setFilterTipo] = useState<'todos' | 'avance' | 'anticipo'>('todos');
   
   // Action states
   const [actionType, setActionType] = useState<'aprobar' | 'rechazar' | 'masivo' | 'eliminar' | null>(null);
@@ -507,10 +508,18 @@ export default function SolicitudesPage() {
     }).format(amount);
   };
 
-  const filteredSolicitudes = solicitudes.filter((solicitud) =>
-    solicitud.obras?.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    solicitud.instaladores?.nombre.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredSolicitudes = solicitudes.filter((solicitud) => {
+    const matchesSearch = 
+      solicitud.obras?.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      solicitud.instaladores?.nombre.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesTipo = 
+      filterTipo === 'todos' ||
+      (filterTipo === 'anticipo' && solicitud.tipo === 'anticipo') ||
+      (filterTipo === 'avance' && solicitud.tipo !== 'anticipo');
+    
+    return matchesSearch && matchesTipo;
+  });
 
   const columns = [
     {
@@ -664,16 +673,45 @@ export default function SolicitudesPage() {
         </div>
       )}
 
-      {/* Search + Bulk Actions */}
+      {/* Search + Filter + Bulk Actions */}
       <div className="mb-6 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-        <div className="relative max-w-sm w-full">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar solicitudes..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
+        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+          <div className="relative max-w-sm w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar solicitudes..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          
+          <div className="flex gap-1 p-1 bg-muted rounded-lg">
+            <Button
+              variant={filterTipo === 'todos' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setFilterTipo('todos')}
+              className="text-xs"
+            >
+              Todos
+            </Button>
+            <Button
+              variant={filterTipo === 'avance' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setFilterTipo('avance')}
+              className="text-xs"
+            >
+              Avances
+            </Button>
+            <Button
+              variant={filterTipo === 'anticipo' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setFilterTipo('anticipo')}
+              className="text-xs"
+            >
+              Anticipos
+            </Button>
+          </div>
         </div>
         
         {selectedIds.size > 0 && (
