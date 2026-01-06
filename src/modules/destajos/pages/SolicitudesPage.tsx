@@ -636,7 +636,9 @@ export default function SolicitudesPage() {
   const canDeleteSolicitud = (sol: SolicitudWithDetails) => {
     const hasPago = sol.pagos_destajos && sol.pagos_destajos.length > 0;
     const hasAvance = !!sol.avance_id;
-    return !hasPago && !hasAvance;
+    const isExtra = sol.tipo === 'extra';
+    // No permitir eliminar desde solicitudes si es un extra - debe eliminarse desde la página de extras
+    return !hasPago && !hasAvance && !isExtra;
   };
 
   const formatCurrency = (amount: number) => {
