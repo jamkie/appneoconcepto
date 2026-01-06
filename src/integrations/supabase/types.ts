@@ -84,7 +84,22 @@ export type Database = {
           observaciones?: string | null
           registrado_por?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "anticipos_instalador_id_fkey"
+            columns: ["instalador_id"]
+            isOneToOne: false
+            referencedRelation: "instaladores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "anticipos_obra_id_fkey"
+            columns: ["obra_id"]
+            isOneToOne: false
+            referencedRelation: "obras"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       avance_items: {
         Row: {
