@@ -10,16 +10,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -31,7 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Eye, CreditCard, Loader2, Pencil, Trash2 } from "lucide-react";
+import { Eye, CreditCard, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -85,14 +75,7 @@ export default function VendedoresPage() {
   const [selectedSeller, setSelectedSeller] = useState<SellerWithStats | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
-  const [isEditOpen, setIsEditOpen] = useState(false);
-  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-  const [sellerToEdit, setSellerToEdit] = useState<SellerWithStats | null>(null);
-  const [sellerToDelete, setSellerToDelete] = useState<SellerWithStats | null>(null);
-  const [updating, setUpdating] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [newPayment, setNewPayment] = useState({ amount: "", date: "", concept: "" });
-  const [editData, setEditData] = useState({ name: "", email: "" });
 
   const fetchSellers = async () => {
     try {
@@ -159,10 +142,6 @@ export default function VendedoresPage() {
   }, []);
 
   const resetPaymentForm = () => setNewPayment({ amount: "", date: "", concept: "" });
-  const resetEditForm = () => {
-    setEditData({ name: "", email: "" });
-    setSellerToEdit(null);
-  };
 
   const handleCreatePayment = async () => {
     if (!selectedSeller) return;
@@ -204,62 +183,6 @@ export default function VendedoresPage() {
       toast.error("Error al registrar el pago: " + error.message);
     } finally {
       setSavingPayment(false);
-    }
-  };
-
-  const handleOpenEdit = (seller: SellerWithStats) => {
-    setSellerToEdit(seller);
-    setEditData({ name: seller.name, email: seller.email });
-    setIsEditOpen(true);
-  };
-
-  const handleUpdateSeller = async () => {
-    if (!sellerToEdit) return;
-
-    if (!editData.name || !editData.email) {
-      toast.error("Por favor completa todos los campos");
-      return;
-    }
-
-    setUpdating(true);
-    try {
-      const { error } = await supabase
-        .from("sellers")
-        .update({ name: editData.name, email: editData.email })
-        .eq("id", sellerToEdit.id);
-
-      if (error) throw error;
-
-      toast.success("Vendedor actualizado exitosamente");
-      resetEditForm();
-      setIsEditOpen(false);
-      fetchSellers();
-    } catch (error: any) {
-      console.error("Error updating seller:", error);
-      toast.error(error.message || "Error al actualizar vendedor");
-    } finally {
-      setUpdating(false);
-    }
-  };
-
-  const handleDeleteSeller = async () => {
-    if (!sellerToDelete) return;
-
-    setDeleting(true);
-    try {
-      const { error } = await supabase.from("sellers").delete().eq("id", sellerToDelete.id);
-
-      if (error) throw error;
-
-      toast.success("Vendedor eliminado exitosamente");
-      setSellerToDelete(null);
-      setIsDeleteOpen(false);
-      fetchSellers();
-    } catch (error: any) {
-      console.error("Error deleting seller:", error);
-      toast.error(error.message || "Error al eliminar vendedor");
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -380,16 +303,6 @@ export default function VendedoresPage() {
                           <Button variant="ghost" size="icon" onClick={() => { setSelectedSeller(seller); setIsPaymentOpen(true); }}>
                             <CreditCard className="h-4 w-4" />
                           </Button>
-                        )}
-                        {isAdmin && (
-                          <>
-                            <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(seller)}>
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="text-destructive" onClick={() => { setSellerToDelete(seller); setIsDeleteOpen(true); }}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </>
                         )}
                       </div>
                     </TableCell>
@@ -518,49 +431,6 @@ export default function VendedoresPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Dialog */}
-      <Dialog open={isEditOpen} onOpenChange={(open) => { setIsEditOpen(open); if (!open) resetEditForm(); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Editar Vendedor</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Nombre Completo</Label>
-              <Input value={editData.name} onChange={(e) => setEditData({ ...editData, name: e.target.value })} />
-            </div>
-            <div className="space-y-2">
-              <Label>Correo Electrónico</Label>
-              <Input type="email" value={editData.email} onChange={(e) => setEditData({ ...editData, email: e.target.value })} />
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => setIsEditOpen(false)} disabled={updating}>Cancelar</Button>
-              <Button className="flex-1" onClick={handleUpdateSeller} disabled={updating}>
-                {updating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Guardar
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Dialog */}
-      <AlertDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>¿Eliminar vendedor?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Esta acción no se puede deshacer. Se eliminará el vendedor
-              {sellerToDelete && <> <strong>"{sellerToDelete.name}"</strong></>} y todos sus datos asociados.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteSeller} disabled={deleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              {deleting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Eliminando...</> : "Eliminar"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </ComisionesLayout>
   );
 }
