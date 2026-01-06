@@ -129,11 +129,16 @@ export default function AvancesPage() {
     }
   }, [searchParams, avances, loadingData]);
 
-  // Fetch obra items when obra is selected
+  // Fetch obra items when obra is selected (also in edit mode when changing obra)
   useEffect(() => {
-    if (selectedObraId && !editingAvance) {
-      fetchObraItems(selectedObraId);
-    } else if (!selectedObraId) {
+    if (selectedObraId) {
+      // Si estamos editando y cambiamos de obra, cargar nuevos items
+      if (editingAvance && selectedObraId !== editingAvance.obra_id) {
+        fetchObraItems(selectedObraId);
+      } else if (!editingAvance) {
+        fetchObraItems(selectedObraId);
+      }
+    } else {
       setObraItems([]);
     }
   }, [selectedObraId]);
@@ -374,9 +379,12 @@ export default function AvancesPage() {
       setSaving(true);
       
       if (editingAvance) {
+        // Update avance with obra_id and instalador_id
         const { error: avanceError } = await supabase
           .from('avances')
           .update({
+            obra_id: selectedObraId,
+            instalador_id: selectedInstaladorId,
             fecha,
             observaciones: observaciones.trim() || null,
           })
@@ -402,6 +410,28 @@ export default function AvancesPage() {
           .insert(avanceItemsToInsert);
         
         if (itemsError) throw itemsError;
+
+        // Update associated pending solicitud if exists
+        const solicitud = editingAvance.solicitudes_pago?.find(s => s.estado === 'pendiente');
+        if (solicitud) {
+          const subtotalPiezas = itemsWithProgress.reduce((acc, item) => {
+            return acc + (parseInt(item.cantidad_a_avanzar) * item.precio_unitario);
+          }, 0);
+
+          const { error: solicitudError } = await supabase
+            .from('solicitudes_pago')
+            .update({
+              obra_id: selectedObraId,
+              instalador_id: selectedInstaladorId,
+              subtotal_piezas: subtotalPiezas,
+              total_solicitado: subtotalPiezas,
+            })
+            .eq('id', solicitud.id);
+          
+          if (solicitudError) {
+            console.error('Error updating solicitud:', solicitudError);
+          }
+        }
 
         toast({ title: 'Éxito', description: 'Avance actualizado correctamente' });
       } else {
@@ -810,7 +840,6 @@ export default function AvancesPage() {
               <Select 
                 value={selectedObraId} 
                 onValueChange={setSelectedObraId}
-                disabled={!!editingAvance}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar obra" />
@@ -830,7 +859,6 @@ export default function AvancesPage() {
               <Select 
                 value={selectedInstaladorId} 
                 onValueChange={setSelectedInstaladorId}
-                disabled={!!editingAvance}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar instalador" />
