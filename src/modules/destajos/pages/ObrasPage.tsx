@@ -194,9 +194,9 @@ export default function ObrasPage() {
             estado: rejectedExtraIds.includes(e.id) ? 'rechazado' : (e.estado || 'pendiente'),
           }));
 
-        // Calculate total extras (solo aprobados)
+        // Calculate total extras (pendientes y aprobados, excluyendo rechazados)
         const totalExtras = obraExtras
-          .filter((e) => e.estado === 'aprobado')
+          .filter((e) => e.estado !== 'rechazado')
           .reduce((sum, e) => sum + e.monto, 0);
 
         return {
