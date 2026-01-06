@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ClipboardList, Plus, Search } from 'lucide-react';
+import { ClipboardList, Plus, Search, Pencil, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -23,6 +23,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import type { Obra, Instalador, ObraItem } from '../types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -34,6 +44,7 @@ interface AvanceItemDisplay {
   cantidad_avanzada: number;
   cantidad_pendiente: number;
   cantidad_a_avanzar: string;
+  precio_unitario: number;
 }
 
 interface AvanceRecord {
@@ -50,7 +61,7 @@ interface AvanceRecord {
     id: string;
     obra_item_id: string;
     cantidad_completada: number;
-    obra_items: { descripcion: string } | null;
+    obra_items: { descripcion: string; precio_unitario: number } | null;
   }[];
 }
 
@@ -65,6 +76,12 @@ export default function AvancesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  
+  // Edit/Delete state
+  const [editingAvance, setEditingAvance] = useState<AvanceRecord | null>(null);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [avanceToDelete, setAvanceToDelete] = useState<AvanceRecord | null>(null);
+  const [deleting, setDeleting] = useState(false);
   
   // Form state
   const [selectedObraId, setSelectedObraId] = useState('');
@@ -88,9 +105,9 @@ export default function AvancesPage() {
 
   // Fetch obra items when obra is selected
   useEffect(() => {
-    if (selectedObraId) {
+    if (selectedObraId && !editingAvance) {
       fetchObraItems(selectedObraId);
-    } else {
+    } else if (!selectedObraId) {
       setObraItems([]);
     }
   }, [selectedObraId]);
@@ -116,7 +133,7 @@ export default function AvancesPage() {
               id,
               obra_item_id,
               cantidad_completada,
-              obra_items(descripcion)
+              obra_items(descripcion, precio_unitario)
             )
           `)
           .order('fecha', { ascending: false }),
@@ -143,7 +160,7 @@ export default function AvancesPage() {
     }
   };
 
-  const fetchObraItems = async (obraId: string) => {
+  const fetchObraItems = async (obraId: string, excludeAvanceId?: string) => {
     try {
       setLoadingObraItems(true);
       
@@ -156,20 +173,24 @@ export default function AvancesPage() {
       if (itemsError) throw itemsError;
       
       // Get all avance_items for this obra to calculate progress
-      const { data: avanceItems, error: avanceError } = await supabase
+      let avanceItemsQuery = supabase
         .from('avance_items')
         .select(`
           obra_item_id,
           cantidad_completada,
+          avance_id,
           avances!inner(obra_id)
         `)
         .eq('avances.obra_id', obraId);
       
+      const { data: avanceItems, error: avanceError } = await avanceItemsQuery;
+      
       if (avanceError) throw avanceError;
       
-      // Calculate totals per obra_item
+      // Calculate totals per obra_item (excluding the one being edited)
       const avanceTotals: Record<string, number> = {};
       (avanceItems || []).forEach((ai: any) => {
+        if (excludeAvanceId && ai.avance_id === excludeAvanceId) return;
         avanceTotals[ai.obra_item_id] = (avanceTotals[ai.obra_item_id] || 0) + ai.cantidad_completada;
       });
       
@@ -185,9 +206,10 @@ export default function AvancesPage() {
             cantidad_avanzada: avanzado,
             cantidad_pendiente: pendiente,
             cantidad_a_avanzar: '0',
+            precio_unitario: item.precio_unitario,
           };
         })
-        .filter((item) => item.cantidad_pendiente > 0); // Only show items with pending work
+        .filter((item) => item.cantidad_pendiente > 0);
       
       setObraItems(displayItems);
     } catch (error) {
@@ -200,6 +222,83 @@ export default function AvancesPage() {
     } finally {
       setLoadingObraItems(false);
     }
+  };
+
+  const handleOpenEdit = async (avance: AvanceRecord) => {
+    setEditingAvance(avance);
+    setSelectedObraId(avance.obra_id);
+    setSelectedInstaladorId(avance.instalador_id);
+    setFecha(avance.fecha);
+    setObservaciones(avance.observaciones || '');
+    
+    // Fetch obra items excluding current avance progress
+    try {
+      setLoadingObraItems(true);
+      
+      const { data: items, error: itemsError } = await supabase
+        .from('obra_items')
+        .select('*')
+        .eq('obra_id', avance.obra_id);
+      
+      if (itemsError) throw itemsError;
+      
+      // Get all avance_items for this obra excluding current avance
+      const { data: avanceItems, error: avanceError } = await supabase
+        .from('avance_items')
+        .select(`
+          obra_item_id,
+          cantidad_completada,
+          avance_id,
+          avances!inner(obra_id)
+        `)
+        .eq('avances.obra_id', avance.obra_id);
+      
+      if (avanceError) throw avanceError;
+      
+      // Calculate totals per obra_item excluding current avance
+      const avanceTotals: Record<string, number> = {};
+      (avanceItems || []).forEach((ai: any) => {
+        if (ai.avance_id === avance.id) return;
+        avanceTotals[ai.obra_item_id] = (avanceTotals[ai.obra_item_id] || 0) + ai.cantidad_completada;
+      });
+      
+      // Get current avance items
+      const currentItems: Record<string, number> = {};
+      avance.avance_items.forEach((ai) => {
+        currentItems[ai.obra_item_id] = ai.cantidad_completada;
+      });
+      
+      // Build display items
+      const displayItems: AvanceItemDisplay[] = (items || [])
+        .map((item: ObraItem) => {
+          const avanzadoOtros = avanceTotals[item.id] || 0;
+          const avanzadoActual = currentItems[item.id] || 0;
+          const pendiente = item.cantidad - avanzadoOtros;
+          return {
+            obra_item_id: item.id,
+            descripcion: item.descripcion,
+            cantidad_total: item.cantidad,
+            cantidad_avanzada: avanzadoOtros,
+            cantidad_pendiente: pendiente,
+            cantidad_a_avanzar: avanzadoActual.toString(),
+            precio_unitario: item.precio_unitario,
+          };
+        })
+        .filter((item) => item.cantidad_pendiente > 0 || currentItems[item.obra_item_id]);
+      
+      setObraItems(displayItems);
+    } catch (error) {
+      console.error('Error loading edit data:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudieron cargar los datos para editar',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingObraItems(false);
+    }
+    
+    setIsModalOpen(true);
   };
 
   const handleItemQuantityChange = (obraItemId: string, value: string) => {
@@ -252,35 +351,102 @@ export default function AvancesPage() {
     try {
       setSaving(true);
       
-      // Create the avance record
-      const { data: avanceData, error: avanceError } = await supabase
-        .from('avances')
-        .insert({
-          obra_id: selectedObraId,
-          instalador_id: selectedInstaladorId,
-          fecha,
-          observaciones: observaciones.trim() || null,
-          registrado_por: user?.id,
-        })
-        .select()
-        .single();
-      
-      if (avanceError) throw avanceError;
-      
-      // Create avance_items for each item with progress
-      const avanceItemsToInsert = itemsWithProgress.map((item) => ({
-        avance_id: avanceData.id,
-        obra_item_id: item.obra_item_id,
-        cantidad_completada: parseInt(item.cantidad_a_avanzar),
-      }));
-      
-      const { error: itemsError } = await supabase
-        .from('avance_items')
-        .insert(avanceItemsToInsert);
-      
-      if (itemsError) throw itemsError;
+      if (editingAvance) {
+        // Update existing avance
+        const { error: avanceError } = await supabase
+          .from('avances')
+          .update({
+            fecha,
+            observaciones: observaciones.trim() || null,
+          })
+          .eq('id', editingAvance.id);
+        
+        if (avanceError) throw avanceError;
+        
+        // Delete old avance_items
+        const { error: deleteError } = await supabase
+          .from('avance_items')
+          .delete()
+          .eq('avance_id', editingAvance.id);
+        
+        if (deleteError) throw deleteError;
+        
+        // Insert new avance_items
+        const avanceItemsToInsert = itemsWithProgress.map((item) => ({
+          avance_id: editingAvance.id,
+          obra_item_id: item.obra_item_id,
+          cantidad_completada: parseInt(item.cantidad_a_avanzar),
+        }));
+        
+        const { error: itemsError } = await supabase
+          .from('avance_items')
+          .insert(avanceItemsToInsert);
+        
+        if (itemsError) throw itemsError;
 
-      toast({ title: 'Éxito', description: 'Avance registrado correctamente' });
+        toast({ title: 'Éxito', description: 'Avance actualizado correctamente' });
+      } else {
+        // Create the avance record
+        const { data: avanceData, error: avanceError } = await supabase
+          .from('avances')
+          .insert({
+            obra_id: selectedObraId,
+            instalador_id: selectedInstaladorId,
+            fecha,
+            observaciones: observaciones.trim() || null,
+            registrado_por: user?.id,
+          })
+          .select()
+          .single();
+        
+        if (avanceError) throw avanceError;
+        
+        // Create avance_items for each item with progress
+        const avanceItemsToInsert = itemsWithProgress.map((item) => ({
+          avance_id: avanceData.id,
+          obra_item_id: item.obra_item_id,
+          cantidad_completada: parseInt(item.cantidad_a_avanzar),
+        }));
+        
+        const { error: itemsError } = await supabase
+          .from('avance_items')
+          .insert(avanceItemsToInsert);
+        
+        if (itemsError) throw itemsError;
+
+        // Calculate total for solicitud de pago
+        const subtotalPiezas = itemsWithProgress.reduce((acc, item) => {
+          return acc + (parseInt(item.cantidad_a_avanzar) * item.precio_unitario);
+        }, 0);
+
+        // Create solicitud de pago
+        const { error: solicitudError } = await supabase
+          .from('solicitudes_pago')
+          .insert({
+            obra_id: selectedObraId,
+            instalador_id: selectedInstaladorId,
+            solicitado_por: user?.id,
+            tipo: 'avance',
+            subtotal_piezas: subtotalPiezas,
+            subtotal_extras: 0,
+            retencion: 0,
+            total_solicitado: subtotalPiezas,
+            observaciones: `Avance registrado el ${format(new Date(fecha), 'dd/MM/yyyy')}`,
+          });
+
+        if (solicitudError) {
+          console.error('Error creating solicitud:', solicitudError);
+          // Don't throw - avance was created successfully
+          toast({ 
+            title: 'Aviso', 
+            description: 'Avance registrado, pero hubo un error al crear la solicitud de pago',
+            variant: 'destructive',
+          });
+        } else {
+          toast({ title: 'Éxito', description: 'Avance y solicitud de pago registrados correctamente' });
+        }
+      }
+
       resetForm();
       setIsModalOpen(false);
       fetchData();
@@ -296,12 +462,51 @@ export default function AvancesPage() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!avanceToDelete) return;
+
+    try {
+      setDeleting(true);
+      
+      // Delete avance_items first
+      const { error: itemsError } = await supabase
+        .from('avance_items')
+        .delete()
+        .eq('avance_id', avanceToDelete.id);
+      
+      if (itemsError) throw itemsError;
+      
+      // Delete avance
+      const { error: avanceError } = await supabase
+        .from('avances')
+        .delete()
+        .eq('id', avanceToDelete.id);
+      
+      if (avanceError) throw avanceError;
+
+      toast({ title: 'Éxito', description: 'Avance eliminado correctamente' });
+      setIsDeleteOpen(false);
+      setAvanceToDelete(null);
+      fetchData();
+    } catch (error) {
+      console.error('Error deleting avance:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo eliminar el avance',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const resetForm = () => {
     setSelectedObraId('');
     setSelectedInstaladorId('');
     setFecha(format(new Date(), 'yyyy-MM-dd'));
     setObservaciones('');
     setObraItems([]);
+    setEditingAvance(null);
   };
 
   const filteredAvances = avances.filter((avance) =>
@@ -343,6 +548,31 @@ export default function AvancesPage() {
         </span>
       ),
       hideOnMobile: true,
+    },
+    {
+      key: 'actions',
+      header: 'Acciones',
+      cell: (item: AvanceRecord) => (
+        <div className="flex gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => handleOpenEdit(item)}
+          >
+            <Pencil className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              setAvanceToDelete(item);
+              setIsDeleteOpen(true);
+            }}
+          >
+            <Trash2 className="w-4 h-4 text-destructive" />
+          </Button>
+        </div>
+      ),
     },
   ];
 
@@ -401,19 +631,23 @@ export default function AvancesPage() {
         }
       />
 
-      {/* Create Modal */}
+      {/* Create/Edit Modal */}
       <Dialog open={isModalOpen} onOpenChange={(open) => {
         if (!open) resetForm();
         setIsModalOpen(open);
       }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Nuevo Avance</DialogTitle>
+            <DialogTitle>{editingAvance ? 'Editar Avance' : 'Nuevo Avance'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
               <Label htmlFor="obra_id">Obra *</Label>
-              <Select value={selectedObraId} onValueChange={setSelectedObraId}>
+              <Select 
+                value={selectedObraId} 
+                onValueChange={setSelectedObraId}
+                disabled={!!editingAvance}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar obra" />
                 </SelectTrigger>
@@ -429,7 +663,11 @@ export default function AvancesPage() {
             
             <div>
               <Label htmlFor="instalador_id">Instalador *</Label>
-              <Select value={selectedInstaladorId} onValueChange={setSelectedInstaladorId}>
+              <Select 
+                value={selectedInstaladorId} 
+                onValueChange={setSelectedInstaladorId}
+                disabled={!!editingAvance}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar instalador" />
                 </SelectTrigger>
@@ -513,6 +751,28 @@ export default function AvancesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar avance?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer. Se eliminará el avance y sus items asociados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? 'Eliminando...' : 'Eliminar'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
