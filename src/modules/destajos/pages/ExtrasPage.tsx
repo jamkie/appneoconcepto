@@ -51,6 +51,7 @@ export default function ExtrasPage() {
   const [instaladores, setInstaladores] = useState<Instalador[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'todos' | 'pendiente' | 'aprobado'>('todos');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingExtra, setEditingExtra] = useState<ExtraWithDetails | null>(null);
@@ -274,11 +275,13 @@ export default function ExtrasPage() {
     }).format(amount);
   };
 
-  const filteredExtras = extras.filter((extra) =>
-    extra.descripcion.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    extra.obras?.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    extra.instaladores?.nombre.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredExtras = extras.filter((extra) => {
+    const matchesSearch = extra.descripcion.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      extra.obras?.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      extra.instaladores?.nombre.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === 'todos' || extra.estado === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   const columns = [
     {
@@ -365,9 +368,9 @@ export default function ExtrasPage() {
         }
       />
 
-      {/* Search */}
-      <div className="mb-6">
-        <div className="relative max-w-sm">
+      {/* Filters */}
+      <div className="mb-6 flex flex-col sm:flex-row gap-4">
+        <div className="relative max-w-sm flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Buscar extras..."
@@ -376,6 +379,16 @@ export default function ExtrasPage() {
             className="pl-10"
           />
         </div>
+        <Select value={statusFilter} onValueChange={(value: 'todos' | 'pendiente' | 'aprobado') => setStatusFilter(value)}>
+          <SelectTrigger className="w-full sm:w-48">
+            <SelectValue placeholder="Estado" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos</SelectItem>
+            <SelectItem value="pendiente">Pendientes</SelectItem>
+            <SelectItem value="aprobado">Aprobados</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Table */}
