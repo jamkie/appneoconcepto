@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Wallet, Search, Check, X, CheckCheck, Trash2, Plus, Banknote } from 'lucide-react';
+import { Wallet, Search, Check, X, CheckCheck, Trash2, Plus, Banknote, ArrowDownCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -206,7 +206,9 @@ export default function SolicitudesPage() {
     try {
       setProcessing(true);
       
-      const montoFinal = Math.max(0, Number(selectedSolicitud.total_solicitado) - totalAnticiposAplicados);
+      const isAnticipo = selectedSolicitud.tipo === 'anticipo';
+      const montoSolicitud = Number(selectedSolicitud.total_solicitado);
+      const montoFinal = Math.max(0, montoSolicitud - totalAnticiposAplicados);
       
       const { error: updateError } = await supabase
         .from('solicitudes_pago')
@@ -219,24 +221,44 @@ export default function SolicitudesPage() {
       
       if (updateError) throw updateError;
       
-      // Create payment with reduced amount
+      // Create payment record
       const { data: pagoData, error: pagoError } = await supabase
         .from('pagos_destajos')
         .insert({
           obra_id: selectedSolicitud.obra_id,
           instalador_id: selectedSolicitud.instalador_id,
-          monto: montoFinal,
+          monto: isAnticipo ? montoSolicitud : montoFinal,
           metodo_pago: 'transferencia',
           solicitud_id: selectedSolicitud.id,
           registrado_por: user.id,
-          observaciones: totalAnticiposAplicados > 0 
-            ? `Pago pendiente - Anticipo aplicado: ${formatCurrency(totalAnticiposAplicados)}`
-            : `Pago pendiente - Solicitud aprobada`,
+          observaciones: isAnticipo 
+            ? `Anticipo - ${selectedSolicitud.observaciones || 'Pago adelantado'}`
+            : totalAnticiposAplicados > 0 
+              ? `Pago pendiente - Anticipo aplicado: ${formatCurrency(totalAnticiposAplicados)}`
+              : `Pago pendiente - Solicitud aprobada`,
         })
         .select()
         .single();
       
       if (pagoError) throw pagoError;
+      
+      // If this is an anticipo, create the anticipo record with available balance
+      if (isAnticipo) {
+        const { error: anticipoError } = await supabase
+          .from('anticipos')
+          .insert({
+            obra_id: selectedSolicitud.obra_id,
+            instalador_id: selectedSolicitud.instalador_id,
+            monto_original: montoSolicitud,
+            monto_disponible: montoSolicitud,
+            observaciones: selectedSolicitud.observaciones,
+            registrado_por: user.id,
+          });
+        
+        if (anticipoError) {
+          console.error('Error creating anticipo record:', anticipoError);
+        }
+      }
       
       // Apply anticipos: update monto_disponible and create aplicaciones
       for (const [anticipoId, montoAplicado] of selectedAnticipos) {
@@ -261,9 +283,11 @@ export default function SolicitudesPage() {
       
       toast({ 
         title: 'Éxito', 
-        description: totalAnticiposAplicados > 0
-          ? `Solicitud aprobada. Anticipo de ${formatCurrency(totalAnticiposAplicados)} aplicado.`
-          : 'Solicitud aprobada y pago creado'
+        description: isAnticipo
+          ? 'Anticipo aprobado. El saldo quedará disponible para descuentos.'
+          : totalAnticiposAplicados > 0
+            ? `Solicitud aprobada. Anticipo de ${formatCurrency(totalAnticiposAplicados)} aplicado.`
+            : 'Solicitud aprobada y pago creado'
       });
       setActionType(null);
       setSelectedSolicitud(null);
@@ -436,20 +460,25 @@ export default function SolicitudesPage() {
     try {
       setSavingAnticipo(true);
       
+      // Create a solicitud_pago with tipo='anticipo'
       const { error } = await supabase
-        .from('anticipos')
+        .from('solicitudes_pago')
         .insert({
           obra_id: anticipoForm.obra_id,
           instalador_id: anticipoForm.instalador_id,
-          monto_original: monto,
-          monto_disponible: monto,
-          observaciones: anticipoForm.observaciones.trim() || null,
-          registrado_por: user?.id,
+          tipo: 'anticipo',
+          subtotal_piezas: 0,
+          subtotal_extras: 0,
+          monto_libre: monto,
+          total_solicitado: monto,
+          retencion: 0,
+          observaciones: anticipoForm.observaciones.trim() || 'Anticipo',
+          solicitado_por: user?.id,
         });
 
       if (error) throw error;
 
-      toast({ title: 'Éxito', description: 'Anticipo registrado correctamente' });
+      toast({ title: 'Éxito', description: 'Anticipo registrado como solicitud pendiente' });
       setIsAnticipoModalOpen(false);
       setAnticipoForm({ obra_id: '', instalador_id: '', monto: '', observaciones: '' });
       fetchData();
@@ -517,6 +546,21 @@ export default function SolicitudesPage() {
       key: 'instalador',
       header: 'Instalador',
       cell: (item: SolicitudWithDetails) => item.instaladores?.nombre || 'N/A',
+      hideOnMobile: true,
+    },
+    {
+      key: 'tipo',
+      header: 'Tipo',
+      cell: (item: SolicitudWithDetails) => (
+        item.tipo === 'anticipo' ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">
+            <ArrowDownCircle className="w-3 h-3" />
+            Anticipo
+          </span>
+        ) : (
+          <span className="text-muted-foreground text-sm">Avance</span>
+        )
+      ),
       hideOnMobile: true,
     },
     {
