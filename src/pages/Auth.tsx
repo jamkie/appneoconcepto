@@ -1,10 +1,19 @@
 import { useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -17,6 +26,9 @@ export default function Auth() {
   const { user, loading: authLoading, signIn } = useAuth();
   const location = useLocation();
   const [loading, setLoading] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [sendingReset, setSendingReset] = useState(false);
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -60,6 +72,35 @@ export default function Auth() {
       }
     } else {
       toast.success("¡Bienvenido!");
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    try {
+      emailSchema.parse(resetEmail);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        toast.error(err.errors[0].message);
+        return;
+      }
+    }
+
+    setSendingReset(true);
+    
+    const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+
+    setSendingReset(false);
+
+    if (error) {
+      toast.error("Error al enviar el correo de recuperación");
+    } else {
+      toast.success("Se ha enviado un correo con instrucciones para restablecer tu contraseña");
+      setShowForgotPassword(false);
+      setResetEmail("");
     }
   };
 
@@ -123,6 +164,14 @@ export default function Auth() {
                 Acceder
               </Button>
             </form>
+            
+            <button
+              type="button"
+              onClick={() => setShowForgotPassword(true)}
+              className="w-full mt-4 text-sm text-muted-foreground hover:text-primary transition-colors"
+            >
+              ¿Olvidaste tu contraseña?
+            </button>
           </CardContent>
         </Card>
 
@@ -130,6 +179,46 @@ export default function Auth() {
           25 años de experiencia en calidad e innovación
         </p>
       </div>
+
+      {/* Forgot Password Dialog */}
+      <Dialog open={showForgotPassword} onOpenChange={setShowForgotPassword}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Recuperar contraseña</DialogTitle>
+            <DialogDescription>
+              Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <form onSubmit={handleForgotPassword} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="reset-email">Correo electrónico</Label>
+              <Input
+                id="reset-email"
+                type="email"
+                placeholder="tu@email.com"
+                value={resetEmail}
+                onChange={(e) => setResetEmail(e.target.value)}
+                required
+              />
+            </div>
+            
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowForgotPassword(false)}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={sendingReset}>
+                {sendingReset && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Enviar enlace
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

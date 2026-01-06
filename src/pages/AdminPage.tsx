@@ -74,7 +74,7 @@ interface ModulePermissionRow {
 
 const createUserSchema = z.object({
   email: z.string().trim().email('Email inválido').max(255),
-  password: z.string().min(6, 'Mínimo 6 caracteres').max(72),
+  password: z.string().min(6, 'Mínimo 6 caracteres').max(72).optional(),
   fullName: z.string().trim().min(1, 'Nombre requerido').max(100),
 });
 
@@ -102,6 +102,7 @@ export default function AdminPage() {
   const [newUserRole, setNewUserRole] = useState<AppRole>('user');
   const [newUserModules, setNewUserModules] = useState<string[]>([]);
   const [newUserIsSeller, setNewUserIsSeller] = useState(false);
+  const [newUserGeneratePassword, setNewUserGeneratePassword] = useState(true);
   const [creating, setCreating] = useState(false);
 
   // Delete user state
@@ -280,6 +281,35 @@ export default function AdminPage() {
         await supabase.from('sellers').delete().eq('user_id', selectedUser.id);
       }
 
+      // Build list of changes for notification email
+      const changes: string[] = [];
+      if (selectedUser.role !== editRole) {
+        changes.push(`Rol cambiado a: ${editRole === 'admin' ? 'Administrador' : 'Usuario'}`);
+      }
+      if (JSON.stringify(selectedUser.moduleIds?.sort()) !== JSON.stringify(editModules.sort())) {
+        const moduleNames = editModules.map(id => modules.find(m => m.id === id)?.title || id);
+        changes.push(`Módulos actualizados: ${moduleNames.join(', ') || 'Ninguno'}`);
+      }
+      if (wasSeller !== editIsSeller) {
+        changes.push(editIsSeller ? 'Asignado como vendedor' : 'Removido como vendedor');
+      }
+
+      // Send notification email if there are changes
+      if (changes.length > 0 && selectedUser.email) {
+        try {
+          await supabase.functions.invoke('send-notification-email', {
+            body: {
+              type: 'user_updated',
+              to: selectedUser.email,
+              userName: selectedUser.full_name || selectedUser.email,
+              changes,
+            },
+          });
+        } catch (emailError) {
+          console.error('Failed to send notification email:', emailError);
+        }
+      }
+
       toast.success('Permisos actualizados');
       setSelectedUser(null);
       fetchUsers();
@@ -295,9 +325,15 @@ export default function AdminPage() {
     try {
       createUserSchema.parse({
         email: newUserEmail,
-        password: newUserPassword,
+        password: newUserGeneratePassword ? undefined : newUserPassword,
         fullName: newUserName,
       });
+      
+      // Validate password if not generating
+      if (!newUserGeneratePassword && newUserPassword.length < 6) {
+        toast.error('La contraseña debe tener al menos 6 caracteres');
+        return;
+      }
     } catch (err) {
       if (err instanceof z.ZodError) {
         toast.error(err.errors[0].message);
@@ -311,11 +347,12 @@ export default function AdminPage() {
       const { data, error } = await supabase.functions.invoke('create-user', {
         body: {
           email: newUserEmail.trim(),
-          password: newUserPassword,
+          password: newUserGeneratePassword ? undefined : newUserPassword,
           fullName: newUserName.trim(),
           role: newUserRole,
           moduleIds: newUserRole !== 'admin' ? newUserModules : [],
           isSeller: newUserIsSeller,
+          generateTempPassword: newUserGeneratePassword,
         },
       });
 
@@ -353,6 +390,7 @@ export default function AdminPage() {
     setNewUserRole('user');
     setNewUserModules([]);
     setNewUserIsSeller(false);
+    setNewUserGeneratePassword(true);
   };
 
   const toggleModule = (moduleId: string) => {
@@ -857,16 +895,35 @@ export default function AdminPage() {
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="new-password">Contraseña</Label>
-                <Input
-                  id="new-password"
-                  type="password"
-                  placeholder="Mínimo 6 caracteres"
-                  value={newUserPassword}
-                  onChange={(e) => setNewUserPassword(e.target.value)}
+              <div className="flex items-center space-x-3 p-3 rounded-lg border bg-muted/30">
+                <Checkbox
+                  id="generate-password"
+                  checked={newUserGeneratePassword}
+                  onCheckedChange={(checked) => setNewUserGeneratePassword(checked === true)}
                 />
+                <label
+                  htmlFor="generate-password"
+                  className="flex-1 text-sm cursor-pointer"
+                >
+                  <span className="font-medium">Generar contraseña automática</span>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Se enviará por correo al usuario
+                  </p>
+                </label>
               </div>
+
+              {!newUserGeneratePassword && (
+                <div className="space-y-2">
+                  <Label htmlFor="new-password">Contraseña</Label>
+                  <Input
+                    id="new-password"
+                    type="password"
+                    placeholder="Mínimo 6 caracteres"
+                    value={newUserPassword}
+                    onChange={(e) => setNewUserPassword(e.target.value)}
+                  />
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label>Rol</Label>
