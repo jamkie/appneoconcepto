@@ -41,6 +41,7 @@ import {
   Settings,
   Save,
   UserPlus,
+  Power,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -49,6 +50,7 @@ interface UserProfile {
   id: string;
   email: string | null;
   full_name: string | null;
+  activo?: boolean;
   role?: AppRole;
   moduleIds?: string[];
   isSeller?: boolean;
@@ -74,6 +76,7 @@ export default function AdminPage() {
   const [filterRole, setFilterRole] = useState<'all' | AppRole>('all');
   const [filterModule, setFilterModule] = useState<string>('all');
   const [filterSeller, setFilterSeller] = useState<'all' | 'yes' | 'no'>('all');
+  const [filterActivo, setFilterActivo] = useState<'all' | 'yes' | 'no'>('all');
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
   const [editRole, setEditRole] = useState<AppRole>('user');
   const [editModules, setEditModules] = useState<string[]>([]);
@@ -118,7 +121,7 @@ export default function AdminPage() {
     try {
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
-        .select('id, email, full_name')
+        .select('id, email, full_name, activo')
         .order('full_name');
 
       if (profilesError) throw profilesError;
@@ -146,6 +149,7 @@ export default function AdminPage() {
 
         return {
           ...profile,
+          activo: profile.activo ?? true,
           role: (userRole?.role as AppRole) || 'user',
           moduleIds: userModules,
           isSeller: sellerUserIds.has(profile.id),
@@ -166,6 +170,28 @@ export default function AdminPage() {
     setEditRole(userProfile.role || 'user');
     setEditModules(userProfile.moduleIds || []);
     setEditIsSeller(userProfile.isSeller || false);
+  };
+
+  const handleToggleActivo = async (userProfile: UserProfile) => {
+    const newActivo = !userProfile.activo;
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ activo: newActivo })
+        .eq('id', userProfile.id);
+
+      if (error) throw error;
+
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === userProfile.id ? { ...u, activo: newActivo } : u
+        )
+      );
+      toast.success(newActivo ? 'Usuario activado' : 'Usuario desactivado');
+    } catch (error) {
+      console.error('Error toggling user status:', error);
+      toast.error('Error al cambiar estado del usuario');
+    }
   };
 
   const handleSave = async () => {
@@ -358,7 +384,11 @@ export default function AdminPage() {
       filterSeller === 'all' ||
       (filterSeller === 'yes' && u.isSeller) ||
       (filterSeller === 'no' && !u.isSeller);
-    return matchesSearch && matchesRole && matchesModule && matchesSeller;
+    const matchesActivo =
+      filterActivo === 'all' ||
+      (filterActivo === 'yes' && u.activo) ||
+      (filterActivo === 'no' && !u.activo);
+    return matchesSearch && matchesRole && matchesModule && matchesSeller && matchesActivo;
   });
 
   const activeModules = modules.filter((m) => m.status === 'active');
@@ -479,6 +509,16 @@ export default function AdminPage() {
               <SelectItem value="no">No vendedores</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={filterActivo} onValueChange={(v) => setFilterActivo(v as 'all' | 'yes' | 'no')}>
+            <SelectTrigger className="w-[150px]">
+              <SelectValue placeholder="Estado" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="yes">Activos</SelectItem>
+              <SelectItem value="no">Inactivos</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Users Table */}
@@ -503,13 +543,18 @@ export default function AdminPage() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <div>
-                          <p className="font-medium">
+                          <p className={`font-medium ${!userProfile.activo ? 'text-muted-foreground line-through' : ''}`}>
                             {userProfile.full_name || 'Sin nombre'}
                           </p>
                           <p className="text-sm text-muted-foreground">
                             {userProfile.email}
                           </p>
                         </div>
+                        {!userProfile.activo && (
+                          <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/20">
+                            Inactivo
+                          </Badge>
+                        )}
                         {userProfile.isSeller && (
                           <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
                             Vendedor
@@ -560,13 +605,24 @@ export default function AdminPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openEditDialog(userProfile)}
-                      >
-                        Editar
-                      </Button>
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={userProfile.activo ? 'text-emerald-600 hover:text-emerald-700' : 'text-muted-foreground hover:text-foreground'}
+                          onClick={() => handleToggleActivo(userProfile)}
+                          title={userProfile.activo ? 'Desactivar usuario' : 'Activar usuario'}
+                        >
+                          <Power className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openEditDialog(userProfile)}
+                        >
+                          Editar
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
