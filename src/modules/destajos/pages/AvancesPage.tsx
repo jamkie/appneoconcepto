@@ -664,7 +664,7 @@ export default function AvancesPage() {
                 <TableHead>Obra</TableHead>
                 <TableHead className="hidden md:table-cell">Instalador</TableHead>
                 <TableHead>Piezas Completadas</TableHead>
-                <TableHead className="hidden lg:table-cell">Estado Pago</TableHead>
+                <TableHead className="hidden lg:table-cell">Estado</TableHead>
                 <TableHead className="hidden lg:table-cell">Observaciones</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
