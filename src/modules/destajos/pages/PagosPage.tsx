@@ -232,12 +232,24 @@ export default function PagosPage() {
         // First, get the linked solicitud to find its approval timestamp
         const { data: linkedSolicitud } = await supabase
           .from('solicitudes_pago')
-          .select('fecha_aprobacion, obra_id, instalador_id')
+          .select('fecha_aprobacion, obra_id, instalador_id, extras_ids')
           .eq('id', pagoToCancel.solicitud_id)
           .single();
 
+        let solicitudesToRevert: { id: string; extras_ids: string[] | null }[] = [];
+
         if (linkedSolicitud?.fecha_aprobacion) {
           // Find all solicitudes approved at the same timestamp (consolidated payment)
+          const { data: allSolicitudes, error: fetchError } = await supabase
+            .from('solicitudes_pago')
+            .select('id, extras_ids')
+            .eq('fecha_aprobacion', linkedSolicitud.fecha_aprobacion)
+            .eq('estado', 'aprobada');
+
+          if (fetchError) throw fetchError;
+          solicitudesToRevert = allSolicitudes || [];
+
+          // Update all solicitudes back to pendiente
           const { error: updateError } = await supabase
             .from('solicitudes_pago')
             .update({
@@ -251,6 +263,8 @@ export default function PagosPage() {
           if (updateError) throw updateError;
         } else {
           // Fallback: just update the single linked solicitud
+          solicitudesToRevert = [{ id: pagoToCancel.solicitud_id, extras_ids: linkedSolicitud?.extras_ids || null }];
+
           const { error: updateError } = await supabase
             .from('solicitudes_pago')
             .update({
@@ -261,6 +275,24 @@ export default function PagosPage() {
             .eq('id', pagoToCancel.solicitud_id);
 
           if (updateError) throw updateError;
+        }
+
+        // Revert all extras from these solicitudes back to pendiente
+        const allExtrasIds = solicitudesToRevert
+          .flatMap(s => s.extras_ids || [])
+          .filter(Boolean);
+
+        if (allExtrasIds.length > 0) {
+          const { error: extrasError } = await supabase
+            .from('extras')
+            .update({
+              estado: 'pendiente',
+              aprobado_por: null,
+              fecha_aprobacion: null,
+            })
+            .in('id', allExtrasIds);
+
+          if (extrasError) throw extrasError;
         }
       }
 
