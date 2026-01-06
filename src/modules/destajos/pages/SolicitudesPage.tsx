@@ -56,7 +56,7 @@ export default function SolicitudesPage() {
   const [solicitudes, setSolicitudes] = useState<SolicitudWithDetails[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterTipo, setFilterTipo] = useState<'todos' | 'avance' | 'anticipo'>('todos');
+  const [filterTipo, setFilterTipo] = useState<'todos' | 'avance' | 'anticipo' | 'extra'>('todos');
   
   // Action states
   const [actionType, setActionType] = useState<'aprobar' | 'rechazar' | 'masivo' | 'eliminar' | null>(null);
@@ -659,7 +659,8 @@ export default function SolicitudesPage() {
     const matchesTipo = 
       filterTipo === 'todos' ||
       (filterTipo === 'anticipo' && solicitud.tipo === 'anticipo') ||
-      (filterTipo === 'avance' && solicitud.tipo !== 'anticipo');
+      (filterTipo === 'extra' && solicitud.tipo === 'extra') ||
+      (filterTipo === 'avance' && solicitud.tipo !== 'anticipo' && solicitud.tipo !== 'extra');
     
     return matchesSearch && matchesTipo;
   });
@@ -860,6 +861,14 @@ export default function SolicitudesPage() {
               className="text-xs"
             >
               Anticipos
+            </Button>
+            <Button
+              variant={filterTipo === 'extra' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setFilterTipo('extra')}
+              className="text-xs"
+            >
+              Extras
             </Button>
           </div>
         </div>
