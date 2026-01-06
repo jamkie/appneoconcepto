@@ -253,11 +253,25 @@ export default function SolicitudesPage() {
   const handleAprobar = async () => {
     if (!selectedSolicitud || !user) return;
     
+    // Validate we don't exceed obra total (only for non-anticipo solicitudes)
+    const isAnticipo = selectedSolicitud.tipo === 'anticipo';
+    const montoSolicitud = Number(selectedSolicitud.total_solicitado);
+    
+    if (!isAnticipo && obraLimits) {
+      const montoAPagar = montoSolicitud - totalAnticiposAplicados;
+      if (montoAPagar > obraLimits.saldoPendiente) {
+        toast({
+          title: 'Error',
+          description: `No se puede aprobar. El pago de ${formatCurrency(montoAPagar)} excede el saldo pendiente de ${formatCurrency(obraLimits.saldoPendiente)}`,
+          variant: 'destructive',
+        });
+        return;
+      }
+    }
+    
     try {
       setProcessing(true);
       
-      const isAnticipo = selectedSolicitud.tipo === 'anticipo';
-      const montoSolicitud = Number(selectedSolicitud.total_solicitado);
       const montoFinal = Math.max(0, montoSolicitud - totalAnticiposAplicados);
       
       const { error: updateError } = await supabase
