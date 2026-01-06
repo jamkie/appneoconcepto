@@ -83,7 +83,8 @@ export default function SolicitudesPage() {
   // Anticipos selection for approval
   const [selectedAnticipos, setSelectedAnticipos] = useState<Map<string, number>>(new Map());
   const [availableAnticipos, setAvailableAnticipos] = useState<AnticipoWithDetails[]>([]);
-
+  const [obraLimits, setObraLimits] = useState<{ totalObra: number; totalPagado: number; saldoPendiente: number } | null>(null);
+  const [aplicarAnticipo, setAplicarAnticipo] = useState(false);
   useEffect(() => {
     if (!loading && !user) {
       navigate('/auth');
@@ -167,14 +168,50 @@ export default function SolicitudesPage() {
     }
   };
 
-  // When opening approve modal, load available anticipos for that installer/obra
-  const openApproveModal = (solicitud: SolicitudWithDetails) => {
+  // When opening approve modal, load available anticipos and obra limits
+  const openApproveModal = async (solicitud: SolicitudWithDetails) => {
     setSelectedSolicitud(solicitud);
     const available = anticipos.filter(
       a => a.instalador_id === solicitud.instalador_id && a.obra_id === solicitud.obra_id && a.monto_disponible > 0
     );
     setAvailableAnticipos(available);
     setSelectedAnticipos(new Map());
+    setAplicarAnticipo(false);
+    
+    // Calculate obra limits
+    try {
+      const [itemsRes, extrasRes, pagosRes] = await Promise.all([
+        supabase
+          .from('obra_items')
+          .select('cantidad, precio_unitario')
+          .eq('obra_id', solicitud.obra_id),
+        supabase
+          .from('extras')
+          .select('monto')
+          .eq('obra_id', solicitud.obra_id)
+          .eq('estado', 'aprobado'),
+        supabase
+          .from('pagos_destajos')
+          .select('monto')
+          .eq('obra_id', solicitud.obra_id),
+      ]);
+      
+      const totalItems = (itemsRes.data || []).reduce((sum, item) => 
+        sum + (Number(item.cantidad) * Number(item.precio_unitario)), 0);
+      const totalExtras = (extrasRes.data || []).reduce((sum, extra) => 
+        sum + Number(extra.monto), 0);
+      const totalPagado = (pagosRes.data || []).reduce((sum, pago) => 
+        sum + Number(pago.monto), 0);
+      
+      const totalObra = totalItems + totalExtras;
+      const saldoPendiente = totalObra - totalPagado;
+      
+      setObraLimits({ totalObra, totalPagado, saldoPendiente });
+    } catch (error) {
+      console.error('Error loading obra limits:', error);
+      setObraLimits(null);
+    }
+    
     setActionType('aprobar');
   };
 
@@ -190,7 +227,12 @@ export default function SolicitudesPage() {
 
   const updateAnticipoAmount = (anticipoId: string, amount: number, maxAmount: number) => {
     const newMap = new Map(selectedAnticipos);
-    const validAmount = Math.min(Math.max(0, amount), maxAmount);
+    // Calculate max allowed based on obra limits
+    const maxAllowedByObra = obraLimits 
+      ? Math.max(0, obraLimits.saldoPendiente - Number(selectedSolicitud?.total_solicitado || 0))
+      : maxAmount;
+    const effectiveMax = Math.min(maxAmount, maxAllowedByObra);
+    const validAmount = Math.min(Math.max(0, amount), effectiveMax);
     if (validAmount > 0) {
       newMap.set(anticipoId, validAmount);
     } else {
@@ -199,7 +241,14 @@ export default function SolicitudesPage() {
     setSelectedAnticipos(newMap);
   };
 
-  const totalAnticiposAplicados = Array.from(selectedAnticipos.values()).reduce((sum, val) => sum + val, 0);
+  const totalAnticiposAplicados = aplicarAnticipo 
+    ? Array.from(selectedAnticipos.values()).reduce((sum, val) => sum + val, 0)
+    : 0;
+  
+  // Calculate the max anticipo that can be applied without exceeding obra total
+  const maxAnticipoAllowed = obraLimits 
+    ? Math.max(0, obraLimits.saldoPendiente - Number(selectedSolicitud?.total_solicitado || 0))
+    : 0;
 
   const handleAprobar = async () => {
     if (!selectedSolicitud || !user) return;
@@ -749,6 +798,8 @@ export default function SolicitudesPage() {
         if (!open) {
           setActionType(null);
           setSelectedAnticipos(new Map());
+          setAplicarAnticipo(false);
+          setObraLimits(null);
         }
       }}>
         <AlertDialogContent className="max-w-lg">
@@ -761,51 +812,103 @@ export default function SolicitudesPage() {
                   {' '}para <span className="font-semibold">{selectedSolicitud?.instaladores?.nombre}</span>.
                 </p>
                 
-                {availableAnticipos.length > 0 && (
+                {/* Obra limits info */}
+                {obraLimits && (
+                  <div className="p-3 rounded-lg bg-muted/50 border text-sm space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Total obra (items + extras):</span>
+                      <span className="font-medium">{formatCurrency(obraLimits.totalObra)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Ya pagado:</span>
+                      <span>{formatCurrency(obraLimits.totalPagado)}</span>
+                    </div>
+                    <div className="flex justify-between border-t pt-1">
+                      <span className="text-muted-foreground">Saldo pendiente:</span>
+                      <span className="font-semibold">{formatCurrency(obraLimits.saldoPendiente)}</span>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Option to apply anticipo */}
+                {availableAnticipos.length > 0 && selectedSolicitud?.tipo !== 'anticipo' && (
                   <div className="space-y-3 pt-2">
-                    <p className="text-sm font-medium text-foreground">Anticipos disponibles para aplicar:</p>
-                    <div className="space-y-2 max-h-40 overflow-y-auto">
-                      {availableAnticipos.map((anticipo) => (
-                        <div key={anticipo.id} className="flex items-center gap-3 p-2 rounded border bg-muted/30">
-                          <Checkbox
-                            checked={selectedAnticipos.has(anticipo.id)}
-                            onCheckedChange={(checked) => toggleAnticipoSelection(anticipo, !!checked)}
-                          />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{anticipo.observaciones || 'Anticipo'}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Disponible: {formatCurrency(anticipo.monto_disponible)}
-                            </p>
-                          </div>
-                          {selectedAnticipos.has(anticipo.id) && (
-                            <Input
-                              type="number"
-                              min="0"
-                              max={anticipo.monto_disponible}
-                              value={selectedAnticipos.get(anticipo.id) || 0}
-                              onChange={(e) => updateAnticipoAmount(anticipo.id, parseFloat(e.target.value) || 0, anticipo.monto_disponible)}
-                              className="w-24 text-right"
-                            />
-                          )}
-                        </div>
-                      ))}
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="aplicar-anticipo"
+                        checked={aplicarAnticipo}
+                        onCheckedChange={(checked) => {
+                          setAplicarAnticipo(!!checked);
+                          if (!checked) {
+                            setSelectedAnticipos(new Map());
+                          }
+                        }}
+                      />
+                      <label htmlFor="aplicar-anticipo" className="text-sm font-medium cursor-pointer">
+                        Aplicar anticipo a este pago
+                      </label>
                     </div>
                     
-                    {totalAnticiposAplicados > 0 && (
-                      <div className="pt-2 border-t space-y-1">
-                        <div className="flex justify-between text-sm">
-                          <span>Total solicitado:</span>
-                          <span>{selectedSolicitud && formatCurrency(Number(selectedSolicitud.total_solicitado))}</span>
-                        </div>
-                        <div className="flex justify-between text-sm text-amber-600">
-                          <span>Anticipo aplicado:</span>
-                          <span>- {formatCurrency(totalAnticiposAplicados)}</span>
-                        </div>
-                        <div className="flex justify-between text-sm font-semibold">
-                          <span>A pagar:</span>
-                          <span>{formatCurrency(Math.max(0, Number(selectedSolicitud?.total_solicitado || 0) - totalAnticiposAplicados))}</span>
-                        </div>
-                      </div>
+                    {aplicarAnticipo && (
+                      <>
+                        {maxAnticipoAllowed <= 0 ? (
+                          <div className="p-2 rounded border bg-red-50 border-red-200 text-red-700 text-sm">
+                            No se puede aplicar anticipo: el pago de esta solicitud ya cubre o excede el saldo pendiente de la obra.
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-xs text-muted-foreground">
+                              Máximo aplicable sin exceder el total de la obra: {formatCurrency(maxAnticipoAllowed)}
+                            </p>
+                            <div className="space-y-2 max-h-40 overflow-y-auto">
+                              {availableAnticipos.map((anticipo) => {
+                                const maxForThis = Math.min(anticipo.monto_disponible, maxAnticipoAllowed);
+                                return (
+                                  <div key={anticipo.id} className="flex items-center gap-3 p-2 rounded border bg-muted/30">
+                                    <Checkbox
+                                      checked={selectedAnticipos.has(anticipo.id)}
+                                      onCheckedChange={(checked) => toggleAnticipoSelection(anticipo, !!checked)}
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium truncate">{anticipo.observaciones || 'Anticipo'}</p>
+                                      <p className="text-xs text-muted-foreground">
+                                        Disponible: {formatCurrency(anticipo.monto_disponible)}
+                                      </p>
+                                    </div>
+                                    {selectedAnticipos.has(anticipo.id) && (
+                                      <Input
+                                        type="number"
+                                        min="0"
+                                        max={maxForThis}
+                                        value={selectedAnticipos.get(anticipo.id) || 0}
+                                        onChange={(e) => updateAnticipoAmount(anticipo.id, parseFloat(e.target.value) || 0, maxForThis)}
+                                        className="w-24 text-right"
+                                      />
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </>
+                        )}
+                        
+                        {totalAnticiposAplicados > 0 && (
+                          <div className="pt-2 border-t space-y-1">
+                            <div className="flex justify-between text-sm">
+                              <span>Total solicitado:</span>
+                              <span>{selectedSolicitud && formatCurrency(Number(selectedSolicitud.total_solicitado))}</span>
+                            </div>
+                            <div className="flex justify-between text-sm text-amber-600">
+                              <span>Anticipo aplicado:</span>
+                              <span>- {formatCurrency(totalAnticiposAplicados)}</span>
+                            </div>
+                            <div className="flex justify-between text-sm font-semibold">
+                              <span>A pagar:</span>
+                              <span>{formatCurrency(Math.max(0, Number(selectedSolicitud?.total_solicitado || 0) - totalAnticiposAplicados))}</span>
+                            </div>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
