@@ -557,6 +557,12 @@ export default function AvancesPage() {
     return !solicitud || solicitud.pagos_destajos?.length === 0;
   };
 
+  const canEditAvance = (avance: AvanceRecord): boolean => {
+    const solicitud = avance.solicitudes_pago?.[0];
+    // No permitir editar si tiene pago asociado
+    return !solicitud?.pagos_destajos || solicitud.pagos_destajos.length === 0;
+  };
+
   const resetForm = () => {
     setSelectedObraId('');
     setSelectedInstaladorId('');
@@ -738,13 +744,15 @@ export default function AvancesPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleOpenEdit(avance)}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
+                      {canEditAvance(avance) && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleOpenEdit(avance)}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                      )}
                       {canDeleteAvance(avance) && (
                         <Button
                           variant="ghost"
