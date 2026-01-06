@@ -539,6 +539,9 @@ export default function SolicitudesPage() {
   };
 
   const filteredSolicitudes = solicitudes.filter((solicitud) => {
+    // Only show pending solicitudes
+    if (solicitud.estado !== 'pendiente') return false;
+    
     const matchesSearch = 
       solicitud.obras?.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
       solicitud.instaladores?.nombre.toLowerCase().includes(searchTerm.toLowerCase());
