@@ -72,7 +72,7 @@ interface AvanceRecord {
     cantidad_completada: number;
     obra_items: { descripcion: string; precio_unitario: number } | null;
   }[];
-  solicitudes_pago: { id: string; estado: string; pagos_destajos: { id: string }[] }[];
+  solicitudes_pago: { id: string; estado: string; created_at: string; pagos_destajos: { id: string }[] }[];
 }
 
 export default function AvancesPage() {
@@ -147,7 +147,7 @@ export default function AvancesPage() {
               cantidad_completada,
               obra_items(descripcion, precio_unitario)
             ),
-            solicitudes_pago(id, estado, pagos_destajos(id))
+            solicitudes_pago(id, estado, created_at, pagos_destajos(id))
           `)
           .order('fecha', { ascending: false }),
         supabase.from('obras').select('*').eq('estado', 'activa'),
@@ -158,7 +158,15 @@ export default function AvancesPage() {
       if (obrasRes.error) throw obrasRes.error;
       if (instaladoresRes.error) throw instaladoresRes.error;
 
-      setAvances((avancesRes.data as AvanceRecord[]) || []);
+      // Sort solicitudes by created_at to get the most recent one first
+      const avancesWithSortedSolicitudes = (avancesRes.data || []).map((avance: any) => ({
+        ...avance,
+        solicitudes_pago: avance.solicitudes_pago?.sort((a: any, b: any) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        ) || [],
+      }));
+
+      setAvances(avancesWithSortedSolicitudes as AvanceRecord[]);
       setObras((obrasRes.data as Obra[]) || []);
       setInstaladores((instaladoresRes.data as Instalador[]) || []);
     } catch (error) {
