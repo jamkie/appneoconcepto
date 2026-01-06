@@ -711,6 +711,10 @@ export default function SolicitudesPage() {
             <ArrowDownCircle className="w-3 h-3" />
             Anticipo
           </span>
+        ) : item.tipo === 'extra' ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+            Extra
+          </span>
         ) : (
           <span className="text-muted-foreground text-sm">Avance</span>
         )
