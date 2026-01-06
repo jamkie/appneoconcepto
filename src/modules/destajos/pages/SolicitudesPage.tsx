@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Wallet, Search, Check, X, Trash2, Plus, Banknote, ArrowDownCircle, Eye } from 'lucide-react';
+import { Wallet, Search, Check, X, Trash2, Plus, Banknote, ArrowDownCircle, Eye, Pencil, ExternalLink } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -927,7 +927,42 @@ export default function SolicitudesPage() {
               )}
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            {/* Action buttons for avance/extra when pending */}
+            {viewingSolicitud && viewingSolicitud.estado === 'pendiente' && (
+              <>
+                {viewingSolicitud.avance_id && (
+                  <div className="flex gap-2 mr-auto">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setViewingSolicitud(null);
+                        navigate('/destajos/avances');
+                      }}
+                    >
+                      <Pencil className="w-4 h-4 mr-1" />
+                      Editar Avance
+                    </Button>
+                  </div>
+                )}
+                {viewingSolicitud.tipo === 'extra' && (
+                  <div className="flex gap-2 mr-auto">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setViewingSolicitud(null);
+                        navigate('/destajos/extras');
+                      }}
+                    >
+                      <Pencil className="w-4 h-4 mr-1" />
+                      Editar Extra
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
             <Button variant="outline" onClick={() => setViewingSolicitud(null)}>
               Cerrar
             </Button>
