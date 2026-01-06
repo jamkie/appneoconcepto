@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DollarSign, Plus, Search } from 'lucide-react';
+import { DollarSign, Plus, Search, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -23,6 +23,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import type { Obra, Instalador, PagoDestajo, PaymentMethod } from '../types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -62,6 +72,10 @@ export default function PagosPage() {
     observaciones: '',
     fecha: format(new Date(), 'yyyy-MM-dd'),
   });
+
+  // Cancel payment state
+  const [pagoToCancel, setPagoToCancel] = useState<PagoWithDetails | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -161,6 +175,49 @@ export default function PagosPage() {
     }
   };
 
+  const handleCancelPago = async () => {
+    if (!pagoToCancel) return;
+
+    try {
+      setCancelling(true);
+
+      // If there's a linked solicitud, set it back to pendiente
+      if (pagoToCancel.solicitud_id) {
+        const { error: updateError } = await supabase
+          .from('solicitudes_pago')
+          .update({
+            estado: 'pendiente',
+            aprobado_por: null,
+            fecha_aprobacion: null,
+          })
+          .eq('id', pagoToCancel.solicitud_id);
+
+        if (updateError) throw updateError;
+      }
+
+      // Delete the payment
+      const { error: deleteError } = await supabase
+        .from('pagos_destajos')
+        .delete()
+        .eq('id', pagoToCancel.id);
+
+      if (deleteError) throw deleteError;
+
+      toast({ title: 'Pago cancelado', description: 'El pago ha sido eliminado y la solicitud vuelve a estar pendiente' });
+      setPagoToCancel(null);
+      fetchData();
+    } catch (error) {
+      console.error('Error cancelling pago:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo cancelar el pago',
+        variant: 'destructive',
+      });
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-MX', {
       style: 'currency',
@@ -205,6 +262,21 @@ export default function PagosPage() {
       ),
       hideOnMobile: true,
     },
+    ...(isAdmin ? [{
+      key: 'acciones',
+      header: 'Acciones',
+      cell: (item: PagoWithDetails) => (
+        <Button
+          size="sm"
+          variant="outline"
+          className="text-red-600 border-red-200 hover:bg-red-50"
+          onClick={() => setPagoToCancel(item)}
+        >
+          <X className="w-4 h-4 mr-1" />
+          Cancelar
+        </Button>
+      ),
+    }] : []),
   ];
 
   if (loading || loadingData) {
@@ -265,6 +337,30 @@ export default function PagosPage() {
           />
         }
       />
+
+      {/* Cancel Payment Confirmation */}
+      <AlertDialog open={!!pagoToCancel} onOpenChange={(open) => !open && setPagoToCancel(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Cancelar pago?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminará el pago de {pagoToCancel && formatCurrency(Number(pagoToCancel.monto))} 
+              para {pagoToCancel?.instaladores?.nombre}.
+              {pagoToCancel?.solicitud_id && ' La solicitud asociada volverá a estado pendiente.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No, mantener</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleCancelPago}
+              disabled={cancelling}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {cancelling ? 'Cancelando...' : 'Sí, cancelar pago'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Create Modal */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>

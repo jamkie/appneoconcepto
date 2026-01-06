@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Wallet, Search, Check, X, CheckCheck } from 'lucide-react';
+import { Wallet, Search, Check, X, CheckCheck, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -26,6 +26,7 @@ import { es } from 'date-fns/locale';
 interface SolicitudWithDetails extends SolicitudPago {
   obras: { nombre: string } | null;
   instaladores: { nombre: string } | null;
+  pagos_destajos: { id: string }[] | null;
 }
 
 export default function SolicitudesPage() {
@@ -37,7 +38,7 @@ export default function SolicitudesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   
   // Action states
-  const [actionType, setActionType] = useState<'aprobar' | 'rechazar' | 'masivo' | null>(null);
+  const [actionType, setActionType] = useState<'aprobar' | 'rechazar' | 'masivo' | 'eliminar' | null>(null);
   const [selectedSolicitud, setSelectedSolicitud] = useState<SolicitudWithDetails | null>(null);
   const [processing, setProcessing] = useState(false);
   const [motivoRechazo, setMotivoRechazo] = useState('');
@@ -65,7 +66,8 @@ export default function SolicitudesPage() {
         .select(`
           *,
           obras(nombre),
-          instaladores(nombre)
+          instaladores(nombre),
+          pagos_destajos(id)
         `)
         .order('created_at', { ascending: false });
 
@@ -255,6 +257,42 @@ export default function SolicitudesPage() {
     }
   };
 
+  const handleEliminar = async () => {
+    if (!selectedSolicitud) return;
+    
+    try {
+      setProcessing(true);
+      
+      const { error } = await supabase
+        .from('solicitudes_pago')
+        .delete()
+        .eq('id', selectedSolicitud.id);
+      
+      if (error) throw error;
+      
+      toast({ title: 'Eliminada', description: 'La solicitud ha sido eliminada' });
+      setActionType(null);
+      setSelectedSolicitud(null);
+      fetchSolicitudes();
+    } catch (error) {
+      console.error('Error deleting solicitud:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo eliminar la solicitud',
+        variant: 'destructive',
+      });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const canDeleteSolicitud = (sol: SolicitudWithDetails) => {
+    // Can delete if no payment linked and no avance linked
+    const hasPago = sol.pagos_destajos && sol.pagos_destajos.length > 0;
+    const hasAvance = !!sol.avance_id;
+    return !hasPago && !hasAvance;
+  };
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-MX', {
       style: 'currency',
@@ -317,36 +355,52 @@ export default function SolicitudesPage() {
       key: 'acciones',
       header: 'Acciones',
       cell: (item: SolicitudWithDetails) => (
-        item.estado === 'pendiente' ? (
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
-              onClick={() => {
-                setSelectedSolicitud(item);
-                setActionType('aprobar');
-              }}
-            >
-              <Check className="w-4 h-4 mr-1" />
-              Aprobar
-            </Button>
+        <div className="flex gap-2">
+          {item.estado === 'pendiente' && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+                onClick={() => {
+                  setSelectedSolicitud(item);
+                  setActionType('aprobar');
+                }}
+              >
+                <Check className="w-4 h-4 mr-1" />
+                Aprobar
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-red-600 border-red-200 hover:bg-red-50"
+                onClick={() => {
+                  setSelectedSolicitud(item);
+                  setActionType('rechazar');
+                }}
+              >
+                <X className="w-4 h-4 mr-1" />
+                Rechazar
+              </Button>
+            </>
+          )}
+          {canDeleteSolicitud(item) && (
             <Button
               size="sm"
               variant="outline"
               className="text-red-600 border-red-200 hover:bg-red-50"
               onClick={() => {
                 setSelectedSolicitud(item);
-                setActionType('rechazar');
+                setActionType('eliminar');
               }}
             >
-              <X className="w-4 h-4 mr-1" />
-              Rechazar
+              <Trash2 className="w-4 h-4" />
             </Button>
-          </div>
-        ) : (
-          <span className="text-sm text-muted-foreground">-</span>
-        )
+          )}
+          {!canDeleteSolicitud(item) && item.estado !== 'pendiente' && (
+            <span className="text-sm text-muted-foreground">-</span>
+          )}
+        </div>
       ),
     },
   ];
@@ -488,6 +542,29 @@ export default function SolicitudesPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {processing ? 'Procesando...' : 'Rechazar'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={actionType === 'eliminar'} onOpenChange={(open) => !open && setActionType(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar solicitud?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminará permanentemente la solicitud de pago por {selectedSolicitud && formatCurrency(Number(selectedSolicitud.total_solicitado))} 
+              para {selectedSolicitud?.instaladores?.nombre}. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleEliminar}
+              disabled={processing}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {processing ? 'Eliminando...' : 'Eliminar'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
