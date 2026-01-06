@@ -369,21 +369,39 @@ export default function SolicitudesPage() {
     }
   };
 
+  // Build breakdown by installer for bulk approval modal
+  const instaladorBreakdown = (() => {
+    const breakdown = new Map<string, { 
+      instalador: Instalador | undefined; 
+      total: number; 
+      solicitudes: SolicitudWithDetails[];
+      obraId: string;
+    }>();
+    
+    for (const sol of selectedSolicitudes) {
+      const instalador = instaladores.find(i => i.id === sol.instalador_id);
+      const key = sol.instalador_id;
+      if (!breakdown.has(key)) {
+        breakdown.set(key, { 
+          instalador, 
+          total: 0, 
+          solicitudes: [],
+          obraId: sol.obra_id,
+        });
+      }
+      const entry = breakdown.get(key)!;
+      entry.total += Number(sol.total_solicitado);
+      entry.solicitudes.push(sol);
+    }
+    
+    return Array.from(breakdown.values());
+  })();
+
   const handleAprobarMasivo = async () => {
     if (selectedSolicitudes.length === 0 || !user) return;
     
     try {
       setProcessing(true);
-      
-      // Group by instalador_id + obra_id
-      const groups = new Map<string, SolicitudWithDetails[]>();
-      for (const sol of selectedSolicitudes) {
-        const key = `${sol.instalador_id}-${sol.obra_id}`;
-        if (!groups.has(key)) {
-          groups.set(key, []);
-        }
-        groups.get(key)!.push(sol);
-      }
       
       // Update all selected solicitudes to approved
       const { error: updateError } = await supabase
@@ -397,30 +415,29 @@ export default function SolicitudesPage() {
       
       if (updateError) throw updateError;
       
-      // Create one consolidated payment per group
-      const pagosToInsert = Array.from(groups.entries()).map(([_, sols]) => {
-        const totalMonto = sols.reduce((sum, s) => sum + Number(s.total_solicitado), 0);
-        const solicitudIds = sols.map(s => s.id).join(', ');
-        return {
-          obra_id: sols[0].obra_id,
-          instalador_id: sols[0].instalador_id,
-          monto: totalMonto,
-          metodo_pago: 'transferencia' as const,
-          solicitud_id: sols[0].id,
-          registrado_por: user.id,
-          observaciones: `Pago consolidado - ${sols.length} solicitud(es): ${solicitudIds}`,
-        };
-      });
+      // Create one single consolidated payment for the grand total
+      const grandTotal = selectedSolicitudes.reduce((sum, s) => sum + Number(s.total_solicitado), 0);
+      const instaladorNames = [...new Set(selectedSolicitudes.map(s => s.instaladores?.nombre || 'N/A'))].join(', ');
+      const obraNames = [...new Set(selectedSolicitudes.map(s => s.obras?.nombre || 'N/A'))].join(', ');
       
+      // Use first solicitud's obra_id and instalador_id for the single payment record
       const { error: pagoError } = await supabase
         .from('pagos_destajos')
-        .insert(pagosToInsert);
+        .insert({
+          obra_id: selectedSolicitudes[0].obra_id,
+          instalador_id: selectedSolicitudes[0].instalador_id,
+          monto: grandTotal,
+          metodo_pago: 'transferencia' as const,
+          solicitud_id: selectedSolicitudes[0].id,
+          registrado_por: user.id,
+          observaciones: `Pago consolidado - ${selectedSolicitudes.length} solicitud(es) - Instaladores: ${instaladorNames} - Obras: ${obraNames}`,
+        });
       
       if (pagoError) throw pagoError;
       
       toast({ 
         title: 'Éxito', 
-        description: `${selectedSolicitudes.length} solicitudes aprobadas y ${pagosToInsert.length} pago(s) creado(s)` 
+        description: `${selectedSolicitudes.length} solicitudes aprobadas y 1 pago consolidado creado por ${formatCurrency(grandTotal)}` 
       });
       setActionType(null);
       setSelectedIds(new Set());
@@ -944,13 +961,48 @@ export default function SolicitudesPage() {
 
       {/* Bulk Approve Confirmation */}
       <AlertDialog open={actionType === 'masivo'} onOpenChange={(open) => !open && setActionType(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-lg">
           <AlertDialogHeader>
             <AlertDialogTitle>¿Aprobar {selectedIds.size} solicitud(es)?</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2">
-              <p>Se aprobarán las solicitudes seleccionadas y se creará un pago consolidado por instalador/obra.</p>
-              <p className="font-semibold">Total: {formatCurrency(totalSeleccionado)}</p>
-              <p className="text-amber-600 text-sm">Nota: Para aplicar anticipos, apruebe las solicitudes individualmente.</p>
+            <AlertDialogDescription asChild>
+              <div className="space-y-4">
+                <p>Se aprobarán las solicitudes seleccionadas y se creará <strong>un solo pago consolidado</strong>.</p>
+                
+                {/* Breakdown by installer */}
+                <div className="space-y-3 max-h-60 overflow-y-auto">
+                  <p className="text-sm font-semibold text-foreground">Desglose por instalador:</p>
+                  {instaladorBreakdown.map((item, idx) => (
+                    <div key={idx} className="p-3 rounded-lg border bg-muted/30 space-y-1">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="font-medium text-foreground">{item.instalador?.nombre || 'N/A'}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {item.solicitudes.length} solicitud(es)
+                          </p>
+                        </div>
+                        <span className="font-semibold text-emerald-600">{formatCurrency(item.total)}</span>
+                      </div>
+                      {item.instalador?.numero_cuenta && (
+                        <div className="flex items-center gap-2 pt-1 border-t">
+                          <span className="text-xs text-muted-foreground">No. Cuenta:</span>
+                          <span className="text-sm font-mono bg-background px-2 py-0.5 rounded">
+                            {item.instalador.numero_cuenta}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                
+                <div className="pt-2 border-t">
+                  <div className="flex justify-between text-base font-semibold">
+                    <span>Total a pagar:</span>
+                    <span className="text-emerald-600">{formatCurrency(totalSeleccionado)}</span>
+                  </div>
+                </div>
+                
+                <p className="text-amber-600 text-xs">Nota: Para aplicar anticipos, apruebe las solicitudes individualmente.</p>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
