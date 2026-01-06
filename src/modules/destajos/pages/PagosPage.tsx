@@ -135,12 +135,52 @@ export default function PagosPage() {
       return;
     }
 
+    const monto = parseFloat(formData.monto);
+
     try {
       setSaving(true);
+      
+      // Validate we don't exceed obra total
+      const [itemsRes, extrasRes, pagosRes] = await Promise.all([
+        supabase
+          .from('obra_items')
+          .select('cantidad, precio_unitario')
+          .eq('obra_id', formData.obra_id),
+        supabase
+          .from('extras')
+          .select('monto')
+          .eq('obra_id', formData.obra_id)
+          .eq('estado', 'aprobado'),
+        supabase
+          .from('pagos_destajos')
+          .select('monto')
+          .eq('obra_id', formData.obra_id),
+      ]);
+      
+      const totalItems = (itemsRes.data || []).reduce((sum, item) => 
+        sum + (Number(item.cantidad) * Number(item.precio_unitario)), 0);
+      const totalExtras = (extrasRes.data || []).reduce((sum, extra) => 
+        sum + Number(extra.monto), 0);
+      const totalPagado = (pagosRes.data || []).reduce((sum, pago) => 
+        sum + Number(pago.monto), 0);
+      
+      const totalObra = totalItems + totalExtras;
+      const saldoPendiente = totalObra - totalPagado;
+      
+      if (monto > saldoPendiente) {
+        toast({
+          title: 'Error',
+          description: `El monto de ${formatCurrency(monto)} excede el saldo pendiente de ${formatCurrency(saldoPendiente)}. Total obra: ${formatCurrency(totalObra)}, Ya pagado: ${formatCurrency(totalPagado)}`,
+          variant: 'destructive',
+        });
+        setSaving(false);
+        return;
+      }
+      
       const pagoData = {
         obra_id: formData.obra_id,
         instalador_id: formData.instalador_id,
-        monto: parseFloat(formData.monto),
+        monto: monto,
         metodo_pago: formData.metodo_pago,
         referencia: formData.referencia.trim() || null,
         observaciones: formData.observaciones.trim() || null,
