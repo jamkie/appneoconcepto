@@ -129,7 +129,7 @@ export default function SolicitudesPage() {
       setSolicitudes((solicitudesRes.data as SolicitudWithDetails[]) || []);
       setObras((obrasRes.data as Obra[]) || []);
       setInstaladores((instaladoresRes.data as Instalador[]) || []);
-      setAnticipos((anticiposRes.data as AnticipoWithDetails[]) || []);
+      setAnticipos((anticiposRes.data as unknown as AnticipoWithDetails[]) || []);
       setSelectedIds(new Set());
     } catch (error) {
       console.error('Error fetching data:', error);
