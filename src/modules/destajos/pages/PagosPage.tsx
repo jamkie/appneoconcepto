@@ -359,7 +359,10 @@ Documento generado el ${format(new Date(), "dd/MM/yyyy 'a las' HH:mm", { locale:
           size="sm"
           variant="outline"
           className="text-red-600 border-red-200 hover:bg-red-50"
-          onClick={() => setPagoToCancel(item)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setPagoToCancel(item);
+          }}
         >
           <X className="w-4 h-4 mr-1" />
           Cancelar
