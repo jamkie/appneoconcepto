@@ -99,6 +99,7 @@ export interface SolicitudPago {
   id: string;
   obra_id: string;
   instalador_id: string;
+  avance_id: string | null;
   tipo: string;
   cocinas_solicitadas: number;
   closets_solicitados: number;
