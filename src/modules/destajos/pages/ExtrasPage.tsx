@@ -41,6 +41,7 @@ interface ExtraWithDetails extends Extra {
   obras: { nombre: string } | null;
   instaladores: { nombre: string } | null;
   solicitudRechazada?: boolean;
+  solicitudPagada?: boolean;
 }
 
 export default function ExtrasPage() {
@@ -52,7 +53,7 @@ export default function ExtrasPage() {
   const [instaladores, setInstaladores] = useState<Instalador[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'todos' | 'pendiente' | 'aprobado' | 'rechazado'>('todos');
+  const [statusFilter, setStatusFilter] = useState<'todos' | 'pendiente' | 'aprobado' | 'rechazado' | 'pagado'>('todos');
   const [creatingSolicitud, setCreatingSolicitud] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -95,7 +96,7 @@ export default function ExtrasPage() {
         supabase.from('instaladores').select('*').eq('activo', true),
         supabase
           .from('solicitudes_pago')
-          .select('extras_ids, estado')
+          .select('extras_ids, estado, pagos_destajos(id)')
           .eq('tipo', 'extra'),
       ]);
 
@@ -108,9 +109,11 @@ export default function ExtrasPage() {
         const solicitud = (solicitudesRes.data || []).find(
           s => s.extras_ids && s.extras_ids.includes(extra.id)
         );
+        const hasPago = solicitud?.pagos_destajos && solicitud.pagos_destajos.length > 0;
         return {
           ...extra,
           solicitudRechazada: solicitud?.estado === 'rechazada',
+          solicitudPagada: hasPago,
         } as ExtraWithDetails;
       });
 
@@ -343,6 +346,12 @@ export default function ExtrasPage() {
     if (statusFilter === 'rechazado') {
       return matchesSearch && extra.solicitudRechazada;
     }
+    if (statusFilter === 'pagado') {
+      return matchesSearch && extra.solicitudPagada;
+    }
+    if (statusFilter === 'aprobado') {
+      return matchesSearch && extra.estado === 'aprobado' && !extra.solicitudPagada;
+    }
     const matchesStatus = statusFilter === 'todos' || extra.estado === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -378,11 +387,19 @@ export default function ExtrasPage() {
     {
       key: 'estado',
       header: 'Estado',
-      cell: (item: ExtraWithDetails) => (
-        <div className="flex items-center gap-2">
-          <StatusBadge status={item.solicitudRechazada ? 'rechazado' : item.estado} />
-        </div>
-      ),
+      cell: (item: ExtraWithDetails) => {
+        let displayStatus: string = item.estado;
+        if (item.solicitudPagada) {
+          displayStatus = 'pagado';
+        } else if (item.solicitudRechazada) {
+          displayStatus = 'rechazado';
+        }
+        return (
+          <div className="flex items-center gap-2">
+            <StatusBadge status={displayStatus} />
+          </div>
+        );
+      },
     },
     {
       key: 'acciones',
@@ -466,7 +483,7 @@ export default function ExtrasPage() {
             className="pl-10"
           />
         </div>
-        <Select value={statusFilter} onValueChange={(value: 'todos' | 'pendiente' | 'aprobado' | 'rechazado') => setStatusFilter(value)}>
+        <Select value={statusFilter} onValueChange={(value: 'todos' | 'pendiente' | 'aprobado' | 'rechazado' | 'pagado') => setStatusFilter(value)}>
           <SelectTrigger className="w-full sm:w-48">
             <SelectValue placeholder="Estado" />
           </SelectTrigger>
@@ -474,6 +491,7 @@ export default function ExtrasPage() {
             <SelectItem value="todos">Todos</SelectItem>
             <SelectItem value="pendiente">Pendientes</SelectItem>
             <SelectItem value="aprobado">Aprobados</SelectItem>
+            <SelectItem value="pagado">Pagados</SelectItem>
             <SelectItem value="rechazado">Rechazados</SelectItem>
           </SelectContent>
         </Select>

@@ -14,6 +14,7 @@ const statusConfig: Record<string, { label: string; variant: 'default' | 'second
   aprobado: { label: 'Aprobado', variant: 'default' },
   rechazada: { label: 'Rechazada', variant: 'destructive' },
   rechazado: { label: 'Rechazado', variant: 'destructive' },
+  pagado: { label: 'Pagado', variant: 'secondary' },
 };
 
 export function StatusBadge({ status, className }: StatusBadgeProps) {
