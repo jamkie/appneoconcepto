@@ -154,3 +154,27 @@ export interface PagoDestajoWithDetails extends PagoDestajo {
   instalador?: Instalador;
   solicitud?: SolicitudPago;
 }
+
+export interface Anticipo {
+  id: string;
+  instalador_id: string;
+  obra_id: string;
+  monto_original: number;
+  monto_disponible: number;
+  observaciones: string | null;
+  registrado_por: string;
+  created_at: string;
+}
+
+export interface AnticipoAplicacion {
+  id: string;
+  anticipo_id: string;
+  pago_id: string;
+  monto_aplicado: number;
+  created_at: string;
+}
+
+export interface AnticipoWithDetails extends Anticipo {
+  obra?: { nombre: string };
+  instalador?: { nombre: string };
+}

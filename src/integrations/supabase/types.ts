@@ -14,6 +14,78 @@ export type Database = {
   }
   public: {
     Tables: {
+      anticipo_aplicaciones: {
+        Row: {
+          anticipo_id: string
+          created_at: string
+          id: string
+          monto_aplicado: number
+          pago_id: string
+        }
+        Insert: {
+          anticipo_id: string
+          created_at?: string
+          id?: string
+          monto_aplicado: number
+          pago_id: string
+        }
+        Update: {
+          anticipo_id?: string
+          created_at?: string
+          id?: string
+          monto_aplicado?: number
+          pago_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "anticipo_aplicaciones_anticipo_id_fkey"
+            columns: ["anticipo_id"]
+            isOneToOne: false
+            referencedRelation: "anticipos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "anticipo_aplicaciones_pago_id_fkey"
+            columns: ["pago_id"]
+            isOneToOne: false
+            referencedRelation: "pagos_destajos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      anticipos: {
+        Row: {
+          created_at: string
+          id: string
+          instalador_id: string
+          monto_disponible: number
+          monto_original: number
+          obra_id: string
+          observaciones: string | null
+          registrado_por: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          instalador_id: string
+          monto_disponible: number
+          monto_original: number
+          obra_id: string
+          observaciones?: string | null
+          registrado_por: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          instalador_id?: string
+          monto_disponible?: number
+          monto_original?: number
+          obra_id?: string
+          observaciones?: string | null
+          registrado_por?: string
+        }
+        Relationships: []
+      }
       avance_items: {
         Row: {
           avance_id: string
