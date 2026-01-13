@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Plus, Eye, Lock, Search, Users } from 'lucide-react';
+import { Calendar, Plus, Eye, Lock, Search, Users, Unlock } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -80,6 +80,10 @@ export default function CortesPage() {
   // Close corte confirmation
   const [confirmClose, setConfirmClose] = useState(false);
   const [closingCorte, setClosingCorte] = useState(false);
+  
+  // Reopen corte confirmation
+  const [confirmReopen, setConfirmReopen] = useState(false);
+  const [reopeningCorte, setReopeningCorte] = useState(false);
   
   // Payment method for closing
   const [metodoPago, setMetodoPago] = useState<'efectivo' | 'transferencia' | 'cheque'>('transferencia');
@@ -401,6 +405,120 @@ export default function CortesPage() {
     }
   };
 
+  const handleReopenCorte = async () => {
+    if (!viewingCorte || !user) return;
+    
+    try {
+      setReopeningCorte(true);
+      
+      // Get all pagos linked to this corte
+      const { data: pagosData, error: pagosError } = await supabase
+        .from('pagos_destajos')
+        .select('id, monto, obra_id, instalador_id')
+        .eq('corte_id', viewingCorte.id);
+      
+      if (pagosError) throw pagosError;
+      
+      // Get all solicitudes linked to this corte
+      const { data: solicitudesData, error: solicitudesError } = await supabase
+        .from('solicitudes_pago')
+        .select('id, tipo, extras_ids, obra_id, instalador_id, total_solicitado')
+        .eq('corte_id', viewingCorte.id);
+      
+      if (solicitudesError) throw solicitudesError;
+      
+      // Delete all pagos linked to this corte
+      if (pagosData && pagosData.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('pagos_destajos')
+          .delete()
+          .eq('corte_id', viewingCorte.id);
+        
+        if (deleteError) throw deleteError;
+      }
+      
+      // Revert all solicitudes to pendiente (keep corte_id so they stay assigned)
+      if (solicitudesData && solicitudesData.length > 0) {
+        const solicitudIds = solicitudesData.map(s => s.id);
+        
+        const { error: updateSolError } = await supabase
+          .from('solicitudes_pago')
+          .update({
+            estado: 'pendiente',
+            aprobado_por: null,
+            fecha_aprobacion: null,
+          })
+          .in('id', solicitudIds);
+        
+        if (updateSolError) throw updateSolError;
+        
+        // Revert all extras linked to these solicitudes
+        const allExtrasIds = solicitudesData
+          .flatMap(s => s.extras_ids || [])
+          .filter(Boolean);
+        
+        if (allExtrasIds.length > 0) {
+          const { error: extrasError } = await supabase
+            .from('extras')
+            .update({
+              estado: 'pendiente',
+              aprobado_por: null,
+              fecha_aprobacion: null,
+            })
+            .in('id', allExtrasIds);
+          
+          if (extrasError) throw extrasError;
+        }
+        
+        // Delete anticipos generated from these solicitudes
+        const anticipoSolicitudes = solicitudesData.filter(s => s.tipo === 'anticipo');
+        for (const sol of anticipoSolicitudes) {
+          const { error: anticipoDeleteError } = await supabase
+            .from('anticipos')
+            .delete()
+            .eq('obra_id', sol.obra_id)
+            .eq('instalador_id', sol.instalador_id)
+            .eq('monto_original', sol.total_solicitado);
+          
+          if (anticipoDeleteError) {
+            console.error('Error deleting anticipo:', anticipoDeleteError);
+          }
+        }
+      }
+      
+      // Update corte back to abierto
+      const { error: corteError } = await supabase
+        .from('cortes_semanales')
+        .update({
+          estado: 'abierto',
+          total_monto: 0,
+          cerrado_por: null,
+          fecha_cierre: null,
+        })
+        .eq('id', viewingCorte.id);
+      
+      if (corteError) throw corteError;
+      
+      toast({
+        title: 'Corte reabierto',
+        description: `Se eliminaron ${pagosData?.length || 0} pagos y las solicitudes vuelven a estar pendientes`,
+      });
+      
+      setConfirmReopen(false);
+      setViewingCorte(null);
+      fetchCortes();
+    } catch (error) {
+      console.error('Error reopening corte:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo reabrir el corte',
+        variant: 'destructive',
+      });
+    } finally {
+      setReopeningCorte(false);
+    }
+  };
+
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-MX', {
       style: 'currency',
@@ -691,10 +809,19 @@ export default function CortesPage() {
             </div>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="gap-2 flex-wrap">
             <Button variant="outline" onClick={() => setViewingCorte(null)}>
               Cerrar
             </Button>
+            {viewingCorte?.estado === 'cerrado' && (
+              <Button 
+                variant="destructive" 
+                onClick={() => setConfirmReopen(true)}
+              >
+                <Unlock className="w-4 h-4 mr-2" />
+                Reabrir Corte
+              </Button>
+            )}
             {viewingCorte?.estado === 'abierto' && corteSolicitudes.length > 0 && (
               <Button onClick={() => setConfirmClose(true)}>
                 <Lock className="w-4 h-4 mr-2" />
@@ -742,6 +869,46 @@ export default function CortesPage() {
             <AlertDialogCancel disabled={closingCorte}>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={handleCloseCorte} disabled={closingCorte}>
               {closingCorte ? 'Procesando...' : 'Confirmar y Generar Pagos'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirm Reopen Corte Dialog */}
+      <AlertDialog open={confirmReopen} onOpenChange={setConfirmReopen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Reabrir corte?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminarán todos los pagos generados por este corte y las solicitudes volverán a estado pendiente.
+              <div className="mt-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+                <p className="font-medium text-destructive mb-2">Esta acción eliminará:</p>
+                <ul className="text-sm space-y-1">
+                  <li>• Todos los pagos vinculados a este corte</li>
+                  <li>• Los anticipos generados (si aplica)</li>
+                </ul>
+              </div>
+              <div className="mt-3 p-3 bg-muted rounded-lg">
+                <p className="font-medium mb-2">Solicitudes que volverán a pendiente:</p>
+                <ul className="text-sm space-y-1">
+                  {resumenInstaladores.map((inst) => (
+                    <li key={inst.id} className="flex justify-between">
+                      <span>{inst.nombre}</span>
+                      <span className="font-medium">{formatCurrency(inst.total)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={reopeningCorte}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleReopenCorte} 
+              disabled={reopeningCorte}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {reopeningCorte ? 'Reabriendo...' : 'Sí, Reabrir Corte'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

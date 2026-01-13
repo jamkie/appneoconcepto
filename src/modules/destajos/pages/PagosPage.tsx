@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DollarSign, Search, X, FileText, Download } from 'lucide-react';
+import { DollarSign, Search, FileText, Download } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -14,20 +14,9 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import type { PagoDestajo, PaymentMethod } from '../types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { useUserRole } from '@/hooks/useUserRole';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 
@@ -45,16 +34,11 @@ const paymentMethodLabels: Record<PaymentMethod, string> = {
 
 export default function PagosPage() {
   const { user, loading } = useAuth();
-  const { isAdmin } = useUserRole();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [pagos, setPagos] = useState<PagoWithDetails[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-
-  // Cancel payment state
-  const [pagoToCancel, setPagoToCancel] = useState<PagoWithDetails | null>(null);
-  const [cancelling, setCancelling] = useState(false);
   
   // View payment detail state
   const [selectedPago, setSelectedPago] = useState<PagoWithDetails | null>(null);
@@ -96,127 +80,6 @@ export default function PagosPage() {
       });
     } finally {
       setLoadingData(false);
-    }
-  };
-
-  const handleCancelPago = async () => {
-    if (!pagoToCancel) return;
-
-    try {
-      setCancelling(true);
-
-      // Find all solicitudes that should be reverted to pendiente
-      // For consolidated payments, we need to find all solicitudes approved around the same time
-      // for the same obra/instalador combination mentioned in the observaciones
-      if (pagoToCancel.solicitud_id) {
-        // First, get the linked solicitud to find its approval timestamp and type
-        const { data: linkedSolicitud } = await supabase
-          .from('solicitudes_pago')
-          .select('fecha_aprobacion, obra_id, instalador_id, extras_ids, tipo')
-          .eq('id', pagoToCancel.solicitud_id)
-          .single();
-
-        let solicitudesToRevert: { id: string; extras_ids: string[] | null; tipo: string }[] = [];
-
-        if (linkedSolicitud?.fecha_aprobacion) {
-          // Find all solicitudes approved at the same timestamp (consolidated payment)
-          const { data: allSolicitudes, error: fetchError } = await supabase
-            .from('solicitudes_pago')
-            .select('id, extras_ids, tipo')
-            .eq('fecha_aprobacion', linkedSolicitud.fecha_aprobacion)
-            .eq('estado', 'aprobada');
-
-          if (fetchError) throw fetchError;
-          solicitudesToRevert = allSolicitudes || [];
-
-          // Update all solicitudes back to pendiente
-          const { error: updateError } = await supabase
-            .from('solicitudes_pago')
-            .update({
-              estado: 'pendiente',
-              aprobado_por: null,
-              fecha_aprobacion: null,
-            })
-            .eq('fecha_aprobacion', linkedSolicitud.fecha_aprobacion)
-            .eq('estado', 'aprobada');
-
-          if (updateError) throw updateError;
-        } else {
-          // Fallback: just update the single linked solicitud
-          solicitudesToRevert = [{ 
-            id: pagoToCancel.solicitud_id, 
-            extras_ids: linkedSolicitud?.extras_ids || null,
-            tipo: linkedSolicitud?.tipo || ''
-          }];
-
-          const { error: updateError } = await supabase
-            .from('solicitudes_pago')
-            .update({
-              estado: 'pendiente',
-              aprobado_por: null,
-              fecha_aprobacion: null,
-            })
-            .eq('id', pagoToCancel.solicitud_id);
-
-          if (updateError) throw updateError;
-        }
-
-        // Revert all extras from these solicitudes back to pendiente
-        const allExtrasIds = solicitudesToRevert
-          .flatMap(s => s.extras_ids || [])
-          .filter(Boolean);
-
-        if (allExtrasIds.length > 0) {
-          const { error: extrasError } = await supabase
-            .from('extras')
-            .update({
-              estado: 'pendiente',
-              aprobado_por: null,
-              fecha_aprobacion: null,
-            })
-            .in('id', allExtrasIds);
-
-          if (extrasError) throw extrasError;
-        }
-
-        // If any of the solicitudes are anticipos, delete the corresponding anticipo records
-        const anticipoSolicitudes = solicitudesToRevert.filter(s => s.tipo === 'anticipo');
-        if (anticipoSolicitudes.length > 0 && linkedSolicitud) {
-          // Delete anticipos that were created for these solicitudes
-          // We match by obra_id, instalador_id and approximate creation time
-          const { error: anticipoDeleteError } = await supabase
-            .from('anticipos')
-            .delete()
-            .eq('obra_id', linkedSolicitud.obra_id)
-            .eq('instalador_id', linkedSolicitud.instalador_id)
-            .eq('monto_original', pagoToCancel.monto);
-
-          if (anticipoDeleteError) {
-            console.error('Error deleting anticipo:', anticipoDeleteError);
-          }
-        }
-      }
-
-      // Delete the payment
-      const { error: deleteError } = await supabase
-        .from('pagos_destajos')
-        .delete()
-        .eq('id', pagoToCancel.id);
-
-      if (deleteError) throw deleteError;
-
-      toast({ title: 'Pago cancelado', description: 'El pago ha sido eliminado y las solicitudes vuelven a estar pendientes' });
-      setPagoToCancel(null);
-      fetchData();
-    } catch (error) {
-      console.error('Error cancelling pago:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudo cancelar el pago',
-        variant: 'destructive',
-      });
-    } finally {
-      setCancelling(false);
     }
   };
 
@@ -309,24 +172,6 @@ Documento generado el ${format(new Date(), "dd/MM/yyyy 'a las' HH:mm", { locale:
       ),
       hideOnMobile: true,
     },
-    ...(isAdmin ? [{
-      key: 'acciones',
-      header: 'Acciones',
-      cell: (item: PagoWithDetails) => (
-        <Button
-          size="sm"
-          variant="outline"
-          className="text-red-600 border-red-200 hover:bg-red-50"
-          onClick={(e) => {
-            e.stopPropagation();
-            setPagoToCancel(item);
-          }}
-        >
-          <X className="w-4 h-4 mr-1" />
-          Cancelar
-        </Button>
-      ),
-    }] : []),
   ];
 
   if (loading || loadingData) {
@@ -341,7 +186,7 @@ Documento generado el ${format(new Date(), "dd/MM/yyyy 'a las' HH:mm", { locale:
     <div>
       <PageHeader
         title="Pagos"
-        description="Registro de pagos a instaladores"
+        description="Registro de pagos a instaladores (gestiona desde Cortes)"
         icon={DollarSign}
       />
 
@@ -368,34 +213,10 @@ Documento generado el ${format(new Date(), "dd/MM/yyyy 'a las' HH:mm", { locale:
           <EmptyState
             icon={DollarSign}
             title="Sin pagos"
-            description="No hay pagos registrados. Los pagos se crean desde Solicitudes."
+            description="No hay pagos registrados. Los pagos se crean desde Cortes Semanales."
           />
         }
       />
-
-      {/* Cancel Payment Confirmation */}
-      <AlertDialog open={!!pagoToCancel} onOpenChange={(open) => !open && setPagoToCancel(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>¿Cancelar pago?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Se eliminará el pago de {pagoToCancel && formatCurrency(Number(pagoToCancel.monto))} 
-              para {pagoToCancel?.instaladores?.nombre}.
-              {pagoToCancel?.solicitud_id && ' La solicitud asociada volverá a estado pendiente.'}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>No, mantener</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleCancelPago}
-              disabled={cancelling}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {cancelling ? 'Cancelando...' : 'Sí, cancelar pago'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* Payment Detail Modal */}
       <Dialog open={!!selectedPago} onOpenChange={(open) => !open && setSelectedPago(null)}>
