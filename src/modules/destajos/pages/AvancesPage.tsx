@@ -82,6 +82,7 @@ export default function AvancesPage() {
   const { toast } = useToast();
   const [avances, setAvances] = useState<AvanceRecord[]>([]);
   const [obras, setObras] = useState<Obra[]>([]);
+  const [obrasWithPending, setObrasWithPending] = useState<Set<string>>(new Set());
   const [instaladores, setInstaladores] = useState<Instalador[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -147,7 +148,7 @@ export default function AvancesPage() {
     try {
       setLoadingData(true);
       
-      const [avancesRes, obrasRes, instaladoresRes] = await Promise.all([
+      const [avancesRes, obrasRes, instaladoresRes, obraItemsRes, allAvanceItemsRes] = await Promise.all([
         supabase
           .from('avances')
           .select(`
@@ -171,11 +172,30 @@ export default function AvancesPage() {
           .order('fecha', { ascending: false }),
         supabase.from('obras').select('*').eq('estado', 'activa'),
         supabase.from('instaladores').select('*').eq('activo', true),
+        supabase.from('obra_items').select('id, obra_id, cantidad'),
+        supabase.from('avance_items').select('obra_item_id, cantidad_completada'),
       ]);
 
       if (avancesRes.error) throw avancesRes.error;
       if (obrasRes.error) throw obrasRes.error;
       if (instaladoresRes.error) throw instaladoresRes.error;
+      if (obraItemsRes.error) throw obraItemsRes.error;
+      if (allAvanceItemsRes.error) throw allAvanceItemsRes.error;
+
+      // Calculate which obras have pending items
+      const avanceTotals: Record<string, number> = {};
+      (allAvanceItemsRes.data || []).forEach((ai: any) => {
+        avanceTotals[ai.obra_item_id] = (avanceTotals[ai.obra_item_id] || 0) + ai.cantidad_completada;
+      });
+
+      const obrasWithPendingItems = new Set<string>();
+      (obraItemsRes.data || []).forEach((item: any) => {
+        const avanzado = avanceTotals[item.id] || 0;
+        const pendiente = item.cantidad - avanzado;
+        if (pendiente > 0) {
+          obrasWithPendingItems.add(item.obra_id);
+        }
+      });
 
       // Sort solicitudes by created_at to get the most recent one first
       const avancesWithSortedSolicitudes = (avancesRes.data || []).map((avance: any) => ({
@@ -187,6 +207,7 @@ export default function AvancesPage() {
 
       setAvances(avancesWithSortedSolicitudes as AvanceRecord[]);
       setObras((obrasRes.data as Obra[]) || []);
+      setObrasWithPending(obrasWithPendingItems);
       setInstaladores((instaladoresRes.data as Instalador[]) || []);
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -845,11 +866,13 @@ export default function AvancesPage() {
                   <SelectValue placeholder="Seleccionar obra" />
                 </SelectTrigger>
                 <SelectContent>
-                  {obras.map((obra) => (
-                    <SelectItem key={obra.id} value={obra.id}>
-                      {obra.nombre}
-                    </SelectItem>
-                  ))}
+                  {obras
+                    .filter((obra) => obrasWithPending.has(obra.id) || (editingAvance && obra.id === editingAvance.obra_id))
+                    .map((obra) => (
+                      <SelectItem key={obra.id} value={obra.id}>
+                        {obra.nombre}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
