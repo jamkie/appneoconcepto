@@ -7,6 +7,7 @@ export { default as InstaladoresPage } from './pages/InstaladoresPage';
 export { default as AvancesPage } from './pages/AvancesPage';
 export { default as ExtrasPage } from './pages/ExtrasPage';
 export { default as SolicitudesPage } from './pages/SolicitudesPage';
+export { default as CortesPage } from './pages/CortesPage';
 export { default as PagosPage } from './pages/PagosPage';
 
 // Re-export types

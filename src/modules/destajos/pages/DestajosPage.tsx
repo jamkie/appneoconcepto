@@ -6,6 +6,7 @@ import InstaladoresPage from './InstaladoresPage';
 import AvancesPage from './AvancesPage';
 import ExtrasPage from './ExtrasPage';
 import SolicitudesPage from './SolicitudesPage';
+import CortesPage from './CortesPage';
 import PagosPage from './PagosPage';
 
 export default function DestajosPage() {
@@ -18,6 +19,7 @@ export default function DestajosPage() {
         <Route path="avances" element={<AvancesPage />} />
         <Route path="extras" element={<ExtrasPage />} />
         <Route path="solicitudes" element={<SolicitudesPage />} />
+        <Route path="cortes" element={<CortesPage />} />
         <Route path="pagos" element={<PagosPage />} />
       </Route>
     </Routes>

@@ -9,7 +9,8 @@ import {
   DollarSign,
   ArrowLeft,
   Menu,
-  Hammer
+  Hammer,
+  Calendar
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -25,6 +26,7 @@ const navItems = [
   { href: '/destajos/avances', label: 'Avances', icon: ClipboardList },
   { href: '/destajos/extras', label: 'Extras', icon: FileText },
   { href: '/destajos/solicitudes', label: 'Solicitudes', icon: Wallet },
+  { href: '/destajos/cortes', label: 'Cortes', icon: Calendar },
   { href: '/destajos/pagos', label: 'Pagos', icon: DollarSign },
 ];
 

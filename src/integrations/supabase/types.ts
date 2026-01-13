@@ -197,6 +197,45 @@ export type Database = {
           },
         ]
       }
+      cortes_semanales: {
+        Row: {
+          cerrado_por: string | null
+          created_at: string | null
+          created_by: string
+          estado: string
+          fecha_cierre: string | null
+          fecha_fin: string
+          fecha_inicio: string
+          id: string
+          nombre: string
+          total_monto: number
+        }
+        Insert: {
+          cerrado_por?: string | null
+          created_at?: string | null
+          created_by: string
+          estado?: string
+          fecha_cierre?: string | null
+          fecha_fin: string
+          fecha_inicio: string
+          id?: string
+          nombre: string
+          total_monto?: number
+        }
+        Update: {
+          cerrado_por?: string | null
+          created_at?: string | null
+          created_by?: string
+          estado?: string
+          fecha_cierre?: string | null
+          fecha_fin?: string
+          fecha_inicio?: string
+          id?: string
+          nombre?: string
+          total_monto?: number
+        }
+        Relationships: []
+      }
       extras: {
         Row: {
           aprobado_por: string | null
@@ -432,6 +471,7 @@ export type Database = {
       }
       pagos_destajos: {
         Row: {
+          corte_id: string | null
           created_at: string | null
           fecha: string
           id: string
@@ -445,6 +485,7 @@ export type Database = {
           solicitud_id: string | null
         }
         Insert: {
+          corte_id?: string | null
           created_at?: string | null
           fecha?: string
           id?: string
@@ -458,6 +499,7 @@ export type Database = {
           solicitud_id?: string | null
         }
         Update: {
+          corte_id?: string | null
           created_at?: string | null
           fecha?: string
           id?: string
@@ -471,6 +513,13 @@ export type Database = {
           solicitud_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "pagos_destajos_corte_id_fkey"
+            columns: ["corte_id"]
+            isOneToOne: false
+            referencedRelation: "cortes_semanales"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "pagos_destajos_instalador_id_fkey"
             columns: ["instalador_id"]
@@ -679,6 +728,7 @@ export type Database = {
           avance_id: string | null
           closets_solicitados: number | null
           cocinas_solicitadas: number | null
+          corte_id: string | null
           created_at: string | null
           estado: Database["public"]["Enums"]["payment_request_status"] | null
           extras_ids: string[] | null
@@ -700,6 +750,7 @@ export type Database = {
           avance_id?: string | null
           closets_solicitados?: number | null
           cocinas_solicitadas?: number | null
+          corte_id?: string | null
           created_at?: string | null
           estado?: Database["public"]["Enums"]["payment_request_status"] | null
           extras_ids?: string[] | null
@@ -721,6 +772,7 @@ export type Database = {
           avance_id?: string | null
           closets_solicitados?: number | null
           cocinas_solicitadas?: number | null
+          corte_id?: string | null
           created_at?: string | null
           estado?: Database["public"]["Enums"]["payment_request_status"] | null
           extras_ids?: string[] | null
@@ -743,6 +795,13 @@ export type Database = {
             columns: ["avance_id"]
             isOneToOne: false
             referencedRelation: "avances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "solicitudes_pago_corte_id_fkey"
+            columns: ["corte_id"]
+            isOneToOne: false
+            referencedRelation: "cortes_semanales"
             referencedColumns: ["id"]
           },
           {
