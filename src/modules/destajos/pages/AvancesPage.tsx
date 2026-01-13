@@ -66,6 +66,7 @@ interface AvanceRecord {
   created_at: string;
   obras: { nombre: string } | null;
   instaladores: { nombre: string } | null;
+  profiles: { full_name: string | null; email: string | null } | null;
   avance_items: {
     id: string;
     obra_item_id: string;
@@ -161,6 +162,7 @@ export default function AvancesPage() {
             created_at,
             obras(nombre),
             instaladores(nombre),
+            profiles:registrado_por(full_name, email),
             avance_items(
               id,
               obra_item_id,
@@ -737,7 +739,8 @@ export default function AvancesPage() {
                 <TableHead className="hidden md:table-cell">Instalador</TableHead>
                 <TableHead>Piezas Completadas</TableHead>
                 <TableHead className="hidden lg:table-cell">Estado</TableHead>
-                <TableHead className="hidden lg:table-cell">Observaciones</TableHead>
+                <TableHead className="hidden xl:table-cell">Registrado por</TableHead>
+                <TableHead className="hidden xl:table-cell">Observaciones</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
@@ -811,7 +814,10 @@ export default function AvancesPage() {
                       }
                     })()}
                   </TableCell>
-                  <TableCell className="hidden lg:table-cell text-muted-foreground">
+                  <TableCell className="hidden xl:table-cell text-sm text-muted-foreground">
+                    {avance.profiles?.full_name || avance.profiles?.email || '-'}
+                  </TableCell>
+                  <TableCell className="hidden xl:table-cell text-muted-foreground">
                     {avance.observaciones || '-'}
                   </TableCell>
                   <TableCell className="text-right">
