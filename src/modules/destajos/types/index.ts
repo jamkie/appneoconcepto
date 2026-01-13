@@ -178,3 +178,22 @@ export interface AnticipoWithDetails extends Anticipo {
   obra?: { nombre: string };
   instalador?: { nombre: string };
 }
+
+export type CorteStatus = 'abierto' | 'cerrado';
+
+export interface CorteSemanal {
+  id: string;
+  nombre: string;
+  fecha_inicio: string;
+  fecha_fin: string;
+  estado: CorteStatus;
+  total_monto: number;
+  created_at: string;
+  created_by: string;
+  cerrado_por: string | null;
+  fecha_cierre: string | null;
+}
+
+export interface CorteSemanalWithDetails extends CorteSemanal {
+  solicitudes?: SolicitudPago[];
+}

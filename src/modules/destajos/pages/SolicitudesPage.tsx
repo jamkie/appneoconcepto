@@ -332,55 +332,7 @@ export default function SolicitudesPage() {
       
       if (updateError) throw updateError;
       
-      // Create payment record (with effective amount after anticipos)
-      const { data: pagoData, error: pagoError } = await supabase
-        .from('pagos_destajos')
-        .insert({
-          obra_id: solicitud.obra_id,
-          instalador_id: solicitud.instalador_id,
-          monto: montoSolicitud, // Full amount for tracking
-          metodo_pago: 'transferencia',
-          solicitud_id: solicitud.id,
-          registrado_por: user.id,
-          observaciones: isAnticipo 
-            ? `Anticipo - ${solicitud.observaciones || 'Pago adelantado'}`
-            : totalAnticiposAplicados > 0 
-              ? `Pago - Con descuento de anticipo: ${formatCurrency(totalAnticiposAplicados)}`
-              : `Pago - Solicitud aprobada`,
-        })
-        .select()
-        .single();
-      
-      if (pagoError) throw pagoError;
-      
-      // Apply anticipos if any
-      if (totalAnticiposAplicados > 0 && pagoData) {
-        for (const [anticipoId, montoAplicado] of Object.entries(anticiposAAplicar)) {
-          if (montoAplicado > 0) {
-            // Create application record
-            await supabase
-              .from('anticipo_aplicaciones')
-              .insert({
-                anticipo_id: anticipoId,
-                pago_id: pagoData.id,
-                monto_aplicado: montoAplicado,
-              });
-            
-            // Update anticipo available amount
-            const anticipo = anticiposDisponibles.find(a => a.id === anticipoId);
-            if (anticipo) {
-              await supabase
-                .from('anticipos')
-                .update({
-                  monto_disponible: anticipo.monto_disponible - montoAplicado,
-                })
-                .eq('id', anticipoId);
-            }
-          }
-        }
-      }
-      
-      // If this is an anticipo, create the anticipo record
+      // If this is an anticipo type, create the anticipo record (without creating a payment)
       if (isAnticipo) {
         const { error: anticipoError } = await supabase
           .from('anticipos')
@@ -428,10 +380,8 @@ export default function SolicitudesPage() {
       toast({ 
         title: 'Éxito', 
         description: isAnticipo
-          ? 'Anticipo aprobado'
-          : totalAnticiposAplicados > 0
-            ? `Solicitud aprobada con ${formatCurrency(totalAnticiposAplicados)} de anticipo aplicado`
-            : 'Solicitud aprobada y pago creado'
+          ? 'Anticipo aprobado - disponible para aplicar'
+          : 'Solicitud aprobada - lista para asignar a un corte'
       });
       
       // Reset dialog states
