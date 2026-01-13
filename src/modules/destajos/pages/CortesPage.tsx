@@ -308,6 +308,31 @@ export default function CortesPage() {
       
       if (error) throw error;
       
+      // Check if the corte now has no solicitudes
+      const { count } = await supabase
+        .from('solicitudes_pago')
+        .select('id', { count: 'exact', head: true })
+        .eq('corte_id', viewingCorte.id);
+      
+      if (count === 0) {
+        // Delete the empty corte
+        const { error: deleteError } = await supabase
+          .from('cortes_semanales')
+          .delete()
+          .eq('id', viewingCorte.id);
+        
+        if (deleteError) throw deleteError;
+        
+        toast({
+          title: 'Corte eliminado',
+          description: 'El corte fue eliminado porque quedó sin solicitudes',
+        });
+        
+        setViewingCorte(null);
+        fetchCortes();
+        return;
+      }
+      
       toast({
         title: 'Éxito',
         description: 'Solicitud removida del corte',
