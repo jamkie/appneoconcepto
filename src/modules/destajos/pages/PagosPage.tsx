@@ -1,21 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DollarSign, Plus, Search, X, FileText, Download } from 'lucide-react';
+import { DollarSign, Search, X, FileText, Download } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { PageHeader, DataTable, EmptyState } from '../components';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -33,7 +24,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import type { Obra, Instalador, PagoDestajo, PaymentMethod } from '../types';
+import type { PagoDestajo, PaymentMethod } from '../types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useUserRole } from '@/hooks/useUserRole';
@@ -58,21 +49,8 @@ export default function PagosPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [pagos, setPagos] = useState<PagoWithDetails[]>([]);
-  const [obras, setObras] = useState<Obra[]>([]);
-  const [instaladores, setInstaladores] = useState<Instalador[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [formData, setFormData] = useState({
-    obra_id: '',
-    instalador_id: '',
-    monto: '',
-    metodo_pago: 'transferencia' as PaymentMethod,
-    referencia: '',
-    observaciones: '',
-    fecha: format(new Date(), 'yyyy-MM-dd'),
-  });
 
   // Cancel payment state
   const [pagoToCancel, setPagoToCancel] = useState<PagoWithDetails | null>(null);
@@ -97,26 +75,18 @@ export default function PagosPage() {
     try {
       setLoadingData(true);
       
-      const [pagosRes, obrasRes, instaladoresRes] = await Promise.all([
-        supabase
-          .from('pagos_destajos')
-          .select(`
-            *,
-            obras(nombre),
-            instaladores(nombre, numero_cuenta)
-          `)
-          .order('fecha', { ascending: false }),
-        supabase.from('obras').select('*').eq('estado', 'activa'),
-        supabase.from('instaladores').select('*').eq('activo', true),
-      ]);
+      const { data, error } = await supabase
+        .from('pagos_destajos')
+        .select(`
+          *,
+          obras(nombre),
+          instaladores(nombre, numero_cuenta)
+        `)
+        .order('fecha', { ascending: false });
 
-      if (pagosRes.error) throw pagosRes.error;
-      if (obrasRes.error) throw obrasRes.error;
-      if (instaladoresRes.error) throw instaladoresRes.error;
+      if (error) throw error;
 
-      setPagos((pagosRes.data as PagoWithDetails[]) || []);
-      setObras((obrasRes.data as Obra[]) || []);
-      setInstaladores((instaladoresRes.data as Instalador[]) || []);
+      setPagos((data as PagoWithDetails[]) || []);
     } catch (error) {
       console.error('Error fetching data:', error);
       toast({
@@ -126,96 +96,6 @@ export default function PagosPage() {
       });
     } finally {
       setLoadingData(false);
-    }
-  };
-
-  const handleSave = async () => {
-    if (!formData.obra_id || !formData.instalador_id || !formData.monto) {
-      toast({
-        title: 'Error',
-        description: 'Obra, instalador y monto son requeridos',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    const monto = parseFloat(formData.monto);
-
-    try {
-      setSaving(true);
-      
-      // Validate we don't exceed obra total
-      const [itemsRes, extrasRes, pagosRes] = await Promise.all([
-        supabase
-          .from('obra_items')
-          .select('cantidad, precio_unitario')
-          .eq('obra_id', formData.obra_id),
-        supabase
-          .from('extras')
-          .select('monto')
-          .eq('obra_id', formData.obra_id)
-          .eq('estado', 'aprobado'),
-        supabase
-          .from('pagos_destajos')
-          .select('monto')
-          .eq('obra_id', formData.obra_id),
-      ]);
-      
-      const totalItems = (itemsRes.data || []).reduce((sum, item) => 
-        sum + (Number(item.cantidad) * Number(item.precio_unitario)), 0);
-      const totalExtras = (extrasRes.data || []).reduce((sum, extra) => 
-        sum + Number(extra.monto), 0);
-      const totalPagado = (pagosRes.data || []).reduce((sum, pago) => 
-        sum + Number(pago.monto), 0);
-      
-      const totalObra = totalItems + totalExtras;
-      const saldoPendiente = totalObra - totalPagado;
-      
-      if (monto > saldoPendiente) {
-        toast({
-          title: 'Error',
-          description: `El monto de ${formatCurrency(monto)} excede el saldo pendiente de ${formatCurrency(saldoPendiente)}. Total obra: ${formatCurrency(totalObra)}, Ya pagado: ${formatCurrency(totalPagado)}`,
-          variant: 'destructive',
-        });
-        setSaving(false);
-        return;
-      }
-      
-      const pagoData = {
-        obra_id: formData.obra_id,
-        instalador_id: formData.instalador_id,
-        monto: monto,
-        metodo_pago: formData.metodo_pago,
-        referencia: formData.referencia.trim() || null,
-        observaciones: formData.observaciones.trim() || null,
-        fecha: formData.fecha,
-        registrado_por: user?.id,
-      };
-
-      const { error } = await supabase.from('pagos_destajos').insert(pagoData);
-      if (error) throw error;
-
-      toast({ title: 'Éxito', description: 'Pago registrado correctamente' });
-      setIsModalOpen(false);
-      setFormData({
-        obra_id: '',
-        instalador_id: '',
-        monto: '',
-        metodo_pago: 'transferencia',
-        referencia: '',
-        observaciones: '',
-        fecha: format(new Date(), 'yyyy-MM-dd'),
-      });
-      fetchData();
-    } catch (error) {
-      console.error('Error saving pago:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudo guardar el pago',
-        variant: 'destructive',
-      });
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -463,14 +343,6 @@ Documento generado el ${format(new Date(), "dd/MM/yyyy 'a las' HH:mm", { locale:
         title="Pagos"
         description="Registro de pagos a instaladores"
         icon={DollarSign}
-        actions={
-          isAdmin && (
-            <Button onClick={() => setIsModalOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nuevo Pago
-            </Button>
-          )
-        }
       />
 
       {/* Search */}
@@ -496,15 +368,7 @@ Documento generado el ${format(new Date(), "dd/MM/yyyy 'a las' HH:mm", { locale:
           <EmptyState
             icon={DollarSign}
             title="Sin pagos"
-            description="No hay pagos registrados"
-            action={
-              isAdmin && (
-                <Button onClick={() => setIsModalOpen(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Nuevo Pago
-                </Button>
-              )
-            }
+            description="No hay pagos registrados. Los pagos se crean desde Solicitudes."
           />
         }
       />
@@ -532,108 +396,6 @@ Documento generado el ${format(new Date(), "dd/MM/yyyy 'a las' HH:mm", { locale:
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Create Modal */}
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Nuevo Pago</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="obra_id">Obra *</Label>
-              <Select value={formData.obra_id} onValueChange={(value) => setFormData({ ...formData, obra_id: value })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar obra" />
-                </SelectTrigger>
-                <SelectContent>
-                  {obras.map((obra) => (
-                    <SelectItem key={obra.id} value={obra.id}>
-                      {obra.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="instalador_id">Instalador *</Label>
-              <Select value={formData.instalador_id} onValueChange={(value) => setFormData({ ...formData, instalador_id: value })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar instalador" />
-                </SelectTrigger>
-                <SelectContent>
-                  {instaladores.map((instalador) => (
-                    <SelectItem key={instalador.id} value={instalador.id}>
-                      {instalador.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="monto">Monto *</Label>
-              <Input
-                id="monto"
-                type="number"
-                min="0"
-                step="0.01"
-                value={formData.monto}
-                onChange={(e) => setFormData({ ...formData, monto: e.target.value })}
-                placeholder="0.00"
-              />
-            </div>
-            <div>
-              <Label htmlFor="metodo_pago">Método de Pago</Label>
-              <Select value={formData.metodo_pago} onValueChange={(value: PaymentMethod) => setFormData({ ...formData, metodo_pago: value })}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="efectivo">Efectivo</SelectItem>
-                  <SelectItem value="transferencia">Transferencia</SelectItem>
-                  <SelectItem value="cheque">Cheque</SelectItem>
-                  <SelectItem value="otro">Otro</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="fecha">Fecha</Label>
-              <Input
-                id="fecha"
-                type="date"
-                value={formData.fecha}
-                onChange={(e) => setFormData({ ...formData, fecha: e.target.value })}
-              />
-            </div>
-            <div>
-              <Label htmlFor="referencia">Referencia</Label>
-              <Input
-                id="referencia"
-                value={formData.referencia}
-                onChange={(e) => setFormData({ ...formData, referencia: e.target.value })}
-                placeholder="Número de referencia"
-              />
-            </div>
-            <div>
-              <Label htmlFor="observaciones">Observaciones</Label>
-              <Textarea
-                id="observaciones"
-                value={formData.observaciones}
-                onChange={(e) => setFormData({ ...formData, observaciones: e.target.value })}
-                placeholder="Notas adicionales..."
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsModalOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? 'Guardando...' : 'Guardar'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Payment Detail Modal */}
       <Dialog open={!!selectedPago} onOpenChange={(open) => !open && setSelectedPago(null)}>
