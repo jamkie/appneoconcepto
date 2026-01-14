@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, Plus, Search, Pencil, CheckCircle, XCircle } from 'lucide-react';
+import { Users, Plus, Search, Pencil, CheckCircle, XCircle, Building2, DollarSign } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -42,6 +42,8 @@ export default function InstaladoresPage() {
   const [formData, setFormData] = useState({
     nombre: '',
     numero_cuenta: '',
+    nombre_banco: '',
+    salario_semanal: 0,
   });
 
   useEffect(() => {
@@ -84,12 +86,16 @@ export default function InstaladoresPage() {
       setFormData({
         nombre: instalador.nombre,
         numero_cuenta: instalador.numero_cuenta || '',
+        nombre_banco: instalador.nombre_banco || '',
+        salario_semanal: instalador.salario_semanal || 0,
       });
     } else {
       setSelectedInstalador(null);
       setFormData({
         nombre: '',
         numero_cuenta: '',
+        nombre_banco: '',
+        salario_semanal: 0,
       });
     }
     setIsModalOpen(true);
@@ -110,6 +116,8 @@ export default function InstaladoresPage() {
       const instaladorData = {
         nombre: formData.nombre.trim(),
         numero_cuenta: formData.numero_cuenta.trim() || null,
+        nombre_banco: formData.nombre_banco.trim() || null,
+        salario_semanal: formData.salario_semanal,
       };
 
       if (selectedInstalador) {
@@ -180,10 +188,39 @@ export default function InstaladoresPage() {
       cell: (item: Instalador) => <span className="font-medium">{item.nombre}</span>,
     },
     {
+      key: 'banco',
+      header: 'Banco',
+      cell: (item: Instalador) => (
+        <div className="flex items-center gap-1">
+          {item.nombre_banco ? (
+            <>
+              <Building2 className="w-3 h-3 text-muted-foreground" />
+              <span>{item.nombre_banco}</span>
+            </>
+          ) : (
+            '-'
+          )}
+        </div>
+      ),
+      hideOnMobile: true,
+    },
+    {
       key: 'cuenta',
       header: 'Número de Cuenta',
       cell: (item: Instalador) => item.numero_cuenta || '-',
       hideOnMobile: true,
+    },
+    {
+      key: 'salario',
+      header: 'Salario Semanal',
+      cell: (item: Instalador) => (
+        <div className="flex items-center gap-1">
+          <DollarSign className="w-3 h-3 text-muted-foreground" />
+          <span className="font-medium">
+            {new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(item.salario_semanal || 0)}
+          </span>
+        </div>
+      ),
     },
     {
       key: 'estado',
@@ -319,12 +356,33 @@ export default function InstaladoresPage() {
               />
             </div>
             <div>
+              <Label htmlFor="nombre_banco">Nombre del Banco</Label>
+              <Input
+                id="nombre_banco"
+                value={formData.nombre_banco}
+                onChange={(e) => setFormData({ ...formData, nombre_banco: e.target.value })}
+                placeholder="Ej: BBVA, Santander, Banamex"
+              />
+            </div>
+            <div>
               <Label htmlFor="numero_cuenta">Número de Cuenta</Label>
               <Input
                 id="numero_cuenta"
                 value={formData.numero_cuenta}
                 onChange={(e) => setFormData({ ...formData, numero_cuenta: e.target.value })}
                 placeholder="Número de cuenta bancaria"
+              />
+            </div>
+            <div>
+              <Label htmlFor="salario_semanal">Salario Semanal</Label>
+              <Input
+                id="salario_semanal"
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.salario_semanal}
+                onChange={(e) => setFormData({ ...formData, salario_semanal: parseFloat(e.target.value) || 0 })}
+                placeholder="0.00"
               />
             </div>
           </div>
