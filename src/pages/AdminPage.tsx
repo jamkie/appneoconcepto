@@ -53,6 +53,7 @@ import {
   UserPlus,
   Power,
   Trash2,
+  KeyRound,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -109,6 +110,13 @@ export default function AdminPage() {
   const [deleteUser, setDeleteUser] = useState<UserProfile | null>(null);
   const [deleteHasMovements, setDeleteHasMovements] = useState(false);
   const [checkingMovements, setCheckingMovements] = useState(false);
+
+  // Password reset state
+  const [passwordResetUser, setPasswordResetUser] = useState<UserProfile | null>(null);
+  const [newPasswordValue, setNewPasswordValue] = useState('');
+  const [generateNewPassword, setGenerateNewPassword] = useState(true);
+  const [sendPasswordEmail, setSendPasswordEmail] = useState(true);
+  const [resettingPassword, setResettingPassword] = useState(false);
 
   useEffect(() => {
     if (isAdmin) {
@@ -481,6 +489,50 @@ export default function AdminPage() {
     }
   };
 
+  const handleResetPassword = async () => {
+    if (!passwordResetUser) return;
+
+    if (!generateNewPassword && newPasswordValue.length < 6) {
+      toast.error('La contraseña debe tener al menos 6 caracteres');
+      return;
+    }
+
+    setResettingPassword(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('reset-user-password', {
+        body: {
+          userId: passwordResetUser.id,
+          password: generateNewPassword ? undefined : newPasswordValue,
+          generateTempPassword: generateNewPassword,
+          sendEmail: sendPasswordEmail,
+          userEmail: passwordResetUser.email,
+          userName: passwordResetUser.full_name,
+        },
+      });
+
+      if (error) {
+        toast.error(error.message || 'Error al cambiar contraseña');
+        return;
+      }
+
+      if (!data?.success) {
+        toast.error('Error al cambiar contraseña');
+        return;
+      }
+
+      toast.success('Contraseña actualizada exitosamente');
+      setPasswordResetUser(null);
+      setNewPasswordValue('');
+      setGenerateNewPassword(true);
+      setSendPasswordEmail(true);
+    } catch (error) {
+      console.error('Error resetting password:', error);
+      toast.error('Error al cambiar contraseña');
+    } finally {
+      setResettingPassword(false);
+    }
+  };
+
   if (authLoading || permLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -749,6 +801,14 @@ export default function AdminPage() {
                           title="Eliminar usuario"
                         >
                           <Trash2 className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setPasswordResetUser(userProfile)}
+                          title="Cambiar contraseña"
+                        >
+                          <KeyRound className="w-4 h-4" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -1061,6 +1121,93 @@ export default function AdminPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Password Reset Dialog */}
+        <Dialog open={!!passwordResetUser} onOpenChange={() => {
+          setPasswordResetUser(null);
+          setNewPasswordValue('');
+          setGenerateNewPassword(true);
+          setSendPasswordEmail(true);
+        }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Cambiar Contraseña</DialogTitle>
+              <DialogDescription>
+                Restablecer la contraseña de {passwordResetUser?.full_name}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              <div className="flex items-center space-x-3 p-3 rounded-lg border bg-muted/30">
+                <Checkbox
+                  id="generate-new-password"
+                  checked={generateNewPassword}
+                  onCheckedChange={(checked) => setGenerateNewPassword(checked === true)}
+                />
+                <label
+                  htmlFor="generate-new-password"
+                  className="flex-1 text-sm cursor-pointer"
+                >
+                  <span className="font-medium">Generar contraseña automática</span>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Se generará una contraseña segura
+                  </p>
+                </label>
+              </div>
+
+              {!generateNewPassword && (
+                <div className="space-y-2">
+                  <Label htmlFor="new-password-input">Nueva contraseña</Label>
+                  <Input
+                    id="new-password-input"
+                    type="password"
+                    placeholder="Mínimo 6 caracteres"
+                    value={newPasswordValue}
+                    onChange={(e) => setNewPasswordValue(e.target.value)}
+                  />
+                </div>
+              )}
+
+              <div className="flex items-center space-x-3 p-3 rounded-lg border bg-muted/30">
+                <Checkbox
+                  id="send-password-email"
+                  checked={sendPasswordEmail}
+                  onCheckedChange={(checked) => setSendPasswordEmail(checked === true)}
+                />
+                <label
+                  htmlFor="send-password-email"
+                  className="flex-1 text-sm cursor-pointer"
+                >
+                  <span className="font-medium">Enviar por correo</span>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {generateNewPassword 
+                      ? 'Se enviará la nueva contraseña al usuario'
+                      : 'Se notificará al usuario que su contraseña fue cambiada'}
+                  </p>
+                </label>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setPasswordResetUser(null);
+                  setNewPasswordValue('');
+                  setGenerateNewPassword(true);
+                  setSendPasswordEmail(true);
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button onClick={handleResetPassword} disabled={resettingPassword}>
+                {resettingPassword && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                <KeyRound className="mr-2 h-4 w-4" />
+                Cambiar Contraseña
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
