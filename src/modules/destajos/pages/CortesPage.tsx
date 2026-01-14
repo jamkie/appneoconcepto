@@ -83,6 +83,7 @@ export default function CortesPage() {
   const [solicitudesPendientes, setSolicitudesPendientes] = useState<SolicitudForCorte[]>([]);
   const [resumenInstaladores, setResumenInstaladores] = useState<InstaladorResumen[]>([]);
   const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [filterInstaladorId, setFilterInstaladorId] = useState<string>('todos');
   const [loadingDetail, setLoadingDetail] = useState(false);
   
   // Close corte confirmation
@@ -1002,14 +1003,36 @@ export default function CortesPage() {
               {/* Solicitudes pendientes (para aprobar y agregar) */}
               {viewingCorte?.estado === 'abierto' && solicitudesPendientes.length > 0 && (
                 <div>
-                  <h3 className="text-lg font-semibold mb-3 text-amber-600">
-                    Solicitudes Pendientes de Aprobación
-                  </h3>
-                  <p className="text-sm text-muted-foreground mb-3">
-                    Aprueba y agrega al corte en un solo paso
-                  </p>
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 className="text-lg font-semibold text-amber-600">
+                        Solicitudes Pendientes de Aprobación
+                      </h3>
+                      <p className="text-sm text-muted-foreground">
+                        Aprueba y agrega al corte en un solo paso
+                      </p>
+                    </div>
+                    <Select value={filterInstaladorId} onValueChange={setFilterInstaladorId}>
+                      <SelectTrigger className="w-[200px]">
+                        <SelectValue placeholder="Filtrar por instalador" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todos">Todos los instaladores</SelectItem>
+                        {/* Get unique instaladores from pending solicitudes */}
+                        {Array.from(
+                          new Map(
+                            solicitudesPendientes.map(s => [s.instalador_id, s.instaladores?.nombre || 'Desconocido'])
+                          )
+                        ).map(([id, nombre]) => (
+                          <SelectItem key={id} value={id}>{nombre}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {solicitudesPendientes.map((sol) => (
+                    {solicitudesPendientes
+                      .filter(sol => filterInstaladorId === 'todos' || sol.instalador_id === filterInstaladorId)
+                      .map((sol) => (
                       <div key={sol.id} className="flex justify-between items-center p-2 border border-amber-300 bg-amber-50/50 dark:bg-amber-950/20 rounded-lg">
                         <div className="flex-1">
                           <div className="font-medium text-sm">{sol.obras?.nombre}</div>
