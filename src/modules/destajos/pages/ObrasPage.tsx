@@ -85,6 +85,7 @@ export default function ObrasPage() {
   const [formData, setFormData] = useState({
     nombre: '',
     cliente: '',
+    responsable: '',
     estado: 'activa' as ObraStatus,
   });
   const [mobiliarioItems, setMobiliarioItems] = useState<MobiliarioItem[]>([]);
@@ -229,6 +230,7 @@ export default function ObrasPage() {
       setFormData({
         nombre: obra.nombre,
         cliente: obra.cliente || '',
+        responsable: (obra as any).responsable || '',
         estado: obra.estado,
       });
       setMobiliarioItems(
@@ -244,6 +246,7 @@ export default function ObrasPage() {
       setFormData({
         nombre: '',
         cliente: '',
+        responsable: '',
         estado: 'activa',
       });
       setMobiliarioItems([]);
@@ -270,6 +273,7 @@ export default function ObrasPage() {
       const obraData = {
         nombre: formData.nombre.trim(),
         cliente: formData.cliente.trim() || null,
+        responsable: formData.responsable.trim() || null,
         ubicacion: null,
         estado: formData.estado,
         precio_cocina: 0,
@@ -686,6 +690,15 @@ export default function ObrasPage() {
                 value={formData.cliente}
                 onChange={(e) => setFormData({ ...formData, cliente: e.target.value })}
                 placeholder="Nombre del cliente"
+              />
+            </div>
+            <div>
+              <Label htmlFor="responsable">Responsable</Label>
+              <Input
+                id="responsable"
+                value={formData.responsable}
+                onChange={(e) => setFormData({ ...formData, responsable: e.target.value })}
+                placeholder="Nombre del responsable"
               />
             </div>
 
