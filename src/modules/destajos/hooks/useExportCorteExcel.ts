@@ -25,39 +25,30 @@ export const useExportCorteExcel = () => {
         .select(`
           total_solicitado,
           instalador_id,
-          obra_id,
+          solicitado_por,
           instaladores(id, nombre, nombre_banco, numero_cuenta, salario_semanal)
         `)
         .eq('corte_id', corte.id);
 
       if (solError) throw solError;
 
-      // Fetch obra supervisors for "jefes directos"
-      const obraIds = [...new Set((solicitudes || []).map((s: any) => s.obra_id))];
+      // Get unique solicitado_por IDs to fetch their names
+      const solicitadoPorIds = [...new Set((solicitudes || []).map((s: any) => s.solicitado_por).filter(Boolean))];
       
-      const { data: supervisoresData } = await supabase
-        .from('obra_supervisores')
-        .select(`
-          obra_id,
-          supervisor_id,
-          profiles:supervisor_id(full_name)
-        `)
-        .in('obra_id', obraIds);
+      const { data: profilesData } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', solicitadoPorIds);
 
-      // Create a map of obra_id -> supervisor names
-      const obraSupervisores: Record<string, string[]> = {};
-      (supervisoresData || []).forEach((os: any) => {
-        if (!obraSupervisores[os.obra_id]) {
-          obraSupervisores[os.obra_id] = [];
-        }
-        const name = os.profiles?.full_name?.split(' ')[0]?.toUpperCase() || '';
-        if (name && !obraSupervisores[os.obra_id].includes(name)) {
-          obraSupervisores[os.obra_id].push(name);
-        }
+      // Create a map of user_id -> first name
+      const profileNames: Record<string, string> = {};
+      (profilesData || []).forEach((p: any) => {
+        const firstName = p.full_name?.split(' ')[0]?.toUpperCase() || '';
+        profileNames[p.id] = firstName;
       });
 
       // Group by instalador and sum totals
-      const instaladorMap: Record<string, InstaladorPago & { obraIds: string[] }> = {};
+      const instaladorMap: Record<string, InstaladorPago & { jefes: Set<string> }> = {};
       
       (solicitudes || []).forEach((sol: any) => {
         const instalador = sol.instaladores;
@@ -74,30 +65,27 @@ export const useExportCorteExcel = () => {
             destajoADepositar: 0,
             aDepositar: 0,
             saldoAFavor: 0,
-            obraIds: [],
+            jefes: new Set(),
           };
         }
         
         instaladorMap[instalador.id].destajoAcumulado += Number(sol.total_solicitado) || 0;
-        if (!instaladorMap[instalador.id].obraIds.includes(sol.obra_id)) {
-          instaladorMap[instalador.id].obraIds.push(sol.obra_id);
+        
+        // Add the person who registered this solicitud as "jefe directo"
+        if (sol.solicitado_por && profileNames[sol.solicitado_por]) {
+          instaladorMap[instalador.id].jefes.add(profileNames[sol.solicitado_por]);
         }
       });
 
-      // Calculate derived fields and get jefes directos
+      // Calculate derived fields and set jefes directos
       Object.values(instaladorMap).forEach((inst) => {
-        // Get unique supervisors from all obras this installer worked on
-        const supervisors = new Set<string>();
-        inst.obraIds.forEach((obraId) => {
-          (obraSupervisores[obraId] || []).forEach((s) => supervisors.add(s));
-        });
-        inst.jefesDirectos = Array.from(supervisors).join(' ');
+        inst.jefesDirectos = Array.from(inst.jefes).join(' ');
 
         // Destajo a depositar = Destajo Acumulado - Nomina Semanal
         const destajoADepositar = inst.destajoAcumulado - inst.nominaSemanal;
         inst.destajoADepositar = destajoADepositar > 0 ? destajoADepositar : 0;
         
-        // A depositar = redondeado a decenas inferiores
+        // A depositar = redondeado a múltiplos de 50
         inst.aDepositar = inst.destajoADepositar > 0 
           ? Math.floor(inst.destajoADepositar / 50) * 50 
           : 0;
