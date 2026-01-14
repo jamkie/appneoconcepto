@@ -629,12 +629,10 @@ export default function ObrasPage() {
         description="Gestión de obras y proyectos"
         icon={Building2}
         actions={
-          isAdmin && (
-            <Button onClick={() => handleOpenModal()}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nueva Obra
-            </Button>
-          )
+          <Button onClick={() => handleOpenModal()}>
+            <Plus className="w-4 h-4 mr-2" />
+            Nueva Obra
+          </Button>
         }
       />
 
@@ -662,12 +660,10 @@ export default function ObrasPage() {
             title="Sin obras"
             description="No hay obras registradas"
             action={
-              isAdmin && (
-                <Button onClick={() => handleOpenModal()}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Nueva Obra
-                </Button>
-              )
+              <Button onClick={() => handleOpenModal()}>
+                <Plus className="w-4 h-4 mr-2" />
+                Nueva Obra
+              </Button>
             }
           />
         }
