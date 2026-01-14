@@ -151,42 +151,39 @@ export const useExportCorteExcel = () => {
         { width: 14 }, // Saldo a Favor
       ];
 
-      // Add data rows
+      // Add data rows with formulas
+      const dataStartRow = 4; // Row where data starts (after title, empty, headers)
+      
       instaladores.forEach((inst) => {
+        const rowNum = sheet.rowCount + 1;
         const row = sheet.addRow([
           inst.nombre,
           inst.jefesDirectos,
           inst.banco,
           inst.clabe,
-          inst.destajoAcumulado || '',
-          inst.nominaSemanal || '',
-          inst.destajoADepositar > 0 ? inst.destajoADepositar : (inst.destajoAcumulado > 0 ? '-' : ''),
-          inst.aDepositar || '',
-          inst.saldoAFavor || '',
+          inst.destajoAcumulado || 0,
+          inst.nominaSemanal || 0,
+          { formula: `MAX(E${rowNum}-F${rowNum},0)` }, // G: Destajo a Depositar
+          { formula: `FLOOR(G${rowNum},50)` },         // H: A Depositar
+          { formula: `G${rowNum}-H${rowNum}` },        // I: Saldo a Favor
         ]);
         row.alignment = { vertical: 'middle' };
       });
 
-      // Calculate totals
-      const totals = {
-        destajoAcumulado: instaladores.reduce((sum, i) => sum + (i.destajoAcumulado || 0), 0),
-        nominaSemanal: instaladores.reduce((sum, i) => sum + (i.nominaSemanal || 0), 0),
-        destajoADepositar: instaladores.reduce((sum, i) => sum + (i.destajoADepositar || 0), 0),
-        aDepositar: instaladores.reduce((sum, i) => sum + (i.aDepositar || 0), 0),
-        saldoAFavor: instaladores.reduce((sum, i) => sum + (i.saldoAFavor || 0), 0),
-      };
-
-      // Add total row
+      // Add total row with SUM formulas
+      const dataEndRow = dataStartRow + instaladores.length - 1;
+      const totalRowNum = dataEndRow + 1;
+      
       const totalRow = sheet.addRow([
         '',
         '',
         '',
         'TOTAL',
-        totals.destajoAcumulado,
-        totals.nominaSemanal,
-        totals.destajoADepositar,
-        totals.aDepositar,
-        '',
+        { formula: `SUM(E${dataStartRow}:E${dataEndRow})` },
+        { formula: `SUM(F${dataStartRow}:F${dataEndRow})` },
+        { formula: `SUM(G${dataStartRow}:G${dataEndRow})` },
+        { formula: `SUM(H${dataStartRow}:H${dataEndRow})` },
+        { formula: `SUM(I${dataStartRow}:I${dataEndRow})` },
       ]);
       totalRow.font = { bold: true };
       totalRow.alignment = { vertical: 'middle' };
