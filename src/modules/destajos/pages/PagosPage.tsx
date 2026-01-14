@@ -19,10 +19,15 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { useGeneratePagoPDF } from '../hooks/useGeneratePagoPDF';
 
 interface PagoWithDetails extends PagoDestajo {
   obras: { nombre: string } | null;
-  instaladores: { nombre: string; numero_cuenta: string | null } | null;
+  instaladores: { 
+    nombre: string; 
+    numero_cuenta: string | null;
+    nombre_banco: string | null;
+  } | null;
 }
 
 const paymentMethodLabels: Record<PaymentMethod, string> = {
@@ -36,9 +41,11 @@ export default function PagosPage() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { generatePDF } = useGeneratePagoPDF();
   const [pagos, setPagos] = useState<PagoWithDetails[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [generatingPDF, setGeneratingPDF] = useState(false);
   
   // View payment detail state
   const [selectedPago, setSelectedPago] = useState<PagoWithDetails | null>(null);
@@ -64,7 +71,7 @@ export default function PagosPage() {
         .select(`
           *,
           obras(nombre),
-          instaladores(nombre, numero_cuenta)
+          instaladores(nombre, numero_cuenta, nombre_banco)
         `)
         .order('fecha', { ascending: false });
 
@@ -90,49 +97,28 @@ export default function PagosPage() {
     }).format(amount);
   };
 
-  const generatePDF = () => {
+  const handleGeneratePDF = async () => {
     if (!selectedPago) return;
     
-    const content = `
-COMPROBANTE DE PAGO
-===================
-
-Fecha: ${format(new Date(selectedPago.fecha), "dd 'de' MMMM 'de' yyyy", { locale: es })}
-Folio: ${selectedPago.id.slice(0, 8).toUpperCase()}
-
-DATOS DEL PAGO
---------------
-Monto: ${formatCurrency(Number(selectedPago.monto))}
-Método de Pago: ${paymentMethodLabels[selectedPago.metodo_pago]}
-${selectedPago.referencia ? `Referencia: ${selectedPago.referencia}` : ''}
-
-INSTALADOR
-----------
-Nombre: ${selectedPago.instaladores?.nombre || 'N/A'}
-No. Cuenta: ${selectedPago.instaladores?.numero_cuenta || 'No registrada'}
-
-OBRA
-----
-Nombre: ${selectedPago.obras?.nombre || 'N/A'}
-
-${selectedPago.observaciones ? `OBSERVACIONES\n-------------\n${selectedPago.observaciones}` : ''}
-
----
-Documento generado el ${format(new Date(), "dd/MM/yyyy 'a las' HH:mm", { locale: es })}
-    `.trim();
-    
-    // Create blob and download
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `pago_${selectedPago.id.slice(0, 8)}_${format(new Date(selectedPago.fecha), 'yyyyMMdd')}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    
-    toast({ title: 'Archivo generado', description: 'El comprobante se ha descargado' });
+    setGeneratingPDF(true);
+    try {
+      const result = await generatePDF(selectedPago);
+      if (result.success) {
+        toast({ 
+          title: 'PDF Generado', 
+          description: `Se ha descargado ${result.filename}` 
+        });
+      }
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      toast({ 
+        title: 'Error', 
+        description: 'No se pudo generar el PDF',
+        variant: 'destructive'
+      });
+    } finally {
+      setGeneratingPDF(false);
+    }
   };
 
   const filteredPagos = pagos.filter((pago) =>
@@ -297,9 +283,9 @@ Documento generado el ${format(new Date(), "dd/MM/yyyy 'a las' HH:mm", { locale:
             <Button variant="outline" onClick={() => setSelectedPago(null)}>
               Cerrar
             </Button>
-            <Button onClick={generatePDF} className="gap-2">
+            <Button onClick={handleGeneratePDF} disabled={generatingPDF} className="gap-2">
               <Download className="w-4 h-4" />
-              Descargar Comprobante
+              {generatingPDF ? 'Generando...' : 'Descargar PDF'}
             </Button>
           </DialogFooter>
         </DialogContent>
