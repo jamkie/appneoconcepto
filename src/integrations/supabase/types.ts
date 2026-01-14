@@ -451,6 +451,7 @@ export type Database = {
           precio_cocina: number
           precio_cubierta: number
           precio_vanity: number
+          responsable: string | null
           ubicacion: string | null
           updated_at: string | null
         }
@@ -464,6 +465,7 @@ export type Database = {
           precio_cocina?: number
           precio_cubierta?: number
           precio_vanity?: number
+          responsable?: string | null
           ubicacion?: string | null
           updated_at?: string | null
         }
@@ -477,6 +479,7 @@ export type Database = {
           precio_cocina?: number
           precio_cubierta?: number
           precio_vanity?: number
+          responsable?: string | null
           ubicacion?: string | null
           updated_at?: string | null
         }
