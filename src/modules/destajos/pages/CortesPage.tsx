@@ -80,7 +80,9 @@ export default function CortesPage() {
   const [viewingCorte, setViewingCorte] = useState<CorteWithDetails | null>(null);
   const [corteSolicitudes, setCorteSolicitudes] = useState<SolicitudForCorte[]>([]);
   const [solicitudesDisponibles, setSolicitudesDisponibles] = useState<SolicitudForCorte[]>([]);
+  const [solicitudesPendientes, setSolicitudesPendientes] = useState<SolicitudForCorte[]>([]);
   const [resumenInstaladores, setResumenInstaladores] = useState<InstaladorResumen[]>([]);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   
   // Close corte confirmation
@@ -230,8 +232,9 @@ export default function CortesPage() {
       
       setCorteSolicitudes((asignadas || []) as SolicitudForCorte[]);
       
-      // If corte is open, fetch available solicitudes (approved, no corte assigned)
+      // If corte is open, fetch available solicitudes (approved, no corte assigned) and pending ones
       if (corte.estado === 'abierto') {
+        // Fetch approved solicitudes without corte
         const { data: disponibles, error: disponiblesError } = await supabase
           .from('solicitudes_pago')
           .select(`
@@ -246,8 +249,25 @@ export default function CortesPage() {
         if (disponiblesError) throw disponiblesError;
         
         setSolicitudesDisponibles((disponibles || []) as SolicitudForCorte[]);
+        
+        // Fetch pending solicitudes (not yet approved)
+        const { data: pendientes, error: pendientesError } = await supabase
+          .from('solicitudes_pago')
+          .select(`
+            *,
+            obras(nombre),
+            instaladores(nombre)
+          `)
+          .eq('estado', 'pendiente')
+          .is('corte_id', null)
+          .order('created_at', { ascending: false });
+        
+        if (pendientesError) throw pendientesError;
+        
+        setSolicitudesPendientes((pendientes || []) as SolicitudForCorte[]);
       } else {
         setSolicitudesDisponibles([]);
+        setSolicitudesPendientes([]);
       }
       
       // Calculate resumen by instalador
@@ -304,6 +324,74 @@ export default function CortesPage() {
         description: 'No se pudo agregar la solicitud',
         variant: 'destructive',
       });
+    }
+  };
+
+  const handleApproveAndAddToCorte = async (solicitud: SolicitudForCorte) => {
+    if (!viewingCorte || !user) return;
+    
+    try {
+      setApprovingId(solicitud.id);
+      
+      // Update solicitud to approved and assign to corte
+      const { error } = await supabase
+        .from('solicitudes_pago')
+        .update({ 
+          estado: 'aprobada',
+          aprobado_por: user.id,
+          fecha_aprobacion: new Date().toISOString(),
+          corte_id: viewingCorte.id
+        })
+        .eq('id', solicitud.id);
+      
+      if (error) throw error;
+      
+      // If it's an extra type, also update the extras table
+      if (solicitud.tipo === 'extra' && solicitud.extras_ids && solicitud.extras_ids.length > 0) {
+        const { error: extrasError } = await supabase
+          .from('extras')
+          .update({
+            estado: 'aprobado',
+            aprobado_por: user.id,
+            fecha_aprobacion: new Date().toISOString()
+          })
+          .in('id', solicitud.extras_ids);
+        
+        if (extrasError) throw extrasError;
+      }
+      
+      // If it's an anticipo type, create the anticipo record
+      if (solicitud.tipo === 'anticipo') {
+        const { error: anticipoError } = await supabase
+          .from('anticipos')
+          .insert({
+            obra_id: solicitud.obra_id,
+            instalador_id: solicitud.instalador_id,
+            monto_original: solicitud.total_solicitado,
+            monto_disponible: solicitud.total_solicitado,
+            registrado_por: user.id,
+            observaciones: solicitud.observaciones || 'Anticipo aprobado desde corte'
+          });
+        
+        if (anticipoError) throw anticipoError;
+      }
+      
+      toast({
+        title: 'Éxito',
+        description: 'Solicitud aprobada y agregada al corte',
+      });
+      
+      // Refresh detail
+      handleViewCorte(viewingCorte);
+    } catch (error) {
+      console.error('Error approving and adding solicitud:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo aprobar la solicitud',
+        variant: 'destructive',
+      });
+    } finally {
+      setApprovingId(null);
     }
   };
 
@@ -911,13 +999,50 @@ export default function CortesPage() {
                 )}
               </div>
 
-              {/* Solicitudes disponibles (solo si corte abierto) */}
+              {/* Solicitudes pendientes (para aprobar y agregar) */}
+              {viewingCorte?.estado === 'abierto' && solicitudesPendientes.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-3 text-amber-600">
+                    Solicitudes Pendientes de Aprobación
+                  </h3>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Aprueba y agrega al corte en un solo paso
+                  </p>
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {solicitudesPendientes.map((sol) => (
+                      <div key={sol.id} className="flex justify-between items-center p-2 border border-amber-300 bg-amber-50/50 dark:bg-amber-950/20 rounded-lg">
+                        <div className="flex-1">
+                          <div className="font-medium text-sm">{sol.obras?.nombre}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {sol.instaladores?.nombre} • {sol.tipo}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{formatCurrency(Number(sol.total_solicitado))}</span>
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => handleApproveAndAddToCorte(sol)}
+                            disabled={approvingId === sol.id}
+                          >
+                            {approvingId === sol.id ? 'Aprobando...' : 'Aprobar y Agregar'}
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Solicitudes disponibles (ya aprobadas, solo agregar) */}
               {viewingCorte?.estado === 'abierto' && solicitudesDisponibles.length > 0 && (
                 <div>
-                  <h3 className="text-lg font-semibold mb-3">Solicitudes Disponibles</h3>
+                  <h3 className="text-lg font-semibold mb-3 text-green-600">
+                    Solicitudes Aprobadas Disponibles
+                  </h3>
                   <div className="space-y-2 max-h-60 overflow-y-auto">
                     {solicitudesDisponibles.map((sol) => (
-                      <div key={sol.id} className="flex justify-between items-center p-2 border border-dashed rounded-lg">
+                      <div key={sol.id} className="flex justify-between items-center p-2 border border-dashed border-green-300 rounded-lg">
                         <div className="flex-1">
                           <div className="font-medium text-sm">{sol.obras?.nombre}</div>
                           <div className="text-xs text-muted-foreground">
