@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Plus, Eye, Lock, Search, Users, Unlock, Download } from 'lucide-react';
+import { Calendar, Plus, Eye, Lock, Search, Users, Unlock, Download, FileText } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { PageHeader, DataTable, EmptyState, StatusBadge } from '../components';
 import { useExportCorteExcel } from '../hooks/useExportCorteExcel';
+import { useGenerateBatchPDF } from '../hooks/useGenerateBatchPDF';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -59,7 +60,9 @@ export default function CortesPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { exportCorteToExcel } = useExportCorteExcel();
+  const { generateBatchPDF } = useGenerateBatchPDF();
   const [exporting, setExporting] = useState(false);
+  const [generatingPDFs, setGeneratingPDFs] = useState(false);
   
   const [cortes, setCortes] = useState<CorteWithDetails[]>([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -575,6 +578,45 @@ export default function CortesPage() {
     }
   };
 
+  const handleGenerateBatchPDFs = async () => {
+    if (!viewingCorte) return;
+    
+    if (viewingCorte.estado !== 'cerrado') {
+      toast({
+        title: 'Corte abierto',
+        description: 'Solo puedes generar comprobantes de cortes cerrados',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    setGeneratingPDFs(true);
+    try {
+      const result = await generateBatchPDF(viewingCorte);
+      if (result.success) {
+        toast({
+          title: 'PDFs Generados',
+          description: `Se generaron ${result.count} comprobantes en ${result.filename}`,
+        });
+      } else {
+        toast({
+          title: 'Sin pagos',
+          description: result.error || 'No hay pagos para generar',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error generating batch PDFs:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudieron generar los comprobantes',
+        variant: 'destructive',
+      });
+    } finally {
+      setGeneratingPDFs(false);
+    }
+  };
+
   const filteredCortes = cortes.filter((corte) => {
     const matchesSearch = corte.nombre.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesEstado = filterEstado === 'todos' || corte.estado === filterEstado;
@@ -870,6 +912,16 @@ export default function CortesPage() {
               >
                 <Download className="w-4 h-4 mr-2" />
                 {exporting ? 'Generando...' : 'Descargar Excel'}
+              </Button>
+            )}
+            {viewingCorte?.estado === 'cerrado' && resumenInstaladores.length > 0 && (
+              <Button 
+                variant="secondary" 
+                onClick={handleGenerateBatchPDFs}
+                disabled={generatingPDFs}
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                {generatingPDFs ? 'Generando...' : 'Comprobantes PDF'}
               </Button>
             )}
             {viewingCorte?.estado === 'cerrado' && (
