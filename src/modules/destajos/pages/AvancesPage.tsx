@@ -441,13 +441,20 @@ export default function AvancesPage() {
             return acc + (parseInt(item.cantidad_a_avanzar) * item.precio_unitario);
           }, 0);
 
+          // Get obra discount
+          const obraData = obras.find(o => o.id === selectedObraId);
+          const descuento = Number((obraData as any)?.descuento || 0);
+          const montoDescuento = subtotalPiezas * (descuento / 100);
+          const totalConDescuento = subtotalPiezas - montoDescuento;
+
           const { error: solicitudError } = await supabase
             .from('solicitudes_pago')
             .update({
               obra_id: selectedObraId,
               instalador_id: selectedInstaladorId,
               subtotal_piezas: subtotalPiezas,
-              total_solicitado: subtotalPiezas,
+              retencion: montoDescuento,
+              total_solicitado: totalConDescuento,
             })
             .eq('id', solicitud.id);
           
@@ -488,6 +495,12 @@ export default function AvancesPage() {
           return acc + (parseInt(item.cantidad_a_avanzar) * item.precio_unitario);
         }, 0);
 
+        // Get obra discount
+        const obraData = obras.find(o => o.id === selectedObraId);
+        const descuento = Number((obraData as any)?.descuento || 0);
+        const montoDescuento = subtotalPiezas * (descuento / 100);
+        const totalConDescuento = subtotalPiezas - montoDescuento;
+
         const { error: solicitudError } = await supabase
           .from('solicitudes_pago')
           .insert({
@@ -497,9 +510,11 @@ export default function AvancesPage() {
             tipo: 'avance',
             subtotal_piezas: subtotalPiezas,
             subtotal_extras: 0,
-            retencion: 0,
-            total_solicitado: subtotalPiezas,
-            observaciones: `Avance registrado el ${format(new Date(fecha), 'dd/MM/yyyy')}`,
+            retencion: montoDescuento,
+            total_solicitado: totalConDescuento,
+            observaciones: descuento > 0 
+              ? `Avance registrado el ${format(new Date(fecha), 'dd/MM/yyyy')} (Descuento ${descuento}%)`
+              : `Avance registrado el ${format(new Date(fecha), 'dd/MM/yyyy')}`,
             avance_id: avanceData.id,
           });
 
@@ -597,6 +612,17 @@ export default function AvancesPage() {
         return acc + (item.cantidad_completada * (item.obra_items?.precio_unitario || 0));
       }, 0);
 
+      // Get obra discount
+      const { data: obraData } = await supabase
+        .from('obras')
+        .select('descuento')
+        .eq('id', avance.obra_id)
+        .single();
+      
+      const descuento = Number(obraData?.descuento || 0);
+      const montoDescuento = subtotalPiezas * (descuento / 100);
+      const totalConDescuento = subtotalPiezas - montoDescuento;
+
       const { error } = await supabase
         .from('solicitudes_pago')
         .insert({
@@ -606,9 +632,11 @@ export default function AvancesPage() {
           tipo: 'avance',
           subtotal_piezas: subtotalPiezas,
           subtotal_extras: 0,
-          retencion: 0,
-          total_solicitado: subtotalPiezas,
-          observaciones: `Nueva solicitud - Avance del ${format(new Date(avance.fecha), 'dd/MM/yyyy')}`,
+          retencion: montoDescuento,
+          total_solicitado: totalConDescuento,
+          observaciones: descuento > 0
+            ? `Nueva solicitud - Avance del ${format(new Date(avance.fecha), 'dd/MM/yyyy')} (Descuento ${descuento}%)`
+            : `Nueva solicitud - Avance del ${format(new Date(avance.fecha), 'dd/MM/yyyy')}`,
           avance_id: avance.id,
         });
 
