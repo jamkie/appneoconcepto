@@ -9,6 +9,8 @@ export interface Instalador {
   id: string;
   nombre: string;
   numero_cuenta: string | null;
+  nombre_banco: string | null;
+  salario_semanal: number;
   activo: boolean;
   created_at: string;
   updated_at: string;
