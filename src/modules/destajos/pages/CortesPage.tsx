@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Plus, Eye, Lock, Search, Users, Unlock } from 'lucide-react';
+import { Calendar, Plus, Eye, Lock, Search, Users, Unlock, Download } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { PageHeader, DataTable, EmptyState, StatusBadge } from '../components';
+import { useExportCorteExcel } from '../hooks/useExportCorteExcel';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -57,6 +58,8 @@ export default function CortesPage() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { exportCorteToExcel } = useExportCorteExcel();
+  const [exporting, setExporting] = useState(false);
   
   const [cortes, setCortes] = useState<CorteWithDetails[]>([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -551,6 +554,27 @@ export default function CortesPage() {
     }).format(value);
   };
 
+  const handleExportExcel = async () => {
+    if (!viewingCorte) return;
+    
+    setExporting(true);
+    const result = await exportCorteToExcel(viewingCorte);
+    setExporting(false);
+    
+    if (result.success) {
+      toast({
+        title: 'Éxito',
+        description: 'Archivo Excel descargado correctamente',
+      });
+    } else {
+      toast({
+        title: 'Error',
+        description: 'No se pudo generar el archivo Excel',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const filteredCortes = cortes.filter((corte) => {
     const matchesSearch = corte.nombre.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesEstado = filterEstado === 'todos' || corte.estado === filterEstado;
@@ -838,6 +862,16 @@ export default function CortesPage() {
             <Button variant="outline" onClick={() => setViewingCorte(null)}>
               Cerrar
             </Button>
+            {resumenInstaladores.length > 0 && (
+              <Button 
+                variant="secondary" 
+                onClick={handleExportExcel}
+                disabled={exporting}
+              >
+                <Download className="w-4 h-4 mr-2" />
+                {exporting ? 'Generando...' : 'Descargar Excel'}
+              </Button>
+            )}
             {viewingCorte?.estado === 'cerrado' && (
               <Button 
                 variant="destructive" 
