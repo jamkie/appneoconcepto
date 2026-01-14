@@ -240,6 +240,12 @@ export default function ExtrasPage() {
           .single();
         if (extraError) throw extraError;
 
+        // Get obra discount
+        const obraData = obras.find(o => o.id === formData.obra_id);
+        const descuento = Number((obraData as any)?.descuento || 0);
+        const montoDescuento = monto * (descuento / 100);
+        const totalConDescuento = monto - montoDescuento;
+
         // Crear solicitud de pago para el extra
         const { error: solicitudError } = await supabase
           .from('solicitudes_pago')
@@ -247,10 +253,12 @@ export default function ExtrasPage() {
             obra_id: formData.obra_id,
             instalador_id: formData.instalador_id,
             tipo: 'extra',
-            total_solicitado: monto,
+            total_solicitado: totalConDescuento,
             subtotal_extras: monto,
+            retencion: montoDescuento,
             extras_ids: [extraCreated.id],
             solicitado_por: user?.id,
+            observaciones: descuento > 0 ? `Extra con descuento ${descuento}%` : null,
           });
         if (solicitudError) throw solicitudError;
 
@@ -325,6 +333,17 @@ export default function ExtrasPage() {
         .contains('extras_ids', [extra.id])
         .eq('estado', 'rechazada');
       
+      // Get obra discount
+      const { data: obraData } = await supabase
+        .from('obras')
+        .select('descuento')
+        .eq('id', extra.obra_id)
+        .single();
+      
+      const descuento = Number(obraData?.descuento || 0);
+      const montoDescuento = extra.monto * (descuento / 100);
+      const totalConDescuento = extra.monto - montoDescuento;
+      
       // Create new payment request
       const { error } = await supabase
         .from('solicitudes_pago')
@@ -332,10 +351,12 @@ export default function ExtrasPage() {
           obra_id: extra.obra_id,
           instalador_id: extra.instalador_id,
           tipo: 'extra',
-          total_solicitado: extra.monto,
+          total_solicitado: totalConDescuento,
           subtotal_extras: extra.monto,
+          retencion: montoDescuento,
           extras_ids: [extra.id],
           solicitado_por: user.id,
+          observaciones: descuento > 0 ? `Nueva solicitud - Extra con descuento ${descuento}%` : null,
         });
       
       if (error) throw error;
