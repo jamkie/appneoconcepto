@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Plus, Eye, Lock, Search, Users, Unlock, Download, FileText } from 'lucide-react';
+import { Calendar, Plus, Eye, Lock, Search, Users, Unlock, Download, FileText, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -90,6 +90,10 @@ export default function CortesPage() {
   // Reopen corte confirmation
   const [confirmReopen, setConfirmReopen] = useState(false);
   const [reopeningCorte, setReopeningCorte] = useState(false);
+  
+  // Delete corte confirmation
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deletingCorte, setDeletingCorte] = useState(false);
   
   // Payment method for closing
   const [metodoPago, setMetodoPago] = useState<'efectivo' | 'transferencia' | 'cheque'>('transferencia');
@@ -550,6 +554,39 @@ export default function CortesPage() {
     }
   };
 
+  const handleDeleteCorte = async () => {
+    if (!viewingCorte) return;
+    
+    try {
+      setDeletingCorte(true);
+      
+      const { error } = await supabase
+        .from('cortes_semanales')
+        .delete()
+        .eq('id', viewingCorte.id);
+      
+      if (error) throw error;
+      
+      toast({
+        title: 'Éxito',
+        description: 'Corte eliminado correctamente',
+      });
+      
+      setConfirmDelete(false);
+      setViewingCorte(null);
+      fetchCortes();
+    } catch (error) {
+      console.error('Error deleting corte:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo eliminar el corte',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeletingCorte(false);
+    }
+  };
+
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-MX', {
       style: 'currency',
@@ -939,6 +976,15 @@ export default function CortesPage() {
                 Cerrar Corte y Generar Pagos
               </Button>
             )}
+            {viewingCorte && (viewingCorte.total_monto === 0 || viewingCorte.total_calculated === 0) && corteSolicitudes.length === 0 && (
+              <Button 
+                variant="destructive" 
+                onClick={() => setConfirmDelete(true)}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Eliminar Corte
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1020,6 +1066,29 @@ export default function CortesPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {reopeningCorte ? 'Reabriendo...' : 'Sí, Reabrir Corte'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirm Delete Corte Dialog */}
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar corte vacío?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Este corte no tiene solicitudes ni pagos asociados. 
+              Se eliminará permanentemente.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingCorte}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDeleteCorte} 
+              disabled={deletingCorte}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingCorte ? 'Eliminando...' : 'Sí, Eliminar'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
