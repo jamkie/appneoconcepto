@@ -444,6 +444,7 @@ export type Database = {
         Row: {
           cliente: string | null
           created_at: string | null
+          descuento: number
           estado: Database["public"]["Enums"]["obra_status"] | null
           id: string
           nombre: string
@@ -458,6 +459,7 @@ export type Database = {
         Insert: {
           cliente?: string | null
           created_at?: string | null
+          descuento?: number
           estado?: Database["public"]["Enums"]["obra_status"] | null
           id?: string
           nombre: string
@@ -472,6 +474,7 @@ export type Database = {
         Update: {
           cliente?: string | null
           created_at?: string | null
+          descuento?: number
           estado?: Database["public"]["Enums"]["obra_status"] | null
           id?: string
           nombre?: string
