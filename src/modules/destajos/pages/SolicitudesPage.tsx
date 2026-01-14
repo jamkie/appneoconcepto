@@ -272,7 +272,12 @@ export default function SolicitudesPage() {
     // For non-anticipo, validate obra limits
     if (!isAnticipo) {
       try {
-        const [itemsRes, extrasRes, pagosRes] = await Promise.all([
+        const [obraRes, itemsRes, extrasRes, pagosRes] = await Promise.all([
+          supabase
+            .from('obras')
+            .select('descuento')
+            .eq('id', solicitud.obra_id)
+            .single(),
           supabase
             .from('obra_items')
             .select('cantidad, precio_unitario')
@@ -288,6 +293,7 @@ export default function SolicitudesPage() {
             .eq('obra_id', solicitud.obra_id),
         ]);
         
+        const descuento = Number(obraRes.data?.descuento || 0);
         const totalItems = (itemsRes.data || []).reduce((sum, item) => 
           sum + (Number(item.cantidad) * Number(item.precio_unitario)), 0);
         const totalExtras = (extrasRes.data || []).reduce((sum, extra) => 
@@ -295,7 +301,9 @@ export default function SolicitudesPage() {
         const totalPagado = (pagosRes.data || []).reduce((sum, pago) => 
           sum + Number(pago.monto), 0);
         
-        const totalObra = totalItems + totalExtras;
+        const subtotal = totalItems + totalExtras;
+        const montoDescuento = subtotal * (descuento / 100);
+        const totalObra = subtotal - montoDescuento;
         const saldoPendiente = totalObra - totalPagado;
         
         if (montoSolicitud > saldoPendiente) {
