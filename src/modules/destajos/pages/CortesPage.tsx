@@ -313,7 +313,12 @@ export default function CortesPage() {
     try {
       const { error } = await supabase
         .from('solicitudes_pago')
-        .update({ corte_id: null })
+        .update({ 
+          corte_id: null,
+          estado: 'pendiente',
+          aprobado_por: null,
+          fecha_aprobacion: null
+        })
         .eq('id', solicitudId);
       
       if (error) throw error;
