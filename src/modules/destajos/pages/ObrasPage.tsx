@@ -446,6 +446,14 @@ export default function ObrasPage() {
       ),
     },
     {
+      key: 'responsable',
+      header: 'Responsable',
+      cell: (item: ObraWithItems) => (
+        <span className="text-sm">{(item as any).responsable || '-'}</span>
+      ),
+      hideOnMobile: true,
+    },
+    {
       key: 'piezas',
       header: 'Piezas',
       cell: (item: ObraWithItems) => (
