@@ -87,6 +87,7 @@ export default function ObrasPage() {
     cliente: '',
     responsable: '',
     estado: 'activa' as ObraStatus,
+    descuento: 0,
   });
   const [mobiliarioItems, setMobiliarioItems] = useState<MobiliarioItem[]>([]);
   const [extrasDialogOpen, setExtrasDialogOpen] = useState(false);
@@ -232,6 +233,7 @@ export default function ObrasPage() {
         cliente: obra.cliente || '',
         responsable: (obra as any).responsable || '',
         estado: obra.estado,
+        descuento: (obra as any).descuento || 0,
       });
       setMobiliarioItems(
         obra.items.map((item) => ({
@@ -248,6 +250,7 @@ export default function ObrasPage() {
         cliente: '',
         responsable: '',
         estado: 'activa',
+        descuento: 0,
       });
       setMobiliarioItems([]);
     }
@@ -276,6 +279,7 @@ export default function ObrasPage() {
         responsable: formData.responsable.trim() || null,
         ubicacion: null,
         estado: formData.estado,
+        descuento: formData.descuento,
         precio_cocina: 0,
         precio_closet: 0,
         precio_cubierta: 0,
@@ -372,7 +376,10 @@ export default function ObrasPage() {
 
   const generateEstadoDeCuenta = (obra: ObraWithItems) => {
     const totalItems = obra.items.reduce((sum, pieza) => sum + pieza.cantidad * pieza.precio_unitario, 0);
-    const total = totalItems + obra.totalExtras;
+    const subtotal = totalItems + obra.totalExtras;
+    const descuento = (obra as any).descuento || 0;
+    const montoDescuento = subtotal * (descuento / 100);
+    const total = subtotal - montoDescuento;
     const porPagar = total - obra.totalPagado;
 
     let content = `ESTADO DE CUENTA\n`;
@@ -416,6 +423,10 @@ export default function ObrasPage() {
     // Resumen
     content += `RESUMEN\n`;
     content += `-------\n`;
+    content += `Subtotal: ${formatCurrency(subtotal)}\n`;
+    if (descuento > 0) {
+      content += `Descuento (${descuento}%): -${formatCurrency(montoDescuento)}\n`;
+    }
     content += `Total Obra: ${formatCurrency(total)}\n`;
     content += `Total Pagado: ${formatCurrency(obra.totalPagado)}\n`;
     content += `Por Pagar: ${formatCurrency(porPagar)}\n`;
@@ -528,8 +539,18 @@ export default function ObrasPage() {
       header: 'Monto Total',
       cell: (item: ObraWithItems) => {
         const totalItems = item.items.reduce((sum, pieza) => sum + pieza.cantidad * pieza.precio_unitario, 0);
-        const total = totalItems + item.totalExtras;
-        return <span className="font-medium">{formatCurrency(total)}</span>;
+        const subtotal = totalItems + item.totalExtras;
+        const descuento = (item as any).descuento || 0;
+        const montoDescuento = subtotal * (descuento / 100);
+        const total = subtotal - montoDescuento;
+        return (
+          <div>
+            <span className="font-medium">{formatCurrency(total)}</span>
+            {descuento > 0 && (
+              <p className="text-xs text-amber-600">-{descuento}%</p>
+            )}
+          </div>
+        );
       },
       hideOnMobile: true,
     },
@@ -546,7 +567,10 @@ export default function ObrasPage() {
       header: 'Por Pagar',
       cell: (item: ObraWithItems) => {
         const totalItems = item.items.reduce((sum, pieza) => sum + pieza.cantidad * pieza.precio_unitario, 0);
-        const total = totalItems + item.totalExtras;
+        const subtotal = totalItems + item.totalExtras;
+        const descuento = (item as any).descuento || 0;
+        const montoDescuento = subtotal * (descuento / 100);
+        const total = subtotal - montoDescuento;
         const porPagar = total - item.totalPagado;
         return <span className="font-medium text-emerald-600">{formatCurrency(porPagar)}</span>;
       },
@@ -704,6 +728,25 @@ export default function ObrasPage() {
                 onChange={(e) => setFormData({ ...formData, responsable: e.target.value })}
                 placeholder="Nombre del responsable"
               />
+            </div>
+            
+            {/* Descuento */}
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+              <Label htmlFor="descuento" className="text-amber-700 dark:text-amber-400">Descuento (%)</Label>
+              <Input
+                id="descuento"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={formData.descuento || ''}
+                onChange={(e) => setFormData({ ...formData, descuento: parseFloat(e.target.value) || 0 })}
+                placeholder="0"
+                className="mt-1"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Porcentaje que se descuenta del total de la obra
+              </p>
             </div>
 
             {/* Piezas Section */}
