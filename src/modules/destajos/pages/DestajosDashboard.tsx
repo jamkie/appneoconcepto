@@ -4,31 +4,32 @@ import {
   LayoutDashboard, 
   Building2, 
   Users, 
-  Wallet, 
   DollarSign,
-  ClipboardList,
+  Wallet,
+  Calendar,
   AlertCircle
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { PageHeader, StatCard, DataTable, EmptyState, StatusBadge } from '../components';
-import { formatDistanceToNow } from 'date-fns';
+import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 interface DashboardStats {
   obrasActivas: number;
   instaladoresActivos: number;
-  solicitudesPendientes: number;
   totalPagado: number;
+  totalPorPagar: number;
 }
 
-interface RecentSolicitud {
+interface RecentCorte {
   id: string;
-  total_solicitado: number;
+  nombre: string;
+  fecha_inicio: string;
+  fecha_fin: string;
   estado: string;
-  created_at: string;
-  obras: { nombre: string } | null;
-  instaladores: { nombre: string } | null;
+  total_monto: number;
+  total_solicitudes: number;
 }
 
 export default function DestajosDashboard() {
@@ -37,10 +38,10 @@ export default function DestajosDashboard() {
   const [stats, setStats] = useState<DashboardStats>({
     obrasActivas: 0,
     instaladoresActivos: 0,
-    solicitudesPendientes: 0,
     totalPagado: 0,
+    totalPorPagar: 0,
   });
-  const [recentSolicitudes, setRecentSolicitudes] = useState<RecentSolicitud[]>([]);
+  const [recentCortes, setRecentCortes] = useState<RecentCorte[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
@@ -71,41 +72,64 @@ export default function DestajosDashboard() {
         .select('*', { count: 'exact', head: true })
         .eq('activo', true);
 
-      // Fetch solicitudes pendientes
-      const { count: solicitudesCount } = await supabase
-        .from('solicitudes_pago')
-        .select('*', { count: 'exact', head: true })
-        .eq('estado', 'pendiente');
-
-      // Fetch total pagado
+      // Fetch total pagado (from closed cortes)
       const { data: pagosData } = await supabase
         .from('pagos_destajos')
         .select('monto');
 
       const totalPagado = pagosData?.reduce((sum, p) => sum + Number(p.monto), 0) || 0;
 
+      // Fetch total por pagar (solicitudes aprobadas sin pago)
+      const { data: solicitudesPorPagar } = await supabase
+        .from('solicitudes_pago')
+        .select('total_solicitado')
+        .eq('estado', 'aprobada')
+        .is('corte_id', null);
+
+      const totalPorPagar = solicitudesPorPagar?.reduce((sum, s) => sum + Number(s.total_solicitado), 0) || 0;
+
       setStats({
         obrasActivas: obrasCount || 0,
         instaladoresActivos: instaladoresCount || 0,
-        solicitudesPendientes: solicitudesCount || 0,
         totalPagado,
+        totalPorPagar,
       });
 
-      // Fetch recent solicitudes
-      const { data: solicitudesData } = await supabase
-        .from('solicitudes_pago')
+      // Fetch recent cortes with aggregated data
+      const { data: cortesData } = await supabase
+        .from('cortes_semanales')
         .select(`
           id,
-          total_solicitado,
-          estado,
-          created_at,
-          obras(nombre),
-          instaladores(nombre)
+          nombre,
+          fecha_inicio,
+          fecha_fin,
+          estado
         `)
         .order('created_at', { ascending: false })
         .limit(5);
 
-      setRecentSolicitudes((solicitudesData as RecentSolicitud[]) || []);
+      if (cortesData) {
+        // Fetch solicitudes for each corte to calculate totals
+        const cortesWithTotals = await Promise.all(
+          cortesData.map(async (corte) => {
+            const { data: solicitudes } = await supabase
+              .from('solicitudes_pago')
+              .select('total_solicitado')
+              .eq('corte_id', corte.id);
+
+            const totalMonto = solicitudes?.reduce((sum, s) => sum + Number(s.total_solicitado), 0) || 0;
+            const totalSolicitudes = solicitudes?.length || 0;
+
+            return {
+              ...corte,
+              total_monto: totalMonto,
+              total_solicitudes: totalSolicitudes,
+            };
+          })
+        );
+
+        setRecentCortes(cortesWithTotals);
+      }
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {
@@ -130,37 +154,40 @@ export default function DestajosDashboard() {
 
   const columns = [
     {
-      key: 'obra',
-      header: 'Obra',
-      cell: (item: RecentSolicitud) => (
-        <span className="font-medium">{item.obras?.nombre || 'N/A'}</span>
+      key: 'nombre',
+      header: 'Nombre',
+      cell: (item: RecentCorte) => (
+        <span className="font-medium">{item.nombre}</span>
       ),
     },
     {
-      key: 'instalador',
-      header: 'Instalador',
-      cell: (item: RecentSolicitud) => item.instaladores?.nombre || 'N/A',
+      key: 'periodo',
+      header: 'Período',
+      cell: (item: RecentCorte) => (
+        <span className="text-sm text-muted-foreground">
+          {format(new Date(item.fecha_inicio), 'dd MMM', { locale: es })} - {format(new Date(item.fecha_fin), 'dd MMM', { locale: es })}
+        </span>
+      ),
       hideOnMobile: true,
+    },
+    {
+      key: 'solicitudes',
+      header: 'Solicitudes',
+      cell: (item: RecentCorte) => item.total_solicitudes,
     },
     {
       key: 'monto',
       header: 'Monto',
-      cell: (item: RecentSolicitud) => formatCurrency(Number(item.total_solicitado)),
+      cell: (item: RecentCorte) => formatCurrency(item.total_monto),
     },
     {
       key: 'estado',
       header: 'Estado',
-      cell: (item: RecentSolicitud) => <StatusBadge status={item.estado} />,
-    },
-    {
-      key: 'fecha',
-      header: 'Fecha',
-      cell: (item: RecentSolicitud) => (
-        <span className="text-muted-foreground text-sm">
-          {formatDistanceToNow(new Date(item.created_at), { addSuffix: true, locale: es })}
-        </span>
+      cell: (item: RecentCorte) => (
+        <StatusBadge 
+          status={item.estado === 'cerrado' ? 'pagada' : 'pendiente'} 
+        />
       ),
-      hideOnMobile: true,
     },
   ];
 
@@ -186,35 +213,35 @@ export default function DestajosDashboard() {
           icon={<Users className="w-5 h-5" />}
         />
         <StatCard
-          title="Solicitudes Pendientes"
-          value={stats.solicitudesPendientes}
-          icon={<Wallet className="w-5 h-5" />}
-          variant={stats.solicitudesPendientes > 0 ? 'warning' : 'default'}
-        />
-        <StatCard
           title="Total Pagado"
           value={formatCurrency(stats.totalPagado)}
           icon={<DollarSign className="w-5 h-5" />}
           variant="success"
         />
+        <StatCard
+          title="Por Pagar"
+          value={formatCurrency(stats.totalPorPagar)}
+          icon={<Wallet className="w-5 h-5" />}
+          variant={stats.totalPorPagar > 0 ? 'warning' : 'default'}
+        />
       </div>
 
-      {/* Recent Solicitudes */}
+      {/* Recent Cortes */}
       <div className="space-y-4">
         <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-          <ClipboardList className="w-5 h-5" />
-          Solicitudes Recientes
+          <Calendar className="w-5 h-5" />
+          Cortes Recientes
         </h2>
         <DataTable
           columns={columns}
-          data={recentSolicitudes}
+          data={recentCortes}
           keyExtractor={(item) => item.id}
-          onRowClick={(item) => navigate(`/destajos/solicitudes`)}
+          onRowClick={(item) => navigate(`/destajos/cortes`)}
           emptyState={
             <EmptyState
               icon={AlertCircle}
-              title="Sin solicitudes"
-              description="No hay solicitudes de pago registradas"
+              title="Sin cortes"
+              description="No hay cortes semanales registrados"
             />
           }
         />
