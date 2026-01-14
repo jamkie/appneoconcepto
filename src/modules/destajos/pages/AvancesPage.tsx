@@ -802,11 +802,18 @@ export default function AvancesPage() {
                     {(() => {
                       const solicitud = avance.solicitudes_pago?.[0];
                       const estado = solicitud?.estado || 'sin_solicitud';
+                      const hasPago = solicitud?.pagos_destajos?.length > 0;
                       
-                      if (estado === 'aprobada') {
+                      if (hasPago) {
                         return (
                           <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
                             ✓ Pagado
+                          </Badge>
+                        );
+                      } else if (estado === 'aprobada') {
+                        return (
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                            Aprobada
                           </Badge>
                         );
                       } else if (estado === 'rechazada') {
