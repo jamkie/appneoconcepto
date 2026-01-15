@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table,
   TableBody,
@@ -57,6 +58,13 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
+import { RolesManager } from '@/components/admin/RolesManager';
+
+interface CustomRole {
+  id: string;
+  name: string;
+  description: string | null;
+}
 
 interface UserProfile {
   id: string;
@@ -66,6 +74,7 @@ interface UserProfile {
   role?: AppRole;
   moduleIds?: string[];
   isSeller?: boolean;
+  customRoleIds?: string[];
 }
 
 interface ModulePermissionRow {
@@ -583,68 +592,82 @@ export default function AdminPage() {
             </Button>
           </Link>
 
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-xl bg-primary/10">
-                <Settings className="w-6 h-6 text-primary" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-foreground">
-                  Administración
-                </h1>
-                <p className="text-muted-foreground">
-                  Gestiona usuarios, roles y permisos
-                </p>
-              </div>
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-xl bg-primary/10">
+              <Settings className="w-6 h-6 text-primary" />
             </div>
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">
+                Administración
+              </h1>
+              <p className="text-muted-foreground">
+                Gestiona usuarios, roles y permisos
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Tabs for Users and Roles */}
+        <Tabs defaultValue="users" className="space-y-6">
+          <div className="flex items-center justify-between">
+            <TabsList>
+              <TabsTrigger value="users" className="gap-2">
+                <Users className="w-4 h-4" />
+                Usuarios
+              </TabsTrigger>
+              <TabsTrigger value="roles" className="gap-2">
+                <Shield className="w-4 h-4" />
+                Roles
+              </TabsTrigger>
+            </TabsList>
             <Button onClick={() => setShowCreateDialog(true)} className="gap-2">
               <UserPlus className="w-4 h-4" />
               Agregar Usuario
             </Button>
           </div>
-        </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <div className="rounded-xl border bg-card p-5">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-primary/10">
-                <Users className="w-5 h-5 text-primary" />
+          <TabsContent value="users" className="space-y-6">
+            {/* Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="rounded-xl border bg-card p-5">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <Users className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{users.length}</p>
+                    <p className="text-sm text-muted-foreground">Usuarios</p>
+                  </div>
+                </div>
               </div>
-              <div>
-                <p className="text-2xl font-bold">{users.length}</p>
-                <p className="text-sm text-muted-foreground">Usuarios</p>
+              <div className="rounded-xl border bg-card p-5">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-amber-500/10">
+                    <Shield className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">
+                      {users.filter((u) => u.role === 'admin').length}
+                    </p>
+                    <p className="text-sm text-muted-foreground">Administradores</p>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-xl border bg-card p-5">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-emerald-500/10">
+                    <Settings className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{activeModules.length}</p>
+                    <p className="text-sm text-muted-foreground">Módulos activos</p>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-          <div className="rounded-xl border bg-card p-5">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-amber-500/10">
-                <Shield className="w-5 h-5 text-amber-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">
-                  {users.filter((u) => u.role === 'admin').length}
-                </p>
-                <p className="text-sm text-muted-foreground">Administradores</p>
-              </div>
-            </div>
-          </div>
-          <div className="rounded-xl border bg-card p-5">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10">
-                <Settings className="w-5 h-5 text-emerald-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{activeModules.length}</p>
-                <p className="text-sm text-muted-foreground">Módulos activos</p>
-              </div>
-            </div>
-          </div>
-        </div>
 
-        {/* Filters */}
-        <div className="flex flex-wrap gap-4 mb-6">
+            {/* Filters */}
+            <div className="flex flex-wrap gap-4">
           <div className="relative flex-1 min-w-[200px] max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -824,7 +847,13 @@ export default function AdminPage() {
               </TableBody>
             </Table>
           )}
-        </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="roles">
+            <RolesManager />
+          </TabsContent>
+        </Tabs>
 
         {/* Edit Dialog */}
         <Dialog
