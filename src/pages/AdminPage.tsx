@@ -55,6 +55,7 @@ import {
   Power,
   Trash2,
   KeyRound,
+  FileText,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -63,6 +64,8 @@ import {
   loadUserPermissions,
   saveUserPermissions,
 } from '@/components/admin/UserPermissionsEditor';
+import { PermissionsCopyTools } from '@/components/admin/PermissionsCopyTools';
+import { PermissionTemplatesManager } from '@/components/admin/PermissionTemplatesManager';
 
 interface Permission {
   can_read: boolean;
@@ -134,6 +137,9 @@ export default function AdminPage() {
   const [newPasswordValue, setNewPasswordValue] = useState('');
   const [generateNewPassword, setGenerateNewPassword] = useState(true);
   const [sendPasswordEmail, setSendPasswordEmail] = useState(true);
+
+  // Templates manager state
+  const [showTemplatesManager, setShowTemplatesManager] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
 
   useEffect(() => {
@@ -543,15 +549,21 @@ export default function AdminPage() {
 
         {/* Content */}
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <Users className="w-5 h-5" />
               Usuarios
             </h2>
-            <Button onClick={() => setShowCreateDialog(true)} className="gap-2">
-              <UserPlus className="w-4 h-4" />
-              Agregar Usuario
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => setShowTemplatesManager(true)} className="gap-2">
+                <FileText className="w-4 h-4" />
+                Plantillas
+              </Button>
+              <Button onClick={() => setShowCreateDialog(true)} className="gap-2">
+                <UserPlus className="w-4 h-4" />
+                Agregar Usuario
+              </Button>
+            </div>
           </div>
 
           {/* Stats */}
@@ -805,6 +817,11 @@ export default function AdminPage() {
                   </div>
                 ) : (
                   <div className="space-y-4">
+                    <PermissionsCopyTools
+                      currentUserId={selectedUser?.id}
+                      onApplyPermissions={setEditPermissions}
+                      existingPermissions={editPermissions}
+                    />
                     <p className="text-sm text-muted-foreground">
                       Configura los permisos específicos para cada módulo y submódulo.
                     </p>
@@ -934,6 +951,10 @@ export default function AdminPage() {
 
               <TabsContent value="permissions" className="py-4">
                 <div className="space-y-4">
+                  <PermissionsCopyTools
+                    onApplyPermissions={setNewUserPermissions}
+                    existingPermissions={newUserPermissions}
+                  />
                   <p className="text-sm text-muted-foreground">
                     Configura los permisos específicos para cada módulo y submódulo.
                   </p>
@@ -1108,6 +1129,12 @@ export default function AdminPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Permission Templates Manager */}
+        <PermissionTemplatesManager
+          open={showTemplatesManager}
+          onOpenChange={setShowTemplatesManager}
+        />
       </div>
     </div>
   );
