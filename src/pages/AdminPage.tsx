@@ -145,6 +145,7 @@ export default function AdminPage() {
       const { data, error } = await supabase
         .from('roles')
         .select('id, name, description, is_system')
+        .eq('is_system', false)
         .order('name');
       
       if (error) throw error;
