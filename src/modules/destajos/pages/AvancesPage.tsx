@@ -45,6 +45,7 @@ import {
 import type { Obra, Instalador, ObraItem } from '../types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { useSubmodulePermissions } from '@/hooks/useSubmodulePermissions';
 
 interface AvanceItemDisplay {
   obra_item_id: string;
@@ -78,6 +79,7 @@ interface AvanceRecord {
 
 export default function AvancesPage() {
   const { user, loading } = useAuth();
+  const { canCreate, canUpdate, canDelete } = useSubmodulePermissions('destajos', 'avances');
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
@@ -713,10 +715,12 @@ export default function AvancesPage() {
         description="Registro de piezas completadas por los instaladores"
         icon={ClipboardList}
         actions={
-          <Button onClick={() => setIsModalOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Registrar Avance
-          </Button>
+          canCreate && (
+            <Button onClick={() => setIsModalOpen(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Registrar Avance
+            </Button>
+          )
         }
       />
 
@@ -751,10 +755,12 @@ export default function AvancesPage() {
           title="Sin avances"
           description="No hay avances registrados"
           action={
-            <Button onClick={() => setIsModalOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Registrar Avance
-            </Button>
+            canCreate && (
+              <Button onClick={() => setIsModalOpen(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Registrar Avance
+              </Button>
+            )
           }
         />
       ) : (
@@ -857,7 +863,7 @@ export default function AvancesPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
-                      {canEditAvance(avance) && (
+                      {canEditAvance(avance) && canUpdate && (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -866,7 +872,7 @@ export default function AvancesPage() {
                           <Pencil className="w-4 h-4" />
                         </Button>
                       )}
-                      {canDeleteAvance(avance) && (
+                      {canDeleteAvance(avance) && canDelete && (
                         <Button
                           variant="ghost"
                           size="icon"

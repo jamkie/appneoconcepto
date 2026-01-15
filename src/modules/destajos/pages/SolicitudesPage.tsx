@@ -37,6 +37,7 @@ import {
 import type { SolicitudPago, Obra, Instalador, Anticipo } from '../types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { useSubmodulePermissions } from '@/hooks/useSubmodulePermissions';
 
 interface SolicitudWithDetails extends SolicitudPago {
   obras: { nombre: string } | null;
@@ -51,6 +52,7 @@ interface AnticipoWithDetails extends Anticipo {
 
 export default function SolicitudesPage() {
   const { user, loading } = useAuth();
+  const { canCreate, canUpdate, canDelete } = useSubmodulePermissions('destajos', 'solicitudes');
   const navigate = useNavigate();
   const { toast } = useToast();
   const [solicitudes, setSolicitudes] = useState<SolicitudWithDetails[]>([]);
@@ -721,7 +723,7 @@ export default function SolicitudesPage() {
       header: 'Acciones',
       cell: (item: SolicitudWithDetails) => (
         <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-          {item.estado === 'pendiente' && (
+          {item.estado === 'pendiente' && canUpdate && (
             <>
               <Button
                 size="sm"
@@ -747,7 +749,7 @@ export default function SolicitudesPage() {
               </Button>
             </>
           )}
-          {canDeleteSolicitud(item) && (
+          {canDeleteSolicitud(item) && canDelete && (
             <Button
               size="sm"
               variant="outline"
@@ -760,7 +762,7 @@ export default function SolicitudesPage() {
               <Trash2 className="w-4 h-4" />
             </Button>
           )}
-          {!canDeleteSolicitud(item) && item.estado !== 'pendiente' && (
+          {(!canDeleteSolicitud(item) || !canDelete) && item.estado !== 'pendiente' && (
             <span className="text-sm text-muted-foreground">-</span>
           )}
         </div>
@@ -786,10 +788,12 @@ export default function SolicitudesPage() {
         description="Gestión de solicitudes de pago de instaladores"
         icon={Wallet}
         actions={
-          <Button onClick={() => setIsAnticipoModalOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Nuevo Anticipo
-          </Button>
+          canCreate && (
+            <Button onClick={() => setIsAnticipoModalOpen(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Nuevo Anticipo
+            </Button>
+          )
         }
       />
 

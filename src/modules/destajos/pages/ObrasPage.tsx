@@ -35,7 +35,7 @@ import {
 import type { Obra, ObraStatus, ObraItem } from '../types';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { useUserRole } from '@/hooks/useUserRole';
+import { useSubmodulePermissions } from '@/hooks/useSubmodulePermissions';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -72,7 +72,7 @@ interface ObraWithItems extends Obra {
 
 export default function ObrasPage() {
   const { user, loading } = useAuth();
-  const { isAdmin } = useUserRole();
+  const { canCreate, canUpdate, canDelete } = useSubmodulePermissions('destajos', 'obras');
   const navigate = useNavigate();
   const { toast } = useToast();
   const [obras, setObras] = useState<ObraWithItems[]>([]);
@@ -608,30 +608,30 @@ export default function ObrasPage() {
           >
             <Download className="w-4 h-4" />
           </Button>
-          {isAdmin && (
-            <>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenModal(item);
-                }}
-              >
-                <Pencil className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedObra(item);
-                  setIsDeleteDialogOpen(true);
-                }}
-              >
-                <Trash2 className="w-4 h-4 text-destructive" />
-              </Button>
-            </>
+          {canUpdate && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleOpenModal(item);
+              }}
+            >
+              <Pencil className="w-4 h-4" />
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedObra(item);
+                setIsDeleteDialogOpen(true);
+              }}
+            >
+              <Trash2 className="w-4 h-4 text-destructive" />
+            </Button>
           )}
         </div>
       ),
