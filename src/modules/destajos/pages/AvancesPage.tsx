@@ -583,12 +583,18 @@ export default function AvancesPage() {
       
       if (itemsError) throw itemsError;
       
-      const { error: avanceError } = await supabase
+      const { data: deletedData, error: avanceError } = await supabase
         .from('avances')
         .delete()
-        .eq('id', avanceToDelete.id);
+        .eq('id', avanceToDelete.id)
+        .select('id');
       
       if (avanceError) throw avanceError;
+      
+      // Si RLS bloqueó la eliminación, deletedData estará vacío
+      if (!deletedData || deletedData.length === 0) {
+        throw new Error('No tienes permisos para eliminar este avance');
+      }
 
       toast({ title: 'Éxito', description: 'Avance eliminado correctamente' });
       setIsDeleteOpen(false);
