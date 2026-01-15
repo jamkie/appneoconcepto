@@ -751,27 +751,11 @@ export default function ObrasPage() {
 
             {/* Piezas Section */}
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label>Piezas</Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setMobiliarioItems([
-                      ...mobiliarioItems,
-                      { descripcion: '', cantidad: 0, precio_unitario: 0 },
-                    ]);
-                  }}
-                >
-                  <Plus className="w-4 h-4 mr-1" />
-                  Agregar Pieza
-                </Button>
-              </div>
+              <Label>Piezas</Label>
 
               {/* Items list */}
               {mobiliarioItems.length > 0 && (
-                <div className="space-y-3 max-h-60 overflow-y-auto">
+                <div className="space-y-3">
                   {mobiliarioItems.map((item, index) => (
                     <div key={index} className="relative border rounded-lg p-3 space-y-2">
                       <Button
@@ -822,6 +806,23 @@ export default function ObrasPage() {
                   ))}
                 </div>
               )}
+
+              {/* Add button below items */}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => {
+                  setMobiliarioItems([
+                    ...mobiliarioItems,
+                    { descripcion: '', cantidad: 0, precio_unitario: 0 },
+                  ]);
+                }}
+              >
+                <Plus className="w-4 h-4 mr-1" />
+                Agregar Pieza
+              </Button>
             </div>
           </div>
           <DialogFooter>
