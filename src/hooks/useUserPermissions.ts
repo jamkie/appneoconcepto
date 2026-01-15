@@ -57,23 +57,22 @@ export function useUserPermissions() {
         return;
       }
 
-      // Fetch module permissions for non-admin users via REST API
-      const session = await supabase.auth.getSession();
+      // Fetch module permissions from user_permissions table (granular CRUD permissions)
+      // A user has access to a module if they have can_read=true for any submodule in that module
       let moduleIds: string[] = [];
       
       try {
-        const response = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/user_module_permissions?user_id=eq.${user.id}&select=module_id`,
-          {
-            headers: {
-              apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-              Authorization: `Bearer ${session.data.session?.access_token}`,
-            },
-          }
-        );
-        if (response.ok) {
-          const data: ModulePermissionRow[] = await response.json();
-          moduleIds = data?.map((m) => m.module_id) || [];
+        const { data, error } = await supabase
+          .from('user_permissions')
+          .select('module_id')
+          .eq('user_id', user.id)
+          .eq('can_read', true);
+        
+        if (error) {
+          console.error('Error fetching module permissions:', error);
+        } else {
+          // Get unique module IDs
+          moduleIds = [...new Set(data?.map((m) => m.module_id) || [])];
         }
       } catch (err) {
         console.error('Error fetching module permissions:', err);
