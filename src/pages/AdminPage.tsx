@@ -64,6 +64,7 @@ interface CustomRole {
   id: string;
   name: string;
   description: string | null;
+  is_system?: boolean;
 }
 
 interface UserProfile {
@@ -74,7 +75,7 @@ interface UserProfile {
   role?: AppRole;
   moduleIds?: string[];
   isSeller?: boolean;
-  customRoleIds?: string[];
+  customRoleIds: string[];
 }
 
 interface ModulePermissionRow {
@@ -102,7 +103,11 @@ export default function AdminPage() {
   const [editRole, setEditRole] = useState<AppRole>('user');
   const [editModules, setEditModules] = useState<string[]>([]);
   const [editIsSeller, setEditIsSeller] = useState(false);
+  const [editCustomRoles, setEditCustomRoles] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+
+  // Custom roles from database
+  const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
 
   // Create user state
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -113,6 +118,7 @@ export default function AdminPage() {
   const [newUserModules, setNewUserModules] = useState<string[]>([]);
   const [newUserIsSeller, setNewUserIsSeller] = useState(false);
   const [newUserGeneratePassword, setNewUserGeneratePassword] = useState(true);
+  const [newUserCustomRoles, setNewUserCustomRoles] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
 
   // Delete user state
@@ -130,8 +136,23 @@ export default function AdminPage() {
   useEffect(() => {
     if (isAdmin) {
       fetchUsers();
+      fetchCustomRoles();
     }
   }, [isAdmin]);
+
+  const fetchCustomRoles = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('roles')
+        .select('id, name, description, is_system')
+        .order('name');
+      
+      if (error) throw error;
+      setCustomRoles(data || []);
+    } catch (error) {
+      console.error('Error fetching custom roles:', error);
+    }
+  };
 
   const fetchModulePermissions = async (): Promise<ModulePermissionRow[]> => {
     const session = await supabase.auth.getSession();
@@ -173,13 +194,21 @@ export default function AdminPage() {
         .from('sellers')
         .select('user_id');
 
+      // Fetch user custom roles
+      const { data: userCustomRoles } = await supabase
+        .from('user_custom_roles')
+        .select('user_id, role_id');
+
       const sellerUserIds = new Set(sellers?.map((s) => s.user_id).filter(Boolean) || []);
 
-      const usersWithRoles = profiles?.map((profile) => {
+      const usersWithRoles: UserProfile[] = profiles?.map((profile) => {
         const userRole = roles?.find((r) => r.user_id === profile.id);
         const userModules = permissions
           ?.filter((p) => p.user_id === profile.id)
           .map((p) => p.module_id) || [];
+        const userCustomRoleIds = userCustomRoles
+          ?.filter((ucr) => ucr.user_id === profile.id)
+          .map((ucr) => ucr.role_id) || [];
 
         return {
           ...profile,
@@ -187,6 +216,7 @@ export default function AdminPage() {
           role: (userRole?.role as AppRole) || 'user',
           moduleIds: userModules,
           isSeller: sellerUserIds.has(profile.id),
+          customRoleIds: userCustomRoleIds,
         };
       }) || [];
 
@@ -204,6 +234,7 @@ export default function AdminPage() {
     setEditRole(userProfile.role || 'user');
     setEditModules(userProfile.moduleIds || []);
     setEditIsSeller(userProfile.isSeller || false);
+    setEditCustomRoles(userProfile.customRoleIds || []);
   };
 
   const handleToggleActivo = async (userProfile: UserProfile) => {
@@ -284,6 +315,21 @@ export default function AdminPage() {
         );
       }
 
+      // Handle custom roles
+      await supabase
+        .from('user_custom_roles')
+        .delete()
+        .eq('user_id', selectedUser.id);
+
+      if (editRole !== 'admin' && editCustomRoles.length > 0) {
+        const customRoleInserts = editCustomRoles.map((roleId) => ({
+          user_id: selectedUser.id,
+          role_id: roleId,
+          assigned_by: user?.id,
+        }));
+        await supabase.from('user_custom_roles').insert(customRoleInserts);
+      }
+
       // Handle seller status
       const wasSeller = selectedUser.isSeller || false;
       if (editIsSeller && !wasSeller) {
@@ -306,6 +352,10 @@ export default function AdminPage() {
       if (JSON.stringify(selectedUser.moduleIds?.sort()) !== JSON.stringify(editModules.sort())) {
         const moduleNames = editModules.map(id => modules.find(m => m.id === id)?.title || id);
         changes.push(`Módulos actualizados: ${moduleNames.join(', ') || 'Ninguno'}`);
+      }
+      if (JSON.stringify(selectedUser.customRoleIds?.sort()) !== JSON.stringify(editCustomRoles.sort())) {
+        const roleNames = editCustomRoles.map(id => customRoles.find(r => r.id === id)?.name || id);
+        changes.push(`Roles personalizados: ${roleNames.join(', ') || 'Ninguno'}`);
       }
       if (wasSeller !== editIsSeller) {
         changes.push(editIsSeller ? 'Asignado como vendedor' : 'Removido como vendedor');
@@ -408,6 +458,7 @@ export default function AdminPage() {
     setNewUserModules([]);
     setNewUserIsSeller(false);
     setNewUserGeneratePassword(true);
+    setNewUserCustomRoles([]);
   };
 
   const toggleModule = (moduleId: string) => {
@@ -423,6 +474,22 @@ export default function AdminPage() {
       prev.includes(moduleId)
         ? prev.filter((id) => id !== moduleId)
         : [...prev, moduleId]
+    );
+  };
+
+  const toggleEditCustomRole = (roleId: string) => {
+    setEditCustomRoles((prev) =>
+      prev.includes(roleId)
+        ? prev.filter((id) => id !== roleId)
+        : [...prev, roleId]
+    );
+  };
+
+  const toggleNewUserCustomRole = (roleId: string) => {
+    setNewUserCustomRoles((prev) =>
+      prev.includes(roleId)
+        ? prev.filter((id) => id !== roleId)
+        : [...prev, roleId]
     );
   };
 
@@ -733,8 +800,8 @@ export default function AdminPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Usuario</TableHead>
-                  <TableHead>Rol</TableHead>
-                  <TableHead>Módulos</TableHead>
+                  <TableHead>Rol del Sistema</TableHead>
+                  <TableHead>Roles Personalizados</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
@@ -775,31 +842,31 @@ export default function AdminPage() {
                     <TableCell>
                       {userProfile.role === 'admin' ? (
                         <span className="text-sm text-muted-foreground">
-                          Todos los módulos
+                          Acceso total
                         </span>
                       ) : (
                         <div className="flex flex-wrap gap-1">
-                          {userProfile.moduleIds?.length ? (
-                            userProfile.moduleIds.slice(0, 3).map((id) => {
-                              const mod = modules.find((m) => m.id === id);
+                          {userProfile.customRoleIds.length > 0 ? (
+                            userProfile.customRoleIds.slice(0, 2).map((roleId) => {
+                              const role = customRoles.find((r) => r.id === roleId);
                               return (
                                 <Badge
-                                  key={id}
+                                  key={roleId}
                                   variant="outline"
-                                  className="text-xs"
+                                  className="text-xs bg-primary/10 text-primary border-primary/20"
                                 >
-                                  {mod?.title || id}
+                                  {role?.name || roleId}
                                 </Badge>
                               );
                             })
                           ) : (
                             <span className="text-sm text-muted-foreground">
-                              Sin acceso
+                              Sin roles
                             </span>
                           )}
-                          {(userProfile.moduleIds?.length || 0) > 3 && (
+                          {userProfile.customRoleIds.length > 2 && (
                             <Badge variant="outline" className="text-xs">
-                              +{(userProfile.moduleIds?.length || 0) - 3}
+                              +{userProfile.customRoleIds.length - 2}
                             </Badge>
                           )}
                         </div>
@@ -890,29 +957,67 @@ export default function AdminPage() {
               </div>
 
               {editRole !== 'admin' && (
-                <div className="space-y-3">
-                  <Label>Acceso a módulos</Label>
-                  <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {activeModules.map((mod) => (
-                      <div
-                        key={mod.id}
-                        className="flex items-center space-x-3 p-2 rounded-lg hover:bg-muted/50"
-                      >
-                        <Checkbox
-                          id={mod.id}
-                          checked={editModules.includes(mod.id)}
-                          onCheckedChange={() => toggleModule(mod.id)}
-                        />
-                        <label
-                          htmlFor={mod.id}
-                          className="flex-1 text-sm cursor-pointer"
-                        >
-                          {mod.title}
-                        </label>
+                <>
+                  <div className="space-y-3">
+                    <Label>Roles personalizados</Label>
+                    {customRoles.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No hay roles personalizados. Créalos en la pestaña "Roles".
+                      </p>
+                    ) : (
+                      <div className="space-y-2 max-h-40 overflow-y-auto border rounded-lg p-2">
+                        {customRoles.map((role) => (
+                          <div
+                            key={role.id}
+                            className="flex items-center space-x-3 p-2 rounded-lg hover:bg-muted/50"
+                          >
+                            <Checkbox
+                              id={`edit-role-${role.id}`}
+                              checked={editCustomRoles.includes(role.id)}
+                              onCheckedChange={() => toggleEditCustomRole(role.id)}
+                            />
+                            <label
+                              htmlFor={`edit-role-${role.id}`}
+                              className="flex-1 cursor-pointer"
+                            >
+                              <span className="text-sm font-medium">{role.name}</span>
+                              {role.description && (
+                                <p className="text-xs text-muted-foreground">{role.description}</p>
+                              )}
+                            </label>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </div>
-                </div>
+
+                  <div className="space-y-3">
+                    <Label>Acceso a módulos (adicional)</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Los permisos del rol se combinan con estos módulos adicionales
+                    </p>
+                    <div className="space-y-2 max-h-48 overflow-y-auto border rounded-lg p-2">
+                      {activeModules.map((mod) => (
+                        <div
+                          key={mod.id}
+                          className="flex items-center space-x-3 p-2 rounded-lg hover:bg-muted/50"
+                        >
+                          <Checkbox
+                            id={mod.id}
+                            checked={editModules.includes(mod.id)}
+                            onCheckedChange={() => toggleModule(mod.id)}
+                          />
+                          <label
+                            htmlFor={mod.id}
+                            className="flex-1 text-sm cursor-pointer"
+                          >
+                            {mod.title}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
               )}
 
               {editRole === 'admin' && (
@@ -1031,29 +1136,67 @@ export default function AdminPage() {
               </div>
 
               {newUserRole !== 'admin' && (
-                <div className="space-y-3">
-                  <Label>Acceso a módulos</Label>
-                  <div className="space-y-2 max-h-48 overflow-y-auto border rounded-lg p-2">
-                    {activeModules.map((mod) => (
-                      <div
-                        key={mod.id}
-                        className="flex items-center space-x-3 p-2 rounded-lg hover:bg-muted/50"
-                      >
-                        <Checkbox
-                          id={`new-${mod.id}`}
-                          checked={newUserModules.includes(mod.id)}
-                          onCheckedChange={() => toggleNewUserModule(mod.id)}
-                        />
-                        <label
-                          htmlFor={`new-${mod.id}`}
-                          className="flex-1 text-sm cursor-pointer"
-                        >
-                          {mod.title}
-                        </label>
+                <>
+                  <div className="space-y-3">
+                    <Label>Roles personalizados</Label>
+                    {customRoles.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No hay roles personalizados. Créalos en la pestaña "Roles".
+                      </p>
+                    ) : (
+                      <div className="space-y-2 max-h-40 overflow-y-auto border rounded-lg p-2">
+                        {customRoles.map((role) => (
+                          <div
+                            key={role.id}
+                            className="flex items-center space-x-3 p-2 rounded-lg hover:bg-muted/50"
+                          >
+                            <Checkbox
+                              id={`new-role-${role.id}`}
+                              checked={newUserCustomRoles.includes(role.id)}
+                              onCheckedChange={() => toggleNewUserCustomRole(role.id)}
+                            />
+                            <label
+                              htmlFor={`new-role-${role.id}`}
+                              className="flex-1 cursor-pointer"
+                            >
+                              <span className="text-sm font-medium">{role.name}</span>
+                              {role.description && (
+                                <p className="text-xs text-muted-foreground">{role.description}</p>
+                              )}
+                            </label>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </div>
-                </div>
+
+                  <div className="space-y-3">
+                    <Label>Acceso a módulos (adicional)</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Los permisos del rol se combinan con estos módulos adicionales
+                    </p>
+                    <div className="space-y-2 max-h-40 overflow-y-auto border rounded-lg p-2">
+                      {activeModules.map((mod) => (
+                        <div
+                          key={mod.id}
+                          className="flex items-center space-x-3 p-2 rounded-lg hover:bg-muted/50"
+                        >
+                          <Checkbox
+                            id={`new-${mod.id}`}
+                            checked={newUserModules.includes(mod.id)}
+                            onCheckedChange={() => toggleNewUserModule(mod.id)}
+                          />
+                          <label
+                            htmlFor={`new-${mod.id}`}
+                            className="flex-1 text-sm cursor-pointer"
+                          >
+                            {mod.title}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
               )}
 
               {newUserRole === 'admin' && (
