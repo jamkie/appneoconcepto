@@ -55,7 +55,6 @@ import {
   Power,
   Trash2,
   KeyRound,
-  FileText,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -65,7 +64,6 @@ import {
   saveUserPermissions,
 } from '@/components/admin/UserPermissionsEditor';
 import { PermissionsCopyTools } from '@/components/admin/PermissionsCopyTools';
-import { PermissionTemplatesManager } from '@/components/admin/PermissionTemplatesManager';
 
 interface Permission {
   can_read: boolean;
@@ -138,8 +136,6 @@ export default function AdminPage() {
   const [generateNewPassword, setGenerateNewPassword] = useState(true);
   const [sendPasswordEmail, setSendPasswordEmail] = useState(true);
 
-  // Templates manager state
-  const [showTemplatesManager, setShowTemplatesManager] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
 
   useEffect(() => {
@@ -554,16 +550,10 @@ export default function AdminPage() {
               <Users className="w-5 h-5" />
               Usuarios
             </h2>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => setShowTemplatesManager(true)} className="gap-2">
-                <FileText className="w-4 h-4" />
-                Plantillas
-              </Button>
-              <Button onClick={() => setShowCreateDialog(true)} className="gap-2">
-                <UserPlus className="w-4 h-4" />
-                Agregar Usuario
-              </Button>
-            </div>
+            <Button onClick={() => setShowCreateDialog(true)} className="gap-2">
+              <UserPlus className="w-4 h-4" />
+              Agregar Usuario
+            </Button>
           </div>
 
           {/* Stats */}
@@ -1129,12 +1119,6 @@ export default function AdminPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-
-        {/* Permission Templates Manager */}
-        <PermissionTemplatesManager
-          open={showTemplatesManager}
-          onOpenChange={setShowTemplatesManager}
-        />
       </div>
     </div>
   );
