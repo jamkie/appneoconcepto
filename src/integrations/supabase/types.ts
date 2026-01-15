@@ -643,6 +643,7 @@ export type Database = {
           id: string
           module_id: string
           role_id: string
+          submodule_id: string | null
         }
         Insert: {
           can_create?: boolean | null
@@ -653,6 +654,7 @@ export type Database = {
           id?: string
           module_id: string
           role_id: string
+          submodule_id?: string | null
         }
         Update: {
           can_create?: boolean | null
@@ -663,6 +665,7 @@ export type Database = {
           id?: string
           module_id?: string
           role_id?: string
+          submodule_id?: string | null
         }
         Relationships: [
           {
