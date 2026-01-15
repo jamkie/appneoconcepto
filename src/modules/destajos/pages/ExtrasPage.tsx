@@ -45,6 +45,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { useSubmodulePermissions } from '@/hooks/useSubmodulePermissions';
 
 interface ExtraWithDetails extends Extra {
   obras: { nombre: string } | null;
@@ -55,6 +56,7 @@ interface ExtraWithDetails extends Extra {
 
 export default function ExtrasPage() {
   const { user, loading } = useAuth();
+  const { canCreate, canUpdate, canDelete } = useSubmodulePermissions('destajos', 'extras');
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
@@ -443,10 +445,12 @@ export default function ExtrasPage() {
         description="Registro de trabajos extras"
         icon={FileText}
         actions={
-          <Button onClick={openCreateModal}>
-            <Plus className="w-4 h-4 mr-2" />
-            Nuevo Extra
-          </Button>
+          canCreate && (
+            <Button onClick={openCreateModal}>
+              <Plus className="w-4 h-4 mr-2" />
+              Nuevo Extra
+            </Button>
+          )
         }
       />
 
@@ -482,10 +486,12 @@ export default function ExtrasPage() {
           title="Sin extras"
           description="No hay extras registrados"
           action={
-            <Button onClick={openCreateModal}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nuevo Extra
-            </Button>
+            canCreate && (
+              <Button onClick={openCreateModal}>
+                <Plus className="w-4 h-4 mr-2" />
+                Nuevo Extra
+              </Button>
+            )
           }
         />
       ) : (
@@ -542,23 +548,23 @@ export default function ExtrasPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
-                      {canEditOrDelete(extra) && (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => openEditModal(extra)}
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setDeleteExtra(extra)}
-                          >
-                            <Trash2 className="w-4 h-4 text-destructive" />
-                          </Button>
-                        </>
+                      {canEditOrDelete(extra) && canUpdate && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => openEditModal(extra)}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                      )}
+                      {canEditOrDelete(extra) && canDelete && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setDeleteExtra(extra)}
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
                       )}
                     </div>
                   </TableCell>

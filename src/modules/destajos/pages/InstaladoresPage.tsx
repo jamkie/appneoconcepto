@@ -24,12 +24,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type { Instalador } from '../types';
-import { useUserRole } from '@/hooks/useUserRole';
+import { useSubmodulePermissions } from '@/hooks/useSubmodulePermissions';
 import { cn } from '@/lib/utils';
 
 export default function InstaladoresPage() {
   const { user, loading } = useAuth();
-  const { isAdmin } = useUserRole();
+  const { canCreate, canUpdate, canDelete } = useSubmodulePermissions('destajos', 'instaladores');
   const navigate = useNavigate();
   const { toast } = useToast();
   const [instaladores, setInstaladores] = useState<Instalador[]>([]);
@@ -239,28 +239,32 @@ export default function InstaladoresPage() {
         </div>
       ),
     },
-    ...(isAdmin
+    ...((canUpdate || canDelete)
       ? [
           {
             key: 'actions',
             header: 'Acciones',
             cell: (item: Instalador) => (
               <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenModal(item);
-                  }}
-                >
-                  <Pencil className="w-4 h-4" />
-                </Button>
-                <Switch
-                  checked={item.activo}
-                  onCheckedChange={() => handleToggleActivo(item)}
-                  onClick={(e) => e.stopPropagation()}
-                />
+                {canUpdate && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenModal(item);
+                    }}
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </Button>
+                )}
+                {canUpdate && (
+                  <Switch
+                    checked={item.activo}
+                    onCheckedChange={() => handleToggleActivo(item)}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                )}
               </div>
             ),
           },
@@ -283,7 +287,7 @@ export default function InstaladoresPage() {
         description="Gestión de instaladores y trabajadores"
         icon={Users}
         actions={
-          isAdmin && (
+          canCreate && (
             <Button onClick={() => handleOpenModal()}>
               <Plus className="w-4 h-4 mr-2" />
               Nuevo Instalador
@@ -326,7 +330,7 @@ export default function InstaladoresPage() {
             title="Sin instaladores"
             description="No hay instaladores registrados"
             action={
-              isAdmin && (
+              canCreate && (
                 <Button onClick={() => handleOpenModal()}>
                   <Plus className="w-4 h-4 mr-2" />
                   Nuevo Instalador
