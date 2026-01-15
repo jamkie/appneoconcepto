@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { modules } from '@/data/modules';
+import { modulesWithSubmodules } from '@/data/modules';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -32,8 +32,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Pencil, Trash2, Loader2, Shield, Lock } from 'lucide-react';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
+import { Plus, Pencil, Trash2, Loader2, Shield, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 interface Role {
   id: string;
@@ -47,6 +54,7 @@ interface RolePermission {
   id: string;
   role_id: string;
   module_id: string;
+  submodule_id: string | null;
   can_read: boolean;
   can_create: boolean;
   can_update: boolean;
@@ -56,6 +64,9 @@ interface RolePermission {
 interface RoleWithPermissions extends Role {
   permissions: RolePermission[];
 }
+
+type PermissionSet = { read: boolean; create: boolean; update: boolean; delete: boolean };
+type PermissionsState = Record<string, Record<string, PermissionSet>>;
 
 export function RolesManager() {
   const [roles, setRoles] = useState<RoleWithPermissions[]>([]);
@@ -67,12 +78,12 @@ export function RolesManager() {
   const [editingRole, setEditingRole] = useState<RoleWithPermissions | null>(null);
   const [roleName, setRoleName] = useState('');
   const [roleDescription, setRoleDescription] = useState('');
-  const [permissions, setPermissions] = useState<Record<string, { read: boolean; create: boolean; update: boolean; delete: boolean }>>({});
+  const [permissions, setPermissions] = useState<PermissionsState>({});
   
   // Delete dialog
   const [deleteRole, setDeleteRole] = useState<Role | null>(null);
 
-  const activeModules = modules.filter((m) => m.status === 'active');
+  const activeModules = modulesWithSubmodules.filter((m) => m.status === 'active');
 
   useEffect(() => {
     fetchRoles();
@@ -109,16 +120,42 @@ export function RolesManager() {
     }
   };
 
+  const initializeEmptyPermissions = (): PermissionsState => {
+    const perms: PermissionsState = {};
+    activeModules.forEach((mod) => {
+      perms[mod.id] = {
+        _module: { read: false, create: false, update: false, delete: false },
+      };
+      mod.submodules.forEach((sub) => {
+        perms[mod.id][sub.id] = { read: false, create: false, update: false, delete: false };
+      });
+    });
+    return perms;
+  };
+
+  const mapExistingPermissions = (role: RoleWithPermissions): PermissionsState => {
+    const perms = initializeEmptyPermissions();
+    
+    role.permissions.forEach((p) => {
+      const key = p.submodule_id || '_module';
+      if (perms[p.module_id] && perms[p.module_id][key]) {
+        perms[p.module_id][key] = {
+          read: p.can_read || false,
+          create: p.can_create || false,
+          update: p.can_update || false,
+          delete: p.can_delete || false,
+        };
+      }
+    });
+    
+    return perms;
+  };
+
   const openCreateDialog = () => {
     setEditingRole(null);
     setRoleName('');
     setRoleDescription('');
-    // Initialize permissions with all false
-    const initialPerms: Record<string, { read: boolean; create: boolean; update: boolean; delete: boolean }> = {};
-    activeModules.forEach((m) => {
-      initialPerms[m.id] = { read: false, create: false, update: false, delete: false };
-    });
-    setPermissions(initialPerms);
+    setPermissions(initializeEmptyPermissions());
     setShowDialog(true);
   };
 
@@ -126,18 +163,7 @@ export function RolesManager() {
     setEditingRole(role);
     setRoleName(role.name);
     setRoleDescription(role.description || '');
-    // Map existing permissions
-    const perms: Record<string, { read: boolean; create: boolean; update: boolean; delete: boolean }> = {};
-    activeModules.forEach((m) => {
-      const existingPerm = role.permissions.find((p) => p.module_id === m.id);
-      perms[m.id] = {
-        read: existingPerm?.can_read || false,
-        create: existingPerm?.can_create || false,
-        update: existingPerm?.can_update || false,
-        delete: existingPerm?.can_delete || false,
-      };
-    });
-    setPermissions(perms);
+    setPermissions(mapExistingPermissions(role));
     setShowDialog(true);
   };
 
@@ -152,7 +178,6 @@ export function RolesManager() {
       let roleId: string;
 
       if (editingRole) {
-        // Update existing role
         const { error } = await supabase
           .from('roles')
           .update({ name: roleName.trim(), description: roleDescription.trim() || null })
@@ -164,7 +189,6 @@ export function RolesManager() {
         // Delete existing permissions
         await supabase.from('role_permissions').delete().eq('role_id', roleId);
       } else {
-        // Create new role
         const { data, error } = await supabase
           .from('roles')
           .insert({ name: roleName.trim(), description: roleDescription.trim() || null })
@@ -175,17 +199,32 @@ export function RolesManager() {
         roleId = data.id;
       }
 
-      // Insert new permissions
-      const permissionsToInsert = Object.entries(permissions)
-        .filter(([_, perm]) => perm.read || perm.create || perm.update || perm.delete)
-        .map(([moduleId, perm]) => ({
-          role_id: roleId,
-          module_id: moduleId,
-          can_read: perm.read,
-          can_create: perm.create,
-          can_update: perm.update,
-          can_delete: perm.delete,
-        }));
+      // Collect permissions to insert
+      const permissionsToInsert: {
+        role_id: string;
+        module_id: string;
+        submodule_id: string | null;
+        can_read: boolean;
+        can_create: boolean;
+        can_update: boolean;
+        can_delete: boolean;
+      }[] = [];
+
+      Object.entries(permissions).forEach(([moduleId, submodules]) => {
+        Object.entries(submodules).forEach(([subKey, perm]) => {
+          if (perm.read || perm.create || perm.update || perm.delete) {
+            permissionsToInsert.push({
+              role_id: roleId,
+              module_id: moduleId,
+              submodule_id: subKey === '_module' ? null : subKey,
+              can_read: perm.read,
+              can_create: perm.create,
+              can_update: perm.update,
+              can_delete: perm.delete,
+            });
+          }
+        });
+      });
 
       if (permissionsToInsert.length > 0) {
         const { error: permError } = await supabase
@@ -214,7 +253,6 @@ export function RolesManager() {
     if (!deleteRole) return;
 
     try {
-      // Check if role is assigned to users
       const { count } = await supabase
         .from('user_custom_roles')
         .select('*', { count: 'exact', head: true })
@@ -242,40 +280,77 @@ export function RolesManager() {
     }
   };
 
-  const togglePermission = (moduleId: string, action: 'read' | 'create' | 'update' | 'delete') => {
+  const togglePermission = (
+    moduleId: string,
+    submoduleKey: string,
+    action: 'read' | 'create' | 'update' | 'delete'
+  ) => {
     setPermissions((prev) => ({
       ...prev,
       [moduleId]: {
         ...prev[moduleId],
-        [action]: !prev[moduleId]?.[action],
+        [submoduleKey]: {
+          ...prev[moduleId]?.[submoduleKey],
+          [action]: !prev[moduleId]?.[submoduleKey]?.[action],
+        },
+      },
+    }));
+  };
+
+  const toggleAllForItem = (moduleId: string, submoduleKey: string, checked: boolean) => {
+    setPermissions((prev) => ({
+      ...prev,
+      [moduleId]: {
+        ...prev[moduleId],
+        [submoduleKey]: {
+          read: checked,
+          create: checked,
+          update: checked,
+          delete: checked,
+        },
       },
     }));
   };
 
   const toggleAllForModule = (moduleId: string, checked: boolean) => {
-    setPermissions((prev) => ({
-      ...prev,
-      [moduleId]: {
-        read: checked,
-        create: checked,
-        update: checked,
-        delete: checked,
-      },
-    }));
+    setPermissions((prev) => {
+      const newModulePerms = { ...prev[moduleId] };
+      Object.keys(newModulePerms).forEach((key) => {
+        newModulePerms[key] = {
+          read: checked,
+          create: checked,
+          update: checked,
+          delete: checked,
+        };
+      });
+      return { ...prev, [moduleId]: newModulePerms };
+    });
+  };
+
+  const isModuleFullyChecked = (moduleId: string): boolean => {
+    const modulePerms = permissions[moduleId];
+    if (!modulePerms) return false;
+    return Object.values(modulePerms).every(
+      (p) => p.read && p.create && p.update && p.delete
+    );
+  };
+
+  const isModulePartiallyChecked = (moduleId: string): boolean => {
+    const modulePerms = permissions[moduleId];
+    if (!modulePerms) return false;
+    const hasAny = Object.values(modulePerms).some(
+      (p) => p.read || p.create || p.update || p.delete
+    );
+    return hasAny && !isModuleFullyChecked(moduleId);
   };
 
   const getPermissionSummary = (role: RoleWithPermissions) => {
-    const modulePerms = role.permissions;
-    if (modulePerms.length === 0) return 'Sin permisos';
+    const moduleIds = [...new Set(role.permissions.map((p) => p.module_id))];
+    if (moduleIds.length === 0) return 'Sin permisos';
     
-    const summaries = modulePerms.map((p) => {
-      const mod = activeModules.find((m) => m.id === p.module_id);
-      const actions = [];
-      if (p.can_read) actions.push('V');
-      if (p.can_create) actions.push('C');
-      if (p.can_update) actions.push('E');
-      if (p.can_delete) actions.push('D');
-      return `${mod?.title || p.module_id}: ${actions.join('')}`;
+    const summaries = moduleIds.map((modId) => {
+      const mod = activeModules.find((m) => m.id === modId);
+      return mod?.title || modId;
     });
     
     return summaries.slice(0, 2).join(', ') + (summaries.length > 2 ? ` +${summaries.length - 2}` : '');
@@ -295,7 +370,7 @@ export function RolesManager() {
         <div>
           <h2 className="text-lg font-semibold">Roles Personalizados</h2>
           <p className="text-sm text-muted-foreground">
-            Crea y administra roles con permisos CRUD por módulo
+            Crea y administra roles con permisos CRUD por módulo y submódulo
           </p>
         </div>
         <Button onClick={openCreateDialog} className="gap-2">
@@ -310,7 +385,7 @@ export function RolesManager() {
             <TableRow>
               <TableHead>Nombre</TableHead>
               <TableHead>Descripción</TableHead>
-              <TableHead>Permisos</TableHead>
+              <TableHead>Módulos</TableHead>
               <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
@@ -371,13 +446,13 @@ export function RolesManager() {
 
       {/* Create/Edit Dialog */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingRole ? 'Editar Rol' : 'Crear Nuevo Rol'}
             </DialogTitle>
             <DialogDescription>
-              Define el nombre y los permisos CRUD para cada módulo
+              Define el nombre y los permisos CRUD para cada módulo y submódulo
             </DialogDescription>
           </DialogHeader>
 
@@ -404,67 +479,83 @@ export function RolesManager() {
             </div>
 
             <div className="space-y-4">
-              <Label>Permisos por Módulo</Label>
-              <p className="text-xs text-muted-foreground">
-                V = Ver, C = Crear, E = Editar, D = Eliminar
-              </p>
-              
-              <div className="rounded-lg border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Módulo</TableHead>
-                      <TableHead className="text-center w-20">Todo</TableHead>
-                      <TableHead className="text-center w-16">Ver</TableHead>
-                      <TableHead className="text-center w-16">Crear</TableHead>
-                      <TableHead className="text-center w-16">Editar</TableHead>
-                      <TableHead className="text-center w-16">Eliminar</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {activeModules.map((mod) => {
-                      const perm = permissions[mod.id] || { read: false, create: false, update: false, delete: false };
-                      const allChecked = perm.read && perm.create && perm.update && perm.delete;
-                      
-                      return (
-                        <TableRow key={mod.id}>
-                          <TableCell className="font-medium">{mod.title}</TableCell>
-                          <TableCell className="text-center">
-                            <Checkbox
-                              checked={allChecked}
-                              onCheckedChange={(checked) => toggleAllForModule(mod.id, !!checked)}
-                            />
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <Checkbox
-                              checked={perm.read}
-                              onCheckedChange={() => togglePermission(mod.id, 'read')}
-                            />
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <Checkbox
-                              checked={perm.create}
-                              onCheckedChange={() => togglePermission(mod.id, 'create')}
-                            />
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <Checkbox
-                              checked={perm.update}
-                              onCheckedChange={() => togglePermission(mod.id, 'update')}
-                            />
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <Checkbox
-                              checked={perm.delete}
-                              onCheckedChange={() => togglePermission(mod.id, 'delete')}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+              <div className="flex items-center justify-between">
+                <Label>Permisos por Módulo y Submódulo</Label>
+                <p className="text-xs text-muted-foreground">
+                  V = Ver, C = Crear, E = Editar, D = Eliminar
+                </p>
               </div>
+              
+              <Accordion type="multiple" className="w-full">
+                {activeModules.map((mod) => {
+                  const isFullyChecked = isModuleFullyChecked(mod.id);
+                  const isPartial = isModulePartiallyChecked(mod.id);
+                  
+                  return (
+                    <AccordionItem key={mod.id} value={mod.id} className="border rounded-lg mb-2 px-4">
+                      <AccordionTrigger className="py-3 hover:no-underline">
+                        <div className="flex items-center gap-3 flex-1">
+                          <Checkbox
+                            checked={isFullyChecked}
+                            className={cn(isPartial && "data-[state=unchecked]:bg-primary/30")}
+                            onCheckedChange={(checked) => {
+                              toggleAllForModule(mod.id, !!checked);
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          <span className="font-medium">{mod.title}</span>
+                          {(isFullyChecked || isPartial) && (
+                            <Badge variant="secondary" className="text-xs">
+                              {isFullyChecked ? 'Acceso completo' : 'Acceso parcial'}
+                            </Badge>
+                          )}
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="pb-4">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Sección</TableHead>
+                                <TableHead className="text-center w-16">Todo</TableHead>
+                                <TableHead className="text-center w-14">Ver</TableHead>
+                                <TableHead className="text-center w-14">Crear</TableHead>
+                                <TableHead className="text-center w-14">Editar</TableHead>
+                                <TableHead className="text-center w-14">Eliminar</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {/* Module-level permission */}
+                              <TableRow className="bg-muted/30">
+                                <TableCell className="font-medium flex items-center gap-2">
+                                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                                  {mod.title} (General)
+                                </TableCell>
+                                <PermissionCheckboxes
+                                  perm={permissions[mod.id]?.['_module']}
+                                  onToggle={(action) => togglePermission(mod.id, '_module', action)}
+                                  onToggleAll={(checked) => toggleAllForItem(mod.id, '_module', checked)}
+                                />
+                              </TableRow>
+                              {/* Submodule permissions */}
+                              {mod.submodules.map((sub) => (
+                                <TableRow key={sub.id}>
+                                  <TableCell className="pl-8">{sub.label}</TableCell>
+                                  <PermissionCheckboxes
+                                    perm={permissions[mod.id]?.[sub.id]}
+                                    onToggle={(action) => togglePermission(mod.id, sub.id, action)}
+                                    onToggleAll={(checked) => toggleAllForItem(mod.id, sub.id, checked)}
+                                  />
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  );
+                })}
+              </Accordion>
             </div>
           </div>
 
@@ -498,5 +589,42 @@ export function RolesManager() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+// Extracted component for permission checkboxes
+function PermissionCheckboxes({
+  perm,
+  onToggle,
+  onToggleAll,
+}: {
+  perm?: PermissionSet;
+  onToggle: (action: 'read' | 'create' | 'update' | 'delete') => void;
+  onToggleAll: (checked: boolean) => void;
+}) {
+  const p = perm || { read: false, create: false, update: false, delete: false };
+  const allChecked = p.read && p.create && p.update && p.delete;
+
+  return (
+    <>
+      <TableCell className="text-center">
+        <Checkbox
+          checked={allChecked}
+          onCheckedChange={(checked) => onToggleAll(!!checked)}
+        />
+      </TableCell>
+      <TableCell className="text-center">
+        <Checkbox checked={p.read} onCheckedChange={() => onToggle('read')} />
+      </TableCell>
+      <TableCell className="text-center">
+        <Checkbox checked={p.create} onCheckedChange={() => onToggle('create')} />
+      </TableCell>
+      <TableCell className="text-center">
+        <Checkbox checked={p.update} onCheckedChange={() => onToggle('update')} />
+      </TableCell>
+      <TableCell className="text-center">
+        <Checkbox checked={p.delete} onCheckedChange={() => onToggle('delete')} />
+      </TableCell>
+    </>
   );
 }

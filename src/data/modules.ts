@@ -1,6 +1,15 @@
 import { Module } from '@/types/modules';
 
-export const modules: Module[] = [
+export interface Submodule {
+  id: string;
+  label: string;
+}
+
+export interface ModuleWithSubmodules extends Module {
+  submodules: Submodule[];
+}
+
+export const modulesWithSubmodules: ModuleWithSubmodules[] = [
   {
     id: 'comisiones',
     title: 'Comisiones',
@@ -9,6 +18,12 @@ export const modules: Module[] = [
     route: '/comisiones',
     status: 'active',
     requiredPermissions: ['comisiones.view'],
+    submodules: [
+      { id: 'dashboard', label: 'Dashboard' },
+      { id: 'ventas', label: 'Ventas' },
+      { id: 'vendedores', label: 'Vendedores' },
+      { id: 'pagos', label: 'Pagos' },
+    ],
   },
   {
     id: 'destajos',
@@ -18,6 +33,16 @@ export const modules: Module[] = [
     route: '/destajos',
     status: 'active',
     requiredPermissions: ['destajos.view'],
+    submodules: [
+      { id: 'dashboard', label: 'Dashboard' },
+      { id: 'obras', label: 'Obras' },
+      { id: 'instaladores', label: 'Instaladores' },
+      { id: 'avances', label: 'Avances' },
+      { id: 'extras', label: 'Extras' },
+      { id: 'solicitudes', label: 'Solicitudes' },
+      { id: 'cortes', label: 'Cortes' },
+      { id: 'pagos', label: 'Pagos' },
+    ],
   },
   {
     id: 'servicios',
@@ -27,6 +52,14 @@ export const modules: Module[] = [
     route: '/servicios',
     status: 'active',
     requiredPermissions: ['servicios.view'],
+    submodules: [
+      { id: 'dashboard', label: 'Dashboard' },
+      { id: 'tickets', label: 'Tickets' },
+      { id: 'clientes', label: 'Clientes' },
+      { id: 'proyectos', label: 'Proyectos' },
+      { id: 'agenda', label: 'Agenda' },
+      { id: 'reportes', label: 'Reportes' },
+    ],
   },
   {
     id: 'mantenimiento',
@@ -36,6 +69,7 @@ export const modules: Module[] = [
     route: null,
     status: 'coming_soon',
     requiredPermissions: ['mantenimiento.view'],
+    submodules: [],
   },
   {
     id: 'produccion',
@@ -45,8 +79,12 @@ export const modules: Module[] = [
     route: null,
     status: 'coming_soon',
     requiredPermissions: ['produccion.view'],
+    submodules: [],
   },
 ];
+
+// Legacy export for backward compatibility
+export const modules: Module[] = modulesWithSubmodules;
 
 // Mock user permissions - in production this would come from auth
 export const mockUserPermissions = {
