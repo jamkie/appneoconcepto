@@ -339,6 +339,11 @@ export default function ObrasPage() {
     }
   };
 
+  // Helper to check if obra has avances
+  const obraTieneAvances = (obra: ObraWithItems) => {
+    return Object.values(obra.avances).some(cantidad => cantidad > 0);
+  };
+
   const handleDelete = async () => {
     if (!selectedObra) return;
 
@@ -354,11 +359,12 @@ export default function ObrasPage() {
       setIsDeleteDialogOpen(false);
       setSelectedObra(null);
       fetchObras();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting obra:', error);
+      const mensaje = error?.message || 'No se pudo eliminar la obra';
       toast({
-        title: 'Error',
-        description: 'No se pudo eliminar la obra',
+        title: 'No se puede eliminar',
+        description: mensaje,
         variant: 'destructive',
       });
     }
@@ -899,16 +905,26 @@ export default function ObrasPage() {
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>¿Eliminar obra?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {selectedObra && obraTieneAvances(selectedObra) 
+                ? '⚠️ No se puede eliminar' 
+                : '¿Eliminar obra?'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Esta acción no se puede deshacer. Se eliminará la obra "{selectedObra?.nombre}" y todos sus datos asociados.
+              {selectedObra && obraTieneAvances(selectedObra) 
+                ? `La obra "${selectedObra.nombre}" tiene avances registrados y no puede ser eliminada. Para eliminarla, primero debe eliminar todos los avances asociados.`
+                : `Esta acción no se puede deshacer. Se eliminará la obra "${selectedObra?.nombre}" y todos sus datos asociados.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
-              Eliminar
-            </AlertDialogAction>
+            <AlertDialogCancel>
+              {selectedObra && obraTieneAvances(selectedObra) ? 'Entendido' : 'Cancelar'}
+            </AlertDialogCancel>
+            {selectedObra && !obraTieneAvances(selectedObra) && (
+              <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
+                Eliminar
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
