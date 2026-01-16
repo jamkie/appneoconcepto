@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Plus, Eye, Lock, Search, Users, Unlock, Download, FileText, Trash2 } from 'lucide-react';
+import { Calendar, Plus, Eye, Lock, Search, Users, Unlock, Download, FileText, Trash2, CheckCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -10,6 +10,8 @@ import { useGenerateBatchPDF } from '../hooks/useGenerateBatchPDF';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -100,6 +102,15 @@ export default function CortesPage() {
   
   // Payment method for closing
   const [metodoPago, setMetodoPago] = useState<'efectivo' | 'transferencia' | 'cheque'>('transferencia');
+  
+  // Tab for main view
+  const [activeTab, setActiveTab] = useState<string>('cortes');
+  
+  // Available approved solicitudes (not in any corte) for standalone tab
+  const [solicitudesAprobadasDisponibles, setSolicitudesAprobadasDisponibles] = useState<SolicitudForCorte[]>([]);
+  const [loadingDisponibles, setLoadingDisponibles] = useState(false);
+  const [searchDisponibles, setSearchDisponibles] = useState('');
+  const [filterInstaladorDisponibles, setFilterInstaladorDisponibles] = useState<string>('todos');
 
   useEffect(() => {
     if (!loading && !user) {
@@ -110,8 +121,30 @@ export default function CortesPage() {
   useEffect(() => {
     if (user) {
       fetchCortes();
+      // Also fetch disponibles for the badge counter
+      fetchSolicitudesDisponiblesCount();
     }
   }, [user]);
+
+  // Quick fetch just for count (used on mount)
+  const fetchSolicitudesDisponiblesCount = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('solicitudes_pago')
+        .select(`
+          *,
+          obras(nombre),
+          instaladores(nombre)
+        `)
+        .eq('estado', 'aprobada')
+        .is('corte_id', null);
+      
+      if (error) throw error;
+      setSolicitudesAprobadasDisponibles((data || []) as SolicitudForCorte[]);
+    } catch (error) {
+      console.error('Error fetching solicitudes count:', error);
+    }
+  };
 
   const fetchCortes = async () => {
     try {
@@ -154,6 +187,43 @@ export default function CortesPage() {
       setLoadingData(false);
     }
   };
+
+  const fetchSolicitudesDisponibles = async () => {
+    try {
+      setLoadingDisponibles(true);
+      
+      const { data, error } = await supabase
+        .from('solicitudes_pago')
+        .select(`
+          *,
+          obras(nombre),
+          instaladores(nombre)
+        `)
+        .eq('estado', 'aprobada')
+        .is('corte_id', null)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      setSolicitudesAprobadasDisponibles((data || []) as SolicitudForCorte[]);
+    } catch (error) {
+      console.error('Error fetching solicitudes disponibles:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudieron cargar las solicitudes disponibles',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingDisponibles(false);
+    }
+  };
+
+  // Fetch solicitudes disponibles when tab changes
+  useEffect(() => {
+    if (user && activeTab === 'disponibles') {
+      fetchSolicitudesDisponibles();
+    }
+  }, [user, activeTab]);
 
   const openNewCorteModal = () => {
     // Default to current week
@@ -819,6 +889,25 @@ export default function CortesPage() {
     );
   }
 
+  // Get unique instaladores from available solicitudes for filter
+  const instaladoresDisponibles = Array.from(
+    new Map(
+      solicitudesAprobadasDisponibles.map(s => [s.instalador_id, s.instaladores?.nombre || 'Desconocido'])
+    )
+  );
+
+  // Filter solicitudes disponibles
+  const filteredSolicitudesDisponibles = solicitudesAprobadasDisponibles.filter(sol => {
+    const matchesSearch = 
+      (sol.obras?.nombre || '').toLowerCase().includes(searchDisponibles.toLowerCase()) ||
+      (sol.instaladores?.nombre || '').toLowerCase().includes(searchDisponibles.toLowerCase());
+    const matchesInstalador = filterInstaladorDisponibles === 'todos' || sol.instalador_id === filterInstaladorDisponibles;
+    return matchesSearch && matchesInstalador;
+  });
+
+  // Calculate total of available solicitudes
+  const totalDisponibles = solicitudesAprobadasDisponibles.reduce((sum, s) => sum + Number(s.total_solicitado), 0);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -833,43 +922,152 @@ export default function CortesPage() {
         }
       />
 
-      {/* Search and Filters */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar cortes..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-        <Select value={filterEstado} onValueChange={(v) => setFilterEstado(v as any)}>
-          <SelectTrigger className="w-full sm:w-[180px]">
-            <SelectValue placeholder="Filtrar por estado" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos</SelectItem>
-            <SelectItem value="abierto">Abiertos</SelectItem>
-            <SelectItem value="cerrado">Cerrados</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList>
+          <TabsTrigger value="cortes">Cortes</TabsTrigger>
+          <TabsTrigger value="disponibles" className="flex items-center gap-2">
+            Disponibles
+            {solicitudesAprobadasDisponibles.length > 0 && (
+              <Badge variant="secondary" className="ml-1">
+                {solicitudesAprobadasDisponibles.length}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Cortes Table */}
-      <DataTable
-        columns={columns}
-        data={filteredCortes}
-        keyExtractor={(corte) => corte.id}
-        onRowClick={handleViewCorte}
-        emptyState={
-          <EmptyState
-            icon={Calendar}
-            title="Sin cortes"
-            description="Crea un corte para agrupar solicitudes aprobadas"
+        <TabsContent value="cortes" className="space-y-4 mt-4">
+          {/* Search and Filters */}
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar cortes..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <Select value={filterEstado} onValueChange={(v) => setFilterEstado(v as any)}>
+              <SelectTrigger className="w-full sm:w-[180px]">
+                <SelectValue placeholder="Filtrar por estado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos</SelectItem>
+                <SelectItem value="abierto">Abiertos</SelectItem>
+                <SelectItem value="cerrado">Cerrados</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Cortes Table */}
+          <DataTable
+            columns={columns}
+            data={filteredCortes}
+            keyExtractor={(corte) => corte.id}
+            onRowClick={handleViewCorte}
+            emptyState={
+              <EmptyState
+                icon={Calendar}
+                title="Sin cortes"
+                description="Crea un corte para agrupar solicitudes aprobadas"
+              />
+            }
           />
-        }
-      />
+        </TabsContent>
+
+        <TabsContent value="disponibles" className="space-y-4 mt-4">
+          {loadingDisponibles ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+          ) : (
+            <>
+              {/* Summary card */}
+              <div className="flex items-center justify-between p-4 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  <div>
+                    <p className="font-medium text-green-800 dark:text-green-200">
+                      {solicitudesAprobadasDisponibles.length} solicitud{solicitudesAprobadasDisponibles.length !== 1 ? 'es' : ''} aprobada{solicitudesAprobadasDisponibles.length !== 1 ? 's' : ''} sin asignar
+                    </p>
+                    <p className="text-sm text-green-600 dark:text-green-400">
+                      Estas solicitudes están listas para ser agregadas a un corte
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-muted-foreground">Total disponible</p>
+                  <p className="text-lg font-bold text-green-700 dark:text-green-300">
+                    {formatCurrency(totalDisponibles)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Filters */}
+              <div className="flex flex-col sm:flex-row gap-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar por obra o instalador..."
+                    value={searchDisponibles}
+                    onChange={(e) => setSearchDisponibles(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+                <Select value={filterInstaladorDisponibles} onValueChange={setFilterInstaladorDisponibles}>
+                  <SelectTrigger className="w-full sm:w-[220px]">
+                    <SelectValue placeholder="Filtrar por instalador" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos los instaladores</SelectItem>
+                    {instaladoresDisponibles.map(([id, nombre]) => (
+                      <SelectItem key={id} value={id}>{nombre}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Solicitudes list */}
+              {filteredSolicitudesDisponibles.length === 0 ? (
+                <EmptyState
+                  icon={CheckCircle}
+                  title="Sin solicitudes disponibles"
+                  description="No hay solicitudes aprobadas pendientes de asignar a un corte"
+                />
+              ) : (
+                <div className="space-y-2">
+                  {filteredSolicitudesDisponibles.map((sol) => (
+                    <div 
+                      key={sol.id} 
+                      className="flex justify-between items-center p-4 bg-card border rounded-lg hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex-1">
+                        <div className="font-medium">{sol.obras?.nombre || 'Obra sin nombre'}</div>
+                        <div className="text-sm text-muted-foreground flex items-center gap-2">
+                          <span>{sol.instaladores?.nombre || 'Sin instalador'}</span>
+                          <span>•</span>
+                          <span className="capitalize">{sol.tipo}</span>
+                          <span>•</span>
+                          <span>{format(new Date(sol.created_at || ''), 'dd MMM yyyy', { locale: es })}</span>
+                        </div>
+                        {sol.observaciones && (
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+                            {sol.observaciones}
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-primary">{formatCurrency(Number(sol.total_solicitado))}</p>
+                        <StatusBadge status="aprobado" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* New Corte Modal */}
       <Dialog open={isNewCorteOpen} onOpenChange={setIsNewCorteOpen}>
