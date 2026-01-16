@@ -246,6 +246,16 @@ export default function CortesPage() {
     try {
       setSavingCorte(true);
       
+      // First, get all approved solicitudes without a corte
+      const { data: disponibles, error: disponiblesError } = await supabase
+        .from('solicitudes_pago')
+        .select('id')
+        .eq('estado', 'aprobada')
+        .is('corte_id', null);
+      
+      if (disponiblesError) throw disponiblesError;
+      
+      // Create the corte
       const { data, error } = await supabase
         .from('cortes_semanales')
         .insert({
@@ -259,13 +269,27 @@ export default function CortesPage() {
       
       if (error) throw error;
       
+      // Assign all available solicitudes to the new corte
+      const solicitudIds = (disponibles || []).map(s => s.id);
+      if (solicitudIds.length > 0) {
+        const { error: assignError } = await supabase
+          .from('solicitudes_pago')
+          .update({ corte_id: data.id })
+          .in('id', solicitudIds);
+        
+        if (assignError) throw assignError;
+      }
+      
       toast({
         title: 'Éxito',
-        description: 'Corte creado correctamente',
+        description: solicitudIds.length > 0 
+          ? `Corte creado con ${solicitudIds.length} solicitud${solicitudIds.length !== 1 ? 'es' : ''} asignada${solicitudIds.length !== 1 ? 's' : ''}`
+          : 'Corte creado correctamente',
       });
       
       setIsNewCorteOpen(false);
       fetchCortes();
+      fetchSolicitudesDisponiblesCount(); // Update the badge
       
       // Automatically open the detail view
       if (data) {
