@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, Plus, Search, Pencil, Trash2, X, FileText, Download } from 'lucide-react';
+import { Building2, Plus, Search, Pencil, Trash2, X, FileText, Download, CheckCircle, Clock } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -8,6 +8,7 @@ import { PageHeader, DataTable, EmptyState, StatusBadge } from '../components';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -92,6 +93,7 @@ export default function ObrasPage() {
   const [mobiliarioItems, setMobiliarioItems] = useState<MobiliarioItem[]>([]);
   const [extrasDialogOpen, setExtrasDialogOpen] = useState(false);
   const [extrasDialogObra, setExtrasDialogObra] = useState<ObraWithItems | null>(null);
+  const [activeTab, setActiveTab] = useState<string>('activas');
 
   useEffect(() => {
     if (!loading && !user) {
@@ -362,10 +364,17 @@ export default function ObrasPage() {
     }
   };
 
-  const filteredObras = obras.filter((obra) =>
-    obra.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    obra.cliente?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Filter obras by search and tab
+  const filteredObras = obras.filter((obra) => {
+    const matchesSearch = obra.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      obra.cliente?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesTab = activeTab === 'activas' ? obra.estado === 'activa' : obra.estado === 'cerrada';
+    return matchesSearch && matchesTab;
+  });
+
+  // Count for badges
+  const obrasActivas = obras.filter(o => o.estado === 'activa').length;
+  const obrasCerradas = obras.filter(o => o.estado === 'cerrada').length;
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-MX', {
@@ -647,7 +656,7 @@ export default function ObrasPage() {
   }
 
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
         title="Obras"
         description="Gestión de obras y proyectos"
@@ -660,38 +669,88 @@ export default function ObrasPage() {
         }
       />
 
-      {/* Search */}
-      <div className="mb-6">
-        <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar obras..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-      </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList>
+          <TabsTrigger value="activas" className="flex items-center gap-2">
+            <Clock className="w-4 h-4" />
+            En Proceso
+            {obrasActivas > 0 && (
+              <Badge variant="secondary" className="ml-1">
+                {obrasActivas}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="cerradas" className="flex items-center gap-2">
+            <CheckCircle className="w-4 h-4" />
+            Concluidas
+            {obrasCerradas > 0 && (
+              <Badge variant="secondary" className="ml-1">
+                {obrasCerradas}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Table */}
-      <DataTable
-        columns={columns}
-        data={filteredObras}
-        keyExtractor={(item) => item.id}
-        emptyState={
-          <EmptyState
-            icon={Building2}
-            title="Sin obras"
-            description="No hay obras registradas"
-            action={
-              <Button onClick={() => handleOpenModal()}>
-                <Plus className="w-4 h-4 mr-2" />
-                Nueva Obra
-              </Button>
+        <TabsContent value="activas" className="space-y-4 mt-4">
+          {/* Search */}
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar obras..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+
+          {/* Table */}
+          <DataTable
+            columns={columns}
+            data={filteredObras}
+            keyExtractor={(item) => item.id}
+            emptyState={
+              <EmptyState
+                icon={Building2}
+                title="Sin obras en proceso"
+                description="No hay obras activas registradas"
+                action={
+                  <Button onClick={() => handleOpenModal()}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Nueva Obra
+                  </Button>
+                }
+              />
             }
           />
-        }
-      />
+        </TabsContent>
+
+        <TabsContent value="cerradas" className="space-y-4 mt-4">
+          {/* Search */}
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar obras concluidas..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+
+          {/* Table */}
+          <DataTable
+            columns={columns}
+            data={filteredObras}
+            keyExtractor={(item) => item.id}
+            emptyState={
+              <EmptyState
+                icon={CheckCircle}
+                title="Sin obras concluidas"
+                description="No hay obras cerradas registradas"
+              />
+            }
+          />
+        </TabsContent>
+      </Tabs>
 
       {/* Create/Edit Modal */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
