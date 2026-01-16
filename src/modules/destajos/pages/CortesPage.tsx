@@ -111,6 +111,7 @@ export default function CortesPage() {
   const [loadingDisponibles, setLoadingDisponibles] = useState(false);
   const [searchDisponibles, setSearchDisponibles] = useState('');
   const [filterInstaladorDisponibles, setFilterInstaladorDisponibles] = useState<string>('todos');
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -215,6 +216,60 @@ export default function CortesPage() {
       });
     } finally {
       setLoadingDisponibles(false);
+    }
+  };
+
+  // Cancel an approved solicitud (revert to pendiente)
+  const handleCancelSolicitudAprobada = async (solicitud: SolicitudForCorte) => {
+    try {
+      setCancelingId(solicitud.id);
+      
+      // Revert solicitud to pendiente
+      const { data, error } = await supabase
+        .from('solicitudes_pago')
+        .update({ 
+          estado: 'pendiente',
+          aprobado_por: null,
+          fecha_aprobacion: null
+        })
+        .eq('id', solicitud.id)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      if (!data) throw new Error('No se pudo actualizar la solicitud');
+      
+      // If it was an extra type, also revert the extras
+      if (solicitud.tipo === 'extra' && solicitud.extras_ids && solicitud.extras_ids.length > 0) {
+        const { error: extrasError } = await supabase
+          .from('extras')
+          .update({
+            estado: 'pendiente',
+            aprobado_por: null,
+            fecha_aprobacion: null
+          })
+          .in('id', solicitud.extras_ids);
+        
+        if (extrasError) throw extrasError;
+      }
+      
+      toast({
+        title: 'Solicitud cancelada',
+        description: 'La solicitud fue regresada a estado pendiente',
+      });
+      
+      // Refresh the list
+      fetchSolicitudesDisponibles();
+      fetchSolicitudesDisponiblesCount();
+    } catch (error) {
+      console.error('Error canceling solicitud:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo cancelar la solicitud',
+        variant: 'destructive',
+      });
+    } finally {
+      setCancelingId(null);
     }
   };
 
@@ -1080,9 +1135,20 @@ export default function CortesPage() {
                           </p>
                         )}
                       </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-primary">{formatCurrency(Number(sol.total_solicitado))}</p>
-                        <StatusBadge status="aprobado" />
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <p className="font-semibold text-primary">{formatCurrency(Number(sol.total_solicitado))}</p>
+                          <StatusBadge status="aprobado" />
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleCancelSolicitudAprobada(sol)}
+                          disabled={cancelingId === sol.id}
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        >
+                          {cancelingId === sol.id ? 'Cancelando...' : 'Cancelar'}
+                        </Button>
                       </div>
                     </div>
                   ))}
