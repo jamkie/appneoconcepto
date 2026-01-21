@@ -73,14 +73,21 @@ interface ObraWithItems extends Obra {
   pagos: PagoInfo[];
 }
 
+interface ProfileInfo {
+  id: string;
+  full_name: string;
+}
+
 export default function ObrasPage() {
   const { user, loading } = useAuth();
   const { canCreate, canUpdate, canDelete } = useSubmodulePermissions('destajos', 'obras');
   const navigate = useNavigate();
   const { toast } = useToast();
   const [obras, setObras] = useState<ObraWithItems[]>([]);
+  const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [registradoPorFilter, setRegistradoPorFilter] = useState('todos');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedObra, setSelectedObra] = useState<ObraWithItems | null>(null);
@@ -113,13 +120,20 @@ export default function ObrasPage() {
     try {
       setLoadingData(true);
       
-      // Fetch obras
+      // Fetch obras with created_by info
       const { data: obrasData, error } = await supabase
         .from('obras')
-        .select('*')
+        .select('*, created_by')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
+
+      // Fetch profiles for filtering by who registered
+      const { data: profilesData } = await supabase
+        .from('profiles')
+        .select('id, full_name');
+      
+      setProfiles((profilesData || []).map(p => ({ id: p.id, full_name: p.full_name || 'Sin nombre' })));
 
       // Fetch all obra_items
       const { data: itemsData } = await supabase
@@ -378,12 +392,18 @@ export default function ObrasPage() {
     }
   };
 
-  // Filter obras by search and tab
+  // Get unique registradores from obras
+  const registradoresUnicos = profiles.filter(profile =>
+    obras.some(obra => (obra as any).created_by === profile.id)
+  );
+
+  // Filter obras by search, tab, and registrado por
   const filteredObras = obras.filter((obra) => {
     const matchesSearch = obra.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
       obra.cliente?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesTab = activeTab === 'activas' ? obra.estado === 'activa' : obra.estado === 'cerrada';
-    return matchesSearch && matchesTab;
+    const matchesRegistrador = registradoPorFilter === 'todos' || (obra as any).created_by === registradoPorFilter;
+    return matchesSearch && matchesTab && matchesRegistrador;
   });
 
   // Count for badges
@@ -706,15 +726,30 @@ export default function ObrasPage() {
         </TabsList>
 
         <TabsContent value="activas" className="space-y-4 mt-4">
-          {/* Search */}
-          <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar obras..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
+          {/* Filters */}
+          <div className="flex flex-wrap gap-4 items-center">
+            <div className="relative max-w-sm flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar obras..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Select value={registradoPorFilter} onValueChange={setRegistradoPorFilter}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Quien registró" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos los registros</SelectItem>
+                {registradoresUnicos.map((profile) => (
+                  <SelectItem key={profile.id} value={profile.id}>
+                    {profile.full_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Table */}
@@ -739,15 +774,30 @@ export default function ObrasPage() {
         </TabsContent>
 
         <TabsContent value="cerradas" className="space-y-4 mt-4">
-          {/* Search */}
-          <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar obras concluidas..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
+          {/* Filters */}
+          <div className="flex flex-wrap gap-4 items-center">
+            <div className="relative max-w-sm flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar obras concluidas..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Select value={registradoPorFilter} onValueChange={setRegistradoPorFilter}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Quien registró" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos los registros</SelectItem>
+                {registradoresUnicos.map((profile) => (
+                  <SelectItem key={profile.id} value={profile.id}>
+                    {profile.full_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Table */}
