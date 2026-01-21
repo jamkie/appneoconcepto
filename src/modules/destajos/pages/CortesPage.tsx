@@ -479,6 +479,7 @@ export default function CortesPage() {
           destajoADepositar: 0,
           aDepositar: 0,
           saldoGenerado: 0,
+          total: 0,
           solicitudes: [],
         };
       });
