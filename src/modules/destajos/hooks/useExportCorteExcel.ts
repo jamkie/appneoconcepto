@@ -132,13 +132,12 @@ export const useExportCorteExcel = () => {
           if (basePago >= 0) {
             inst.destajoADepositar = basePago;
             inst.aDepositar = Math.floor(basePago / 50) * 50;
-            // Saldo a favor solo se genera cuando destajo > salario (no por redondeo)
-            inst.saldoAFavor = Math.max(0, inst.destajoAcumulado - inst.nominaSemanal);
+            inst.saldoAFavor = 0; // No saldo a favor cuando destajo cubre o supera salario
           } else {
-            // Negative basePago means salary exceeds earnings - no payout, no credit balance
+            // Salario mayor que destajo - se genera saldo a favor (lo que la empresa debe)
             inst.destajoADepositar = 0;
             inst.aDepositar = 0;
-            inst.saldoAFavor = 0;
+            inst.saldoAFavor = Math.max(0, inst.nominaSemanal - inst.destajoAcumulado);
           }
         }
       });
@@ -219,8 +218,8 @@ export const useExportCorteExcel = () => {
           { formula: `MAX(E${rowNum}-F${rowNum}+G${rowNum},0)` },
           // I: A Depositar = FLOOR(H, 50)
           { formula: `FLOOR(H${rowNum},50)` },
-          // J: Saldo a Favor = MAX(E - F, 0) (solo cuando destajo > salario, no por redondeo)
-          { formula: `MAX(E${rowNum}-F${rowNum},0)` },
+          // J: Saldo a Favor = MAX(F - E, 0) (solo cuando salario > destajo)
+          { formula: `MAX(F${rowNum}-E${rowNum},0)` },
         ]);
         row.alignment = { vertical: 'middle' };
       });
