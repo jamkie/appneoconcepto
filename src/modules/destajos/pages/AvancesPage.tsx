@@ -90,6 +90,8 @@ export default function AvancesPage() {
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'todos' | 'pendiente' | 'pagado' | 'rechazada'>('todos');
+  const [instaladorFilter, setInstaladorFilter] = useState<string>('todos');
+  const [registradoPorFilter, setRegistradoPorFilter] = useState<string>('todos');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   
@@ -684,9 +686,28 @@ export default function AvancesPage() {
     setEditingAvance(null);
   };
 
+  // Get unique users who registered avances for filter
+  const registradoresUnicos = Array.from(
+    new Map(
+      avances
+        .filter(a => a.profiles)
+        .map(a => [a.registrado_por, { id: a.registrado_por, nombre: a.profiles?.full_name || a.profiles?.email || 'Sin nombre' }])
+    ).values()
+  );
+
   const filteredAvances = avances.filter((avance) => {
     const matchesSearch = avance.obras?.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
       avance.instaladores?.nombre.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    // Filter by instalador
+    if (instaladorFilter !== 'todos' && avance.instalador_id !== instaladorFilter) {
+      return false;
+    }
+    
+    // Filter by registrado_por
+    if (registradoPorFilter !== 'todos' && avance.registrado_por !== registradoPorFilter) {
+      return false;
+    }
     
     if (statusFilter === 'todos') return matchesSearch;
     
@@ -731,27 +752,57 @@ export default function AvancesPage() {
       />
 
       {/* Filters */}
-      <div className="mb-6 flex flex-col sm:flex-row gap-4">
-        <div className="relative max-w-sm flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por obra o instalador..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
+      <div className="mb-6 flex flex-col gap-4">
+        <div className="flex flex-col sm:flex-row gap-4">
+          <div className="relative max-w-sm flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por obra o instalador..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={(value: 'todos' | 'pendiente' | 'pagado' | 'rechazada') => setStatusFilter(value)}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder="Estado" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos los estados</SelectItem>
+              <SelectItem value="pendiente">Pendientes</SelectItem>
+              <SelectItem value="pagado">Pagados</SelectItem>
+              <SelectItem value="rechazada">Rechazados</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-        <Select value={statusFilter} onValueChange={(value: 'todos' | 'pendiente' | 'pagado' | 'rechazada') => setStatusFilter(value)}>
-          <SelectTrigger className="w-full sm:w-48">
-            <SelectValue placeholder="Estado" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos</SelectItem>
-            <SelectItem value="pendiente">Pendientes</SelectItem>
-            <SelectItem value="pagado">Pagados</SelectItem>
-            <SelectItem value="rechazada">Rechazados</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex flex-col sm:flex-row gap-4">
+          <Select value={instaladorFilter} onValueChange={setInstaladorFilter}>
+            <SelectTrigger className="w-full sm:w-64">
+              <SelectValue placeholder="Filtrar por instalador" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos los instaladores</SelectItem>
+              {instaladores.map((instalador) => (
+                <SelectItem key={instalador.id} value={instalador.id}>
+                  {instalador.nombre}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={registradoPorFilter} onValueChange={setRegistradoPorFilter}>
+            <SelectTrigger className="w-full sm:w-64">
+              <SelectValue placeholder="Filtrar por quien registró" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos los registradores</SelectItem>
+              {registradoresUnicos.map((user) => (
+                <SelectItem key={user.id} value={user.id}>
+                  {user.nombre}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Table */}
