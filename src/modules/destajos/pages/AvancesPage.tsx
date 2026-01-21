@@ -650,15 +650,13 @@ export default function AvancesPage() {
         return;
       }
       
-      // Delete associated solicitud if exists
-      if (solicitud) {
-        const { error: solicitudError } = await supabase
-          .from('solicitudes_pago')
-          .delete()
-          .eq('id', solicitud.id);
-        
-        if (solicitudError) throw solicitudError;
-      }
+      // Delete ALL associated solicitudes (handles multi-installer avances)
+      const { error: solicitudError } = await supabase
+        .from('solicitudes_pago')
+        .delete()
+        .eq('avance_id', avanceToDelete.id);
+      
+      if (solicitudError) throw solicitudError;
       
       const { error: itemsError } = await supabase
         .from('avance_items')
