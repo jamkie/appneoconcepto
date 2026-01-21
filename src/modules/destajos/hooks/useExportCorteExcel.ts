@@ -254,6 +254,67 @@ export const useExportCorteExcel = () => {
       // Format CLABE as text
       sheet.getColumn(4).alignment = { horizontal: 'left', vertical: 'middle' };
 
+      // =====================================================
+      // HOJA 2: Resumen Depósitos (solo instaladores con monto > 0)
+      // =====================================================
+      const sheetResumen = workbook.addWorksheet('Resumen Depósitos');
+
+      // Filter installers with deposits > 0
+      const instaladoresConDeposito = instaladores.filter(inst => inst.aDepositar > 0);
+
+      // Title
+      sheetResumen.mergeCells('A1:D1');
+      const titleResumen = sheetResumen.getCell('A1');
+      titleResumen.value = `RESUMEN DEPÓSITOS SEMANA ${weekNum}`;
+      titleResumen.font = { bold: true, size: 12 };
+      titleResumen.alignment = { horizontal: 'center', vertical: 'middle' };
+      sheetResumen.getRow(1).height = 25;
+
+      // Empty row
+      sheetResumen.addRow([]);
+
+      // Headers
+      const headersResumen = ['NOMBRE DEL TRABAJADOR', 'BANCO', 'CLABE', 'A DEPOSITAR'];
+      const headerRowResumen = sheetResumen.addRow(headersResumen);
+      headerRowResumen.font = { bold: true };
+      headerRowResumen.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      headerRowResumen.height = 25;
+
+      // Column widths
+      sheetResumen.columns = [
+        { width: 35 }, // Nombre
+        { width: 15 }, // Banco
+        { width: 22 }, // CLABE
+        { width: 16 }, // A Depositar
+      ];
+
+      // Data rows
+      instaladoresConDeposito.forEach((inst) => {
+        const row = sheetResumen.addRow([
+          inst.nombre,
+          inst.banco,
+          inst.clabe,
+          inst.aDepositar,
+        ]);
+        row.alignment = { vertical: 'middle' };
+      });
+
+      // Total row
+      const resumenDataStart = 4;
+      const resumenDataEnd = resumenDataStart + instaladoresConDeposito.length - 1;
+      const totalRowResumen = sheetResumen.addRow([
+        '',
+        '',
+        'TOTAL',
+        { formula: `SUM(D${resumenDataStart}:D${resumenDataEnd})` },
+      ]);
+      totalRowResumen.font = { bold: true };
+      totalRowResumen.alignment = { vertical: 'middle' };
+
+      // Format currency column
+      sheetResumen.getColumn(4).numFmt = '#,##0.00';
+      sheetResumen.getColumn(4).alignment = { horizontal: 'right', vertical: 'middle' };
+
       // Generate buffer
       const buffer = await workbook.xlsx.writeBuffer();
       
