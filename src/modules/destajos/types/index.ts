@@ -212,3 +212,30 @@ export interface CorteSemanal {
 export interface CorteSemanalWithDetails extends CorteSemanal {
   solicitudes?: SolicitudPago[];
 }
+
+// Saldo acumulado por instalador
+export interface SaldoInstalador {
+  id: string;
+  instalador_id: string;
+  saldo_acumulado: number;
+  ultimo_corte_id: string | null;
+  updated_at: string;
+  created_at: string;
+}
+
+// Historial de instalador en cada corte
+export interface CorteInstalador {
+  id: string;
+  corte_id: string;
+  instalador_id: string;
+  destajo_acumulado: number;
+  salario_semanal: number;
+  saldo_anterior: number;
+  saldo_generado: number;
+  monto_depositado: number;
+  created_at: string;
+}
+
+export interface CorteInstaladorWithDetails extends CorteInstalador {
+  instalador?: Instalador;
+}

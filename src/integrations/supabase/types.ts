@@ -243,6 +243,57 @@ export type Database = {
           },
         ]
       }
+      corte_instaladores: {
+        Row: {
+          corte_id: string
+          created_at: string | null
+          destajo_acumulado: number
+          id: string
+          instalador_id: string
+          monto_depositado: number
+          salario_semanal: number
+          saldo_anterior: number
+          saldo_generado: number
+        }
+        Insert: {
+          corte_id: string
+          created_at?: string | null
+          destajo_acumulado?: number
+          id?: string
+          instalador_id: string
+          monto_depositado?: number
+          salario_semanal?: number
+          saldo_anterior?: number
+          saldo_generado?: number
+        }
+        Update: {
+          corte_id?: string
+          created_at?: string | null
+          destajo_acumulado?: number
+          id?: string
+          instalador_id?: string
+          monto_depositado?: number
+          salario_semanal?: number
+          saldo_anterior?: number
+          saldo_generado?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "corte_instaladores_corte_id_fkey"
+            columns: ["corte_id"]
+            isOneToOne: false
+            referencedRelation: "cortes_semanales"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "corte_instaladores_instalador_id_fkey"
+            columns: ["instalador_id"]
+            isOneToOne: false
+            referencedRelation: "instaladores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cortes_semanales: {
         Row: {
           cerrado_por: string | null
@@ -677,6 +728,48 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      saldos_instaladores: {
+        Row: {
+          created_at: string | null
+          id: string
+          instalador_id: string
+          saldo_acumulado: number
+          ultimo_corte_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          instalador_id: string
+          saldo_acumulado?: number
+          ultimo_corte_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          instalador_id?: string
+          saldo_acumulado?: number
+          ultimo_corte_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "saldos_instaladores_instalador_id_fkey"
+            columns: ["instalador_id"]
+            isOneToOne: true
+            referencedRelation: "instaladores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "saldos_instaladores_ultimo_corte_id_fkey"
+            columns: ["ultimo_corte_id"]
+            isOneToOne: false
+            referencedRelation: "cortes_semanales"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       sale_commissions: {
         Row: {

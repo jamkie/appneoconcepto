@@ -53,8 +53,16 @@ interface SolicitudForCorte extends SolicitudPago {
 interface InstaladorResumen {
   id: string;
   nombre: string;
-  total: number;
+  banco: string;
+  clabe: string;
+  salarioSemanal: number;
+  destajoAcumulado: number;
+  saldoAnterior: number;
+  destajoADepositar: number;
+  aDepositar: number;
+  saldoGenerado: number;
   solicitudes: SolicitudForCorte[];
+  total: number; // Alias for aDepositar for backwards compatibility
 }
 
 import { useSubmodulePermissions } from '@/hooks/useSubmodulePermissions';
@@ -423,23 +431,101 @@ export default function CortesPage() {
         setSolicitudesPendientes([]);
       }
       
-      // Calculate resumen by instalador
-      const resumenMap: Record<string, InstaladorResumen> = {};
-      (asignadas || []).forEach((sol: any) => {
-        const instaladorId = sol.instalador_id;
-        if (!resumenMap[instaladorId]) {
-          resumenMap[instaladorId] = {
-            id: instaladorId,
-            nombre: sol.instaladores?.nombre || 'Desconocido',
-            total: 0,
-            solicitudes: [],
-          };
-        }
-        resumenMap[instaladorId].total += Number(sol.total_solicitado);
-        resumenMap[instaladorId].solicitudes.push(sol);
+      // Fetch ALL active instaladores
+      const { data: allInstaladores, error: instError } = await supabase
+        .from('instaladores')
+        .select('id, nombre, nombre_banco, numero_cuenta, salario_semanal')
+        .eq('activo', true)
+        .order('nombre');
+      
+      if (instError) throw instError;
+      
+      // Fetch saldos from previous cortes
+      const { data: saldosData } = await supabase
+        .from('saldos_instaladores')
+        .select('instalador_id, saldo_acumulado');
+      
+      const saldosMap: Record<string, number> = {};
+      (saldosData || []).forEach((s: any) => {
+        saldosMap[s.instalador_id] = Number(s.saldo_acumulado) || 0;
       });
       
-      setResumenInstaladores(Object.values(resumenMap).sort((a, b) => b.total - a.total));
+      // If corte is closed, fetch corte_instaladores for historical data
+      let corteInstaladoresMap: Record<string, any> = {};
+      if (corte.estado === 'cerrado') {
+        const { data: ciData } = await supabase
+          .from('corte_instaladores')
+          .select('*')
+          .eq('corte_id', corte.id);
+        
+        (ciData || []).forEach((ci: any) => {
+          corteInstaladoresMap[ci.instalador_id] = ci;
+        });
+      }
+      
+      // Build resumen for ALL active instaladores
+      const resumenMap: Record<string, InstaladorResumen> = {};
+      
+      // First, initialize all active instaladores
+      (allInstaladores || []).forEach((inst: any) => {
+        resumenMap[inst.id] = {
+          id: inst.id,
+          nombre: inst.nombre || 'Sin nombre',
+          banco: inst.nombre_banco || '',
+          clabe: inst.numero_cuenta || '',
+          salarioSemanal: Number(inst.salario_semanal) || 0,
+          destajoAcumulado: 0,
+          saldoAnterior: saldosMap[inst.id] || 0,
+          destajoADepositar: 0,
+          aDepositar: 0,
+          saldoGenerado: 0,
+          solicitudes: [],
+        };
+      });
+      
+      // Add solicitudes to their instaladores
+      (asignadas || []).forEach((sol: any) => {
+        const instaladorId = sol.instalador_id;
+        if (resumenMap[instaladorId]) {
+          resumenMap[instaladorId].destajoAcumulado += Number(sol.total_solicitado);
+          resumenMap[instaladorId].solicitudes.push(sol);
+        }
+      });
+      
+      // Calculate derived fields for each instalador
+      Object.values(resumenMap).forEach((inst) => {
+        if (corte.estado === 'cerrado' && corteInstaladoresMap[inst.id]) {
+          // Use historical data from corte_instaladores
+          const ci = corteInstaladoresMap[inst.id];
+          inst.destajoAcumulado = Number(ci.destajo_acumulado);
+          inst.saldoAnterior = Number(ci.saldo_anterior);
+          inst.destajoADepositar = Math.max(0, inst.destajoAcumulado - inst.salarioSemanal + inst.saldoAnterior);
+          inst.aDepositar = Number(ci.monto_depositado);
+          inst.saldoGenerado = Number(ci.saldo_generado);
+        } else {
+          // Calculate in real-time for open cortes
+          const basePago = inst.destajoAcumulado - inst.salarioSemanal + inst.saldoAnterior;
+          
+          if (basePago >= 0) {
+            inst.destajoADepositar = basePago;
+            inst.aDepositar = Math.floor(basePago / 50) * 50;
+            inst.saldoGenerado = basePago - inst.aDepositar;
+          } else {
+            inst.destajoADepositar = 0;
+            inst.aDepositar = 0;
+            inst.saldoGenerado = Math.abs(basePago); // Saldo a favor para próximo corte
+          }
+        }
+      });
+      
+      // Sort: instaladores with destajo first, then by name
+      setResumenInstaladores(
+        Object.values(resumenMap).sort((a, b) => {
+          if (a.destajoAcumulado > 0 && b.destajoAcumulado === 0) return -1;
+          if (a.destajoAcumulado === 0 && b.destajoAcumulado > 0) return 1;
+          return a.nombre.localeCompare(b.nombre);
+        })
+      );
     } catch (error) {
       console.error('Error fetching corte detail:', error);
       toast({
@@ -607,12 +693,23 @@ export default function CortesPage() {
   };
 
   const handleCloseCorte = async () => {
-    if (!viewingCorte || !user || corteSolicitudes.length === 0) return;
+    if (!viewingCorte || !user) return;
+    
+    // Check if there are any instaladores with aDepositar > 0 or saldoGenerado > 0
+    const instaladoresConPago = resumenInstaladores.filter(i => i.aDepositar > 0 || i.saldoGenerado > 0);
+    if (instaladoresConPago.length === 0 && corteSolicitudes.length === 0) {
+      toast({
+        title: 'Error',
+        description: 'No hay pagos ni saldos para procesar',
+        variant: 'destructive',
+      });
+      return;
+    }
     
     try {
       setClosingCorte(true);
       
-      // Group solicitudes by instalador and obra
+      // Group solicitudes by instalador and obra for payment generation
       const pagoGroups: Record<string, { 
         instalador_id: string; 
         obra_id: string;
@@ -634,23 +731,65 @@ export default function CortesPage() {
         pagoGroups[key].solicitud_ids.push(sol.id);
       });
       
-      // Create one pago per instalador-obra combination
-      const totalCorte = corteSolicitudes.reduce((sum, s) => sum + Number(s.total_solicitado), 0);
+      // Process each active instalador
+      let pagosGenerados = 0;
+      const totalADepositar = resumenInstaladores.reduce((sum, i) => sum + i.aDepositar, 0);
       
-      for (const group of Object.values(pagoGroups)) {
-        const { error: pagoError } = await supabase
-          .from('pagos_destajos')
+      for (const inst of resumenInstaladores) {
+        // Save corte_instaladores record for historical data
+        const { error: ciError } = await supabase
+          .from('corte_instaladores')
           .insert({
-            obra_id: group.obra_id,
-            instalador_id: group.instalador_id,
-            monto: group.total,
-            metodo_pago: metodoPago,
             corte_id: viewingCorte.id,
-            registrado_por: user.id,
-            observaciones: `Pago de corte: ${viewingCorte.nombre}`,
+            instalador_id: inst.id,
+            destajo_acumulado: inst.destajoAcumulado,
+            salario_semanal: inst.salarioSemanal,
+            saldo_anterior: inst.saldoAnterior,
+            saldo_generado: inst.saldoGenerado,
+            monto_depositado: inst.aDepositar,
           });
         
-        if (pagoError) throw pagoError;
+        if (ciError) throw ciError;
+        
+        // Update or create saldo_instalador record
+        const nuevoSaldo = inst.saldoGenerado; // Saldo generado becomes the new accumulated saldo
+        
+        const { error: saldoError } = await supabase
+          .from('saldos_instaladores')
+          .upsert({
+            instalador_id: inst.id,
+            saldo_acumulado: nuevoSaldo,
+            ultimo_corte_id: viewingCorte.id,
+            updated_at: new Date().toISOString(),
+          }, {
+            onConflict: 'instalador_id'
+          });
+        
+        if (saldoError) throw saldoError;
+        
+        // Create pago if there's something to deposit
+        if (inst.aDepositar > 0) {
+          // Find the most common obra for this instalador in this corte
+          const instSolicitudes = corteSolicitudes.filter(s => s.instalador_id === inst.id);
+          const obraId = instSolicitudes.length > 0 ? instSolicitudes[0].obra_id : null;
+          
+          if (obraId) {
+            const { error: pagoError } = await supabase
+              .from('pagos_destajos')
+              .insert({
+                obra_id: obraId,
+                instalador_id: inst.id,
+                monto: inst.aDepositar,
+                metodo_pago: metodoPago,
+                corte_id: viewingCorte.id,
+                registrado_por: user.id,
+                observaciones: `Pago de corte: ${viewingCorte.nombre}`,
+              });
+            
+            if (pagoError) throw pagoError;
+            pagosGenerados++;
+          }
+        }
       }
       
       // Update corte status
@@ -658,7 +797,7 @@ export default function CortesPage() {
         .from('cortes_semanales')
         .update({
           estado: 'cerrado',
-          total_monto: totalCorte,
+          total_monto: totalADepositar,
           cerrado_por: user.id,
           fecha_cierre: new Date().toISOString(),
         })
@@ -668,7 +807,7 @@ export default function CortesPage() {
       
       toast({
         title: 'Éxito',
-        description: `Corte cerrado. Se generaron ${Object.keys(pagoGroups).length} pagos por un total de ${formatCurrency(totalCorte)}`,
+        description: `Corte cerrado. Se generaron ${pagosGenerados} pagos por un total de ${formatCurrency(totalADepositar)}`,
       });
       
       setConfirmClose(false);
@@ -692,6 +831,14 @@ export default function CortesPage() {
     try {
       setReopeningCorte(true);
       
+      // Get corte_instaladores to revert saldos
+      const { data: ciData, error: ciError } = await supabase
+        .from('corte_instaladores')
+        .select('*')
+        .eq('corte_id', viewingCorte.id);
+      
+      if (ciError) throw ciError;
+      
       // Get all pagos linked to this corte
       const { data: pagosData, error: pagosError } = await supabase
         .from('pagos_destajos')
@@ -707,6 +854,30 @@ export default function CortesPage() {
         .eq('corte_id', viewingCorte.id);
       
       if (solicitudesError) throw solicitudesError;
+      
+      // Revert saldos - restore saldo_anterior values
+      for (const ci of (ciData || [])) {
+        const { error: saldoError } = await supabase
+          .from('saldos_instaladores')
+          .upsert({
+            instalador_id: ci.instalador_id,
+            saldo_acumulado: ci.saldo_anterior,
+            ultimo_corte_id: null,
+            updated_at: new Date().toISOString(),
+          }, {
+            onConflict: 'instalador_id'
+          });
+        
+        if (saldoError) throw saldoError;
+      }
+      
+      // Delete corte_instaladores records
+      const { error: deleteCiError } = await supabase
+        .from('corte_instaladores')
+        .delete()
+        .eq('corte_id', viewingCorte.id);
+      
+      if (deleteCiError) throw deleteCiError;
       
       // Delete all pagos linked to this corte
       if (pagosData && pagosData.length > 0) {
@@ -782,7 +953,7 @@ export default function CortesPage() {
       
       toast({
         title: 'Corte reabierto',
-        description: `Se eliminaron ${pagosData?.length || 0} pagos y las solicitudes vuelven a estar pendientes`,
+        description: `Se eliminaron ${pagosData?.length || 0} pagos y se revirtieron los saldos`,
       });
       
       setConfirmReopen(false);
@@ -1234,26 +1405,52 @@ export default function CortesPage() {
                   <Users className="w-5 h-5" />
                   Resumen por Instalador
                 </h3>
-                {resumenInstaladores.length === 0 ? (
-                  <p className="text-muted-foreground text-sm">No hay solicitudes en este corte</p>
+{resumenInstaladores.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">No hay instaladores activos</p>
                 ) : (
                   <div className="space-y-2">
-                    {resumenInstaladores.map((instalador) => (
-                      <div key={instalador.id} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
-                        <div>
-                          <span className="font-medium">{instalador.nombre}</span>
-                          <span className="text-sm text-muted-foreground ml-2">
-                            ({instalador.solicitudes.length} solicitudes)
-                          </span>
+                    {/* Table header */}
+                    <div className="grid grid-cols-6 gap-2 px-3 py-2 bg-muted rounded-lg text-xs font-semibold text-muted-foreground">
+                      <div className="col-span-2">Instalador</div>
+                      <div className="text-right">Destajo</div>
+                      <div className="text-right">Salario</div>
+                      <div className="text-right">Saldo Ant.</div>
+                      <div className="text-right">A Depositar</div>
+                    </div>
+                    {resumenInstaladores.map((inst) => (
+                      <div 
+                        key={inst.id} 
+                        className={`grid grid-cols-6 gap-2 px-3 py-2 rounded-lg ${
+                          inst.destajoAcumulado > 0 || inst.saldoGenerado > 0 
+                            ? 'bg-muted/50' 
+                            : 'bg-muted/20 opacity-60'
+                        }`}
+                      >
+                        <div className="col-span-2">
+                          <span className="font-medium text-sm">{inst.nombre}</span>
+                          {inst.saldoGenerado > 0 && (
+                            <Badge variant="outline" className="ml-2 text-xs text-amber-600 border-amber-300">
+                              +{formatCurrency(inst.saldoGenerado)} saldo
+                            </Badge>
+                          )}
                         </div>
-                        <span className="font-semibold text-primary">{formatCurrency(instalador.total)}</span>
+                        <div className="text-right text-sm">{formatCurrency(inst.destajoAcumulado)}</div>
+                        <div className="text-right text-sm text-muted-foreground">{formatCurrency(inst.salarioSemanal)}</div>
+                        <div className="text-right text-sm text-muted-foreground">
+                          {inst.saldoAnterior > 0 ? formatCurrency(inst.saldoAnterior) : '-'}
+                        </div>
+                        <div className="text-right font-semibold text-primary">{formatCurrency(inst.aDepositar)}</div>
                       </div>
                     ))}
-                    <div className="flex justify-between items-center p-3 bg-primary/10 rounded-lg border border-primary/20">
-                      <span className="font-semibold">Total del Corte</span>
-                      <span className="font-bold text-lg text-primary">
-                        {formatCurrency(resumenInstaladores.reduce((sum, i) => sum + i.total, 0))}
-                      </span>
+                    {/* Totals row */}
+                    <div className="grid grid-cols-6 gap-2 px-3 py-3 bg-primary/10 rounded-lg border border-primary/20 font-semibold">
+                      <div className="col-span-2">Total del Corte</div>
+                      <div className="text-right">{formatCurrency(resumenInstaladores.reduce((sum, i) => sum + i.destajoAcumulado, 0))}</div>
+                      <div className="text-right">{formatCurrency(resumenInstaladores.reduce((sum, i) => sum + i.salarioSemanal, 0))}</div>
+                      <div className="text-right">{formatCurrency(resumenInstaladores.reduce((sum, i) => sum + i.saldoAnterior, 0))}</div>
+                      <div className="text-right text-primary text-lg">
+                        {formatCurrency(resumenInstaladores.reduce((sum, i) => sum + i.aDepositar, 0))}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1442,16 +1639,33 @@ export default function CortesPage() {
             <AlertDialogTitle>¿Cerrar corte y generar pagos?</AlertDialogTitle>
             <AlertDialogDescription>
               Se generarán pagos consolidados por instalador. Esta acción no se puede deshacer.
-              <div className="mt-4 p-3 bg-muted rounded-lg">
-                <p className="font-medium mb-2">Resumen:</p>
+              <div className="mt-4 p-3 bg-muted rounded-lg max-h-60 overflow-y-auto">
+                <p className="font-medium mb-2">Resumen de pagos a generar:</p>
                 <ul className="text-sm space-y-1">
-                  {resumenInstaladores.map((inst) => (
+                  {resumenInstaladores
+                    .filter(inst => inst.aDepositar > 0)
+                    .map((inst) => (
                     <li key={inst.id} className="flex justify-between">
                       <span>{inst.nombre}</span>
-                      <span className="font-medium">{formatCurrency(inst.total)}</span>
+                      <span className="font-medium">{formatCurrency(inst.aDepositar)}</span>
                     </li>
                   ))}
                 </ul>
+                {resumenInstaladores.some(inst => inst.saldoGenerado > 0) && (
+                  <div className="mt-3 pt-2 border-t">
+                    <p className="text-xs text-muted-foreground mb-1">Saldos a favor generados:</p>
+                    <ul className="text-sm space-y-1">
+                      {resumenInstaladores
+                        .filter(inst => inst.saldoGenerado > 0)
+                        .map((inst) => (
+                        <li key={inst.id} className="flex justify-between text-amber-600">
+                          <span>{inst.nombre}</span>
+                          <span>+{formatCurrency(inst.saldoGenerado)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
               <div className="mt-4">
                 <Label className="mb-2 block">Método de pago</Label>
@@ -1491,13 +1705,13 @@ export default function CortesPage() {
                   <li>• Los anticipos generados (si aplica)</li>
                 </ul>
               </div>
-              <div className="mt-3 p-3 bg-muted rounded-lg">
-                <p className="font-medium mb-2">Solicitudes que volverán a pendiente:</p>
+              <div className="mt-3 p-3 bg-muted rounded-lg max-h-40 overflow-y-auto">
+                <p className="font-medium mb-2">Instaladores afectados:</p>
                 <ul className="text-sm space-y-1">
-                  {resumenInstaladores.map((inst) => (
+                  {resumenInstaladores.filter(inst => inst.aDepositar > 0 || inst.saldoGenerado > 0).map((inst) => (
                     <li key={inst.id} className="flex justify-between">
                       <span>{inst.nombre}</span>
-                      <span className="font-medium">{formatCurrency(inst.total)}</span>
+                      <span className="font-medium">{formatCurrency(inst.aDepositar)}</span>
                     </li>
                   ))}
                 </ul>
