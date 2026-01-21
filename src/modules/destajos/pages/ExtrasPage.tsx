@@ -77,6 +77,7 @@ export default function ExtrasPage() {
     instalador_id: '',
     descripcion: '',
     monto: '',
+    descuento: '0',
   });
 
   useEffect(() => {
@@ -163,6 +164,7 @@ export default function ExtrasPage() {
       instalador_id: '',
       descripcion: '',
       monto: '',
+      descuento: '0',
     });
     setEditingExtra(null);
   };
@@ -179,6 +181,7 @@ export default function ExtrasPage() {
       instalador_id: extra.instalador_id,
       descripcion: extra.descripcion,
       monto: String(extra.monto),
+      descuento: String((extra as any).descuento || 0),
     });
     setIsModalOpen(true);
   };
@@ -196,6 +199,9 @@ export default function ExtrasPage() {
     try {
       setSaving(true);
       const monto = parseFloat(formData.monto);
+      const descuentoExtra = parseFloat(formData.descuento) || 0;
+      const montoDescuento = monto * (descuentoExtra / 100);
+      const totalConDescuento = monto - montoDescuento;
 
       if (editingExtra) {
         // Actualizar extra existente
@@ -206,6 +212,7 @@ export default function ExtrasPage() {
             instalador_id: formData.instalador_id,
             descripcion: formData.descripcion.trim(),
             monto: monto,
+            descuento: descuentoExtra,
           })
           .eq('id', editingExtra.id);
         if (extraError) throw extraError;
@@ -216,8 +223,10 @@ export default function ExtrasPage() {
           .update({
             obra_id: formData.obra_id,
             instalador_id: formData.instalador_id,
-            total_solicitado: monto,
+            total_solicitado: totalConDescuento,
             subtotal_extras: monto,
+            retencion: montoDescuento,
+            observaciones: descuentoExtra > 0 ? `Extra con descuento ${descuentoExtra}%` : null,
           })
           .contains('extras_ids', [editingExtra.id])
           .eq('estado', 'pendiente');
@@ -232,6 +241,7 @@ export default function ExtrasPage() {
           instalador_id: formData.instalador_id,
           descripcion: formData.descripcion.trim(),
           monto: monto,
+          descuento: descuentoExtra,
           solicitado_por: user?.id,
         };
 
@@ -241,12 +251,6 @@ export default function ExtrasPage() {
           .select()
           .single();
         if (extraError) throw extraError;
-
-        // Get obra discount
-        const obraData = obras.find(o => o.id === formData.obra_id);
-        const descuento = Number((obraData as any)?.descuento || 0);
-        const montoDescuento = monto * (descuento / 100);
-        const totalConDescuento = monto - montoDescuento;
 
         // Crear solicitud de pago para el extra
         const { error: solicitudError } = await supabase
@@ -260,7 +264,7 @@ export default function ExtrasPage() {
             retencion: montoDescuento,
             extras_ids: [extraCreated.id],
             solicitado_por: user?.id,
-            observaciones: descuento > 0 ? `Extra con descuento ${descuento}%` : null,
+            observaciones: descuentoExtra > 0 ? `Extra con descuento ${descuentoExtra}%` : null,
           });
         if (solicitudError) throw solicitudError;
 
@@ -335,14 +339,8 @@ export default function ExtrasPage() {
         .contains('extras_ids', [extra.id])
         .eq('estado', 'rechazada');
       
-      // Get obra discount
-      const { data: obraData } = await supabase
-        .from('obras')
-        .select('descuento')
-        .eq('id', extra.obra_id)
-        .single();
-      
-      const descuento = Number(obraData?.descuento || 0);
+      // Use the extra's own discount
+      const descuento = Number((extra as any).descuento || 0);
       const montoDescuento = extra.monto * (descuento / 100);
       const totalConDescuento = extra.monto - montoDescuento;
       
@@ -624,18 +622,49 @@ export default function ExtrasPage() {
                 placeholder="Describe el trabajo extra..."
               />
             </div>
-            <div>
-              <Label htmlFor="monto">Monto *</Label>
-              <Input
-                id="monto"
-                type="number"
-                min="0"
-                step="0.01"
-                value={formData.monto}
-                onChange={(e) => setFormData({ ...formData, monto: e.target.value })}
-                placeholder="0.00"
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="monto">Monto *</Label>
+                <Input
+                  id="monto"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.monto}
+                  onChange={(e) => setFormData({ ...formData, monto: e.target.value })}
+                  placeholder="0.00"
+                />
+              </div>
+              <div>
+                <Label htmlFor="descuento">Descuento (%)</Label>
+                <Input
+                  id="descuento"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={formData.descuento}
+                  onChange={(e) => setFormData({ ...formData, descuento: e.target.value })}
+                  placeholder="0"
+                />
+              </div>
             </div>
+            {parseFloat(formData.monto) > 0 && parseFloat(formData.descuento) > 0 && (
+              <div className="text-sm text-muted-foreground bg-muted/50 p-3 rounded-md">
+                <div className="flex justify-between">
+                  <span>Monto bruto:</span>
+                  <span>{new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(parseFloat(formData.monto))}</span>
+                </div>
+                <div className="flex justify-between text-destructive">
+                  <span>Descuento ({formData.descuento}%):</span>
+                  <span>-{new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(parseFloat(formData.monto) * parseFloat(formData.descuento) / 100)}</span>
+                </div>
+                <div className="flex justify-between font-semibold border-t pt-1 mt-1">
+                  <span>Total a pagar:</span>
+                  <span>{new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(parseFloat(formData.monto) * (1 - parseFloat(formData.descuento) / 100))}</span>
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>
