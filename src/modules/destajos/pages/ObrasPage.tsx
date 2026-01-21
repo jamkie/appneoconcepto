@@ -1219,23 +1219,22 @@ export default function ObrasPage() {
                 Editar
               </Button>
             )}
-            {canDelete && (
-              <Button
-                variant="destructive"
-                onClick={() => {
-                  if (detailObra) {
-                    setDetailDialogOpen(false);
-                    setSelectedObra(detailObra);
-                    setIsDeleteDialogOpen(true);
-                  }
-                }}
-                disabled={obraTieneAvances(detailObra!)}
-                className="w-full sm:w-auto"
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                Eliminar
-              </Button>
-            )}
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (detailObra) {
+                  setDetailDialogOpen(false);
+                  setSelectedObra(detailObra);
+                  setIsDeleteDialogOpen(true);
+                }
+              }}
+              disabled={obraTieneAvances(detailObra!)}
+              className="w-full sm:w-auto"
+              title={obraTieneAvances(detailObra!) ? 'No se puede eliminar una obra con avances' : ''}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Eliminar
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
