@@ -1200,9 +1200,9 @@ export default function ObrasPage() {
                   setIsDeleteDialogOpen(true);
                 }
               }}
-              disabled={obraTieneAvances(detailObra!)}
+              disabled={!detailObra || obraTieneAvances(detailObra)}
               className="w-full sm:w-auto"
-              title={obraTieneAvances(detailObra!) ? 'No se puede eliminar una obra con avances' : ''}
+              title={detailObra && obraTieneAvances(detailObra) ? 'No se puede eliminar una obra con avances' : ''}
             >
               <Trash2 className="w-4 h-4 mr-2" />
               Eliminar
