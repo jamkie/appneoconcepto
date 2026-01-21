@@ -768,6 +768,14 @@ export default function AvancesPage() {
     setEditingAvance(null);
   };
 
+  // Helper function to distribute percentages equally
+  const calcularDistribucionEquitativa = (count: number): number[] => {
+    if (count === 0) return [];
+    const porcentajeIgual = Math.floor(100 / count);
+    const resto = 100 - (porcentajeIgual * count);
+    return Array.from({ length: count }, (_, i) => porcentajeIgual + (i === 0 ? resto : 0));
+  };
+
   // Helper functions for managing instaladores
   const handleAddInstalador = () => {
     // Find first instalador not already selected
@@ -775,12 +783,23 @@ export default function AvancesPage() {
       i => !selectedInstaladores.some(si => si.instalador_id === i.id)
     );
     if (availableInstalador) {
-      setSelectedInstaladores(prev => [...prev, { instalador_id: availableInstalador.id, porcentaje: 0 }]);
+      const newCount = selectedInstaladores.length + 1;
+      const porcentajes = calcularDistribucionEquitativa(newCount);
+      
+      setSelectedInstaladores(prev => {
+        const updated = prev.map((item, i) => ({ ...item, porcentaje: porcentajes[i] }));
+        return [...updated, { instalador_id: availableInstalador.id, porcentaje: porcentajes[newCount - 1] }];
+      });
     }
   };
 
   const handleRemoveInstalador = (instaladorId: string) => {
-    setSelectedInstaladores(prev => prev.filter(i => i.instalador_id !== instaladorId));
+    setSelectedInstaladores(prev => {
+      const filtered = prev.filter(i => i.instalador_id !== instaladorId);
+      if (filtered.length === 0) return filtered;
+      const porcentajes = calcularDistribucionEquitativa(filtered.length);
+      return filtered.map((item, i) => ({ ...item, porcentaje: porcentajes[i] }));
+    });
   };
 
   const handleInstaladorChange = (index: number, instaladorId: string) => {
@@ -797,12 +816,11 @@ export default function AvancesPage() {
 
   const distribuirEquitativamente = () => {
     if (selectedInstaladores.length === 0) return;
-    const porcentajeIgual = Math.floor(100 / selectedInstaladores.length);
-    const resto = 100 - (porcentajeIgual * selectedInstaladores.length);
+    const porcentajes = calcularDistribucionEquitativa(selectedInstaladores.length);
     
     setSelectedInstaladores(prev => prev.map((item, i) => ({
       ...item,
-      porcentaje: porcentajeIgual + (i === 0 ? resto : 0)
+      porcentaje: porcentajes[i]
     })));
   };
 
