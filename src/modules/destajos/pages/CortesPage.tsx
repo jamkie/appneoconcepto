@@ -510,12 +510,13 @@ export default function CortesPage() {
           if (basePago >= 0) {
             inst.destajoADepositar = basePago;
             inst.aDepositar = Math.floor(basePago / 50) * 50;
-            inst.saldoGenerado = basePago - inst.aDepositar;
+            // Saldo a favor solo se genera cuando destajo > salario (no por redondeo)
+            inst.saldoGenerado = Math.max(0, inst.destajoAcumulado - inst.salarioSemanal);
           } else {
             // Negative basePago means salary exceeds earnings - no payout, no credit balance
             inst.destajoADepositar = 0;
             inst.aDepositar = 0;
-            inst.saldoGenerado = 0; // No saldo a favor when there's nothing to pay
+            inst.saldoGenerado = 0;
           }
         }
       });
