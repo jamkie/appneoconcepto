@@ -644,10 +644,12 @@ export default function ObrasPage() {
         description="Gestión de obras y proyectos"
         icon={Building2}
         actions={
-          <Button onClick={() => handleOpenModal()}>
-            <Plus className="w-4 h-4 mr-2" />
-            Nueva Obra
-          </Button>
+          canCreate && (
+            <Button onClick={() => handleOpenModal()}>
+              <Plus className="w-4 h-4 mr-2" />
+              Nueva Obra
+            </Button>
+          )
         }
       />
 
