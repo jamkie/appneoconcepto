@@ -57,8 +57,11 @@ interface InstaladorResumen {
   solicitudes: SolicitudForCorte[];
 }
 
+import { useSubmodulePermissions } from '@/hooks/useSubmodulePermissions';
+
 export default function CortesPage() {
   const { user, loading } = useAuth();
+  const { canCreate } = useSubmodulePermissions('destajos', 'cortes');
   const navigate = useNavigate();
   const { toast } = useToast();
   const { exportCorteToExcel } = useExportCorteExcel();
@@ -994,10 +997,12 @@ export default function CortesPage() {
         description="Agrupa solicitudes aprobadas para generar pagos consolidados"
         icon={Calendar}
         actions={
-          <Button onClick={openNewCorteModal}>
-            <Plus className="w-4 h-4 mr-2" />
-            Nuevo Corte
-          </Button>
+          canCreate && (
+            <Button onClick={openNewCorteModal}>
+              <Plus className="w-4 h-4 mr-2" />
+              Nuevo Corte
+            </Button>
+          )
         }
       />
 
