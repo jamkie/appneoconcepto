@@ -525,7 +525,22 @@ export default function ExtrasPage() {
                     {extra.descripcion}
                   </TableCell>
                   <TableCell className="font-medium">
-                    {formatCurrency(Number(extra.monto))}
+                    {(() => {
+                      const descuento = Number((extra as any).descuento || 0);
+                      const montoNeto = Number(extra.monto) * (1 - descuento / 100);
+                      return (
+                        <div className="space-y-0.5">
+                          <div className="font-semibold text-primary">
+                            {formatCurrency(montoNeto)}
+                          </div>
+                          {descuento > 0 && (
+                            <div className="text-xs text-muted-foreground">
+                              Bruto: {formatCurrency(Number(extra.monto))} (-{descuento}%)
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell className="hidden lg:table-cell">
                     <div className="flex items-center gap-2">

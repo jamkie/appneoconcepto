@@ -51,6 +51,8 @@ interface ExtraInfo {
   id: string;
   descripcion: string;
   monto: number;
+  montoNeto: number;
+  descuento: number;
   estado: string;
 }
 
@@ -139,10 +141,10 @@ export default function ObrasPage() {
         .from('instaladores')
         .select('id, nombre');
 
-      // Fetch all extras
+      // Fetch all extras with descuento
       const { data: extrasData } = await supabase
         .from('extras')
-        .select('id, obra_id, descripcion, monto, estado');
+        .select('id, obra_id, descripcion, monto, estado, descuento');
 
       // Fetch rejected solicitudes to mark extras as rejected
       const { data: solicitudesRechazadas } = await supabase
@@ -191,17 +193,23 @@ export default function ObrasPage() {
         
         const obraExtras = (extrasData || [])
           .filter((e) => e.obra_id === obra.id)
-          .map((e) => ({
-            id: e.id,
-            descripcion: e.descripcion,
-            monto: Number(e.monto),
-            estado: rejectedExtraIds.includes(e.id) ? 'rechazado' : (e.estado || 'pendiente'),
-          }));
+          .map((e) => {
+            const descuentoExtra = Number(e.descuento || 0);
+            const montoNeto = Number(e.monto) * (1 - descuentoExtra / 100);
+            return {
+              id: e.id,
+              descripcion: e.descripcion,
+              monto: Number(e.monto),
+              montoNeto: montoNeto,
+              descuento: descuentoExtra,
+              estado: rejectedExtraIds.includes(e.id) ? 'rechazado' : (e.estado || 'pendiente'),
+            };
+          });
 
-        // Calculate total extras (pendientes y aprobados, excluyendo rechazados)
+        // Calculate total extras with discount applied (pendientes y aprobados, excluyendo rechazados)
         const totalExtras = obraExtras
           .filter((e) => e.estado !== 'rechazado')
-          .reduce((sum, e) => sum + e.monto, 0);
+          .reduce((sum, e) => sum + e.montoNeto, 0);
 
         return {
           ...obra,
@@ -960,13 +968,20 @@ export default function ObrasPage() {
                         {extra.estado.charAt(0).toUpperCase() + extra.estado.slice(1)}
                       </Badge>
                     </div>
-                    <span
-                      className={`font-semibold ${
-                        extra.estado === 'aprobado' ? 'text-emerald-600' : 'text-muted-foreground'
-                      }`}
-                    >
-                      {formatCurrency(extra.monto)}
-                    </span>
+                    <div className="text-right">
+                      <span
+                        className={`font-semibold ${
+                          extra.estado === 'aprobado' ? 'text-emerald-600' : 'text-muted-foreground'
+                        }`}
+                      >
+                        {formatCurrency(extra.montoNeto)}
+                      </span>
+                      {extra.descuento > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          Bruto: {formatCurrency(extra.monto)} (-{extra.descuento}%)
+                        </p>
+                      )}
+                    </div>
                   </div>
                 ))}
                 <div className="flex justify-between items-center pt-3 border-t">
