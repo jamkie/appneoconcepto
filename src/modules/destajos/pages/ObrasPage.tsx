@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, Plus, Search, Pencil, Trash2, X, FileText, Download, CheckCircle, Clock, Eye } from 'lucide-react';
+import { Building2, Plus, Search, Pencil, Trash2, X, FileText, Download, CheckCircle, Clock, Eye, Loader2 } from 'lucide-react';
+import { useGenerateEstadoCuentaPDF } from '../hooks/useGenerateEstadoCuentaPDF';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -84,6 +85,7 @@ export default function ObrasPage() {
   const { canCreate, canUpdate, canDelete } = useSubmodulePermissions('destajos', 'obras');
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { generatePDF: generateEstadoCuentaPDF } = useGenerateEstadoCuentaPDF();
   const [obras, setObras] = useState<ObraWithItems[]>([]);
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -93,6 +95,7 @@ export default function ObrasPage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedObra, setSelectedObra] = useState<ObraWithItems | null>(null);
   const [saving, setSaving] = useState(false);
+  const [generatingPDF, setGeneratingPDF] = useState(false);
   const [formData, setFormData] = useState({
     nombre: '',
     cliente: '',
@@ -426,73 +429,37 @@ export default function ObrasPage() {
     }).format(amount);
   };
 
-  const generateEstadoDeCuenta = (obra: ObraWithItems) => {
-    const totalItems = obra.items.reduce((sum, pieza) => sum + pieza.cantidad * pieza.precio_unitario, 0);
-    const subtotal = totalItems + obra.totalExtras;
-    const descuento = (obra as any).descuento || 0;
-    const montoDescuento = subtotal * (descuento / 100);
-    const total = subtotal - montoDescuento;
-    const porPagar = total - obra.totalPagado;
-
-    let content = `ESTADO DE CUENTA\n`;
-    content += `================\n\n`;
-    content += `Obra: ${obra.nombre}\n`;
-    if (obra.cliente) content += `Cliente: ${obra.cliente}\n`;
-    content += `Fecha: ${format(new Date(), "d 'de' MMMM 'de' yyyy", { locale: es })}\n`;
-    content += `\n`;
-
-    // Piezas
-    content += `PIEZAS\n`;
-    content += `------\n`;
-    obra.items.forEach((pieza) => {
-      const completado = obra.avances[pieza.id] || 0;
-      const subtotal = pieza.cantidad * pieza.precio_unitario;
-      content += `${pieza.descripcion}: ${completado}/${pieza.cantidad} x ${formatCurrency(pieza.precio_unitario)} = ${formatCurrency(subtotal)}\n`;
-    });
-    content += `Subtotal Piezas: ${formatCurrency(totalItems)}\n\n`;
-
-    // Extras
-    const extrasAprobados = obra.extras.filter((e) => e.estado === 'aprobado');
-    if (extrasAprobados.length > 0) {
-      content += `EXTRAS APROBADOS\n`;
-      content += `----------------\n`;
-      extrasAprobados.forEach((extra) => {
-        content += `${extra.descripcion}: ${formatCurrency(extra.monto)}\n`;
+  const handleDownloadEstadoCuenta = async (obra: ObraWithItems) => {
+    try {
+      setGeneratingPDF(true);
+      await generateEstadoCuentaPDF({
+        id: obra.id,
+        nombre: obra.nombre,
+        cliente: obra.cliente,
+        responsable: (obra as any).responsable,
+        estado: obra.estado,
+        descuento: (obra as any).descuento,
+        items: obra.items,
+        extras: obra.extras,
+        pagos: obra.pagos,
+        avances: obra.avances,
+        totalExtras: obra.totalExtras,
+        totalPagado: obra.totalPagado,
       });
-      content += `Subtotal Extras: ${formatCurrency(obra.totalExtras)}\n\n`;
-    }
-
-    // Pagos
-    if (obra.pagos.length > 0) {
-      content += `PAGOS REALIZADOS\n`;
-      content += `----------------\n`;
-      obra.pagos.forEach((pago) => {
-        content += `${format(new Date(pago.fecha), 'dd/MM/yyyy')} - ${pago.instalador_nombre}: ${formatCurrency(pago.monto)} (${pago.metodo_pago})\n`;
+      toast({
+        title: 'PDF generado',
+        description: 'El estado de cuenta se descargó correctamente',
       });
-      content += `Total Pagado: ${formatCurrency(obra.totalPagado)}\n\n`;
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo generar el PDF',
+        variant: 'destructive',
+      });
+    } finally {
+      setGeneratingPDF(false);
     }
-
-    // Resumen
-    content += `RESUMEN\n`;
-    content += `-------\n`;
-    content += `Subtotal: ${formatCurrency(subtotal)}\n`;
-    if (descuento > 0) {
-      content += `Descuento (${descuento}%): -${formatCurrency(montoDescuento)}\n`;
-    }
-    content += `Total Obra: ${formatCurrency(total)}\n`;
-    content += `Total Pagado: ${formatCurrency(obra.totalPagado)}\n`;
-    content += `Por Pagar: ${formatCurrency(porPagar)}\n`;
-
-    // Download
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `estado-cuenta-${obra.nombre.toLowerCase().replace(/\s+/g, '-')}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
   };
 
   const columns = [
@@ -1197,11 +1164,16 @@ export default function ObrasPage() {
             <Button
               variant="outline"
               onClick={() => {
-                if (detailObra) generateEstadoDeCuenta(detailObra);
+                if (detailObra) handleDownloadEstadoCuenta(detailObra);
               }}
+              disabled={generatingPDF}
               className="w-full sm:w-auto"
             >
-              <Download className="w-4 h-4 mr-2" />
+              {generatingPDF ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 mr-2" />
+              )}
               Estado de Cuenta
             </Button>
             {canUpdate && (
