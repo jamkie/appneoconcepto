@@ -248,6 +248,7 @@ export type Database = {
           aprobado_por: string | null
           created_at: string | null
           descripcion: string
+          descuento: number
           estado: Database["public"]["Enums"]["extra_status"] | null
           fecha_aprobacion: string | null
           id: string
@@ -261,6 +262,7 @@ export type Database = {
           aprobado_por?: string | null
           created_at?: string | null
           descripcion: string
+          descuento?: number
           estado?: Database["public"]["Enums"]["extra_status"] | null
           fecha_aprobacion?: string | null
           id?: string
@@ -274,6 +276,7 @@ export type Database = {
           aprobado_por?: string | null
           created_at?: string | null
           descripcion?: string
+          descuento?: number
           estado?: Database["public"]["Enums"]["extra_status"] | null
           fecha_aprobacion?: string | null
           id?: string
