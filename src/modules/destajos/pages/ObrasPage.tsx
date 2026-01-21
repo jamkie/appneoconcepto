@@ -71,6 +71,7 @@ interface ObraWithItems extends Obra {
   totalExtras: number;
   extras: ExtraInfo[];
   pagos: PagoInfo[];
+  created_by?: string;
 }
 
 interface ProfileInfo {
@@ -120,10 +121,10 @@ export default function ObrasPage() {
     try {
       setLoadingData(true);
       
-      // Fetch obras with created_by info
+      // Fetch obras
       const { data: obrasData, error } = await supabase
         .from('obras')
-        .select('*, created_by')
+        .select('*')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -168,7 +169,7 @@ export default function ObrasPage() {
         .eq('estado', 'rechazada');
 
       // Build the enriched obras
-      const enrichedObras: ObraWithItems[] = (obrasData || []).map((obra) => {
+      const enrichedObras: ObraWithItems[] = (obrasData as any[] || []).map((obra) => {
         const items = (itemsData || []).filter((item) => item.obra_id === obra.id).map((item) => ({
           ...item,
           cantidad: item.cantidad,
@@ -233,7 +234,8 @@ export default function ObrasPage() {
           totalExtras,
           extras: obraExtras,
           pagos: obraPagos,
-        };
+          created_by: obra.created_by || undefined,
+        } as ObraWithItems;
       });
 
       setObras(enrichedObras);
@@ -297,7 +299,7 @@ export default function ObrasPage() {
 
     try {
       setSaving(true);
-      const obraData = {
+      const obraData: Record<string, any> = {
         nombre: formData.nombre.trim(),
         cliente: formData.cliente.trim() || null,
         responsable: formData.responsable.trim() || null,
@@ -309,6 +311,11 @@ export default function ObrasPage() {
         precio_cubierta: 0,
         precio_vanity: 0,
       };
+
+      // Add created_by only for new obras
+      if (!selectedObra && user) {
+        obraData.created_by = user.id;
+      }
 
       let obraId = selectedObra?.id;
 
@@ -324,7 +331,7 @@ export default function ObrasPage() {
       } else {
         const { data, error } = await supabase
           .from('obras')
-          .insert(obraData)
+          .insert(obraData as any)
           .select('id')
           .single();
         if (error) throw error;
@@ -394,7 +401,7 @@ export default function ObrasPage() {
 
   // Get unique registradores from obras
   const registradoresUnicos = profiles.filter(profile =>
-    obras.some(obra => (obra as any).created_by === profile.id)
+    obras.some(obra => obra.created_by === profile.id)
   );
 
   // Filter obras by search, tab, and registrado por
@@ -402,7 +409,7 @@ export default function ObrasPage() {
     const matchesSearch = obra.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
       obra.cliente?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesTab = activeTab === 'activas' ? obra.estado === 'activa' : obra.estado === 'cerrada';
-    const matchesRegistrador = registradoPorFilter === 'todos' || (obra as any).created_by === registradoPorFilter;
+    const matchesRegistrador = registradoPorFilter === 'todos' || obra.created_by === registradoPorFilter;
     return matchesSearch && matchesTab && matchesRegistrador;
   });
 
