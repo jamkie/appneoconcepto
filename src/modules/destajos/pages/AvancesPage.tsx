@@ -1039,13 +1039,15 @@ export default function AvancesPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     {(() => {
-                      const solicitud = avance.solicitudes_pago?.[0];
-                      if (solicitud) {
+                      const solicitudes = avance.solicitudes_pago || [];
+                      if (solicitudes.length > 0) {
+                        // Sum all solicitudes for total amount (handles multi-installer cases)
+                        const totalMonto = solicitudes.reduce((acc, sol) => acc + sol.total_solicitado, 0);
                         const descuento = avance.obras?.descuento || 0;
                         return (
                           <div className="space-y-0.5">
                             <div className="font-semibold text-primary">
-                              {new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(solicitud.total_solicitado)}
+                              {new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(totalMonto)}
                             </div>
                             {descuento > 0 && (
                               <div className="text-xs text-muted-foreground">
