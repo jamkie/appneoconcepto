@@ -438,11 +438,11 @@ export default function SolicitudesPage() {
     try {
       setDeletingFromDetail(true);
       
-      // Delete the solicitud first
+      // Delete ALL solicitudes associated with this avance (handles multi-installer avances)
       const { error: solicitudError } = await supabase
         .from('solicitudes_pago')
         .delete()
-        .eq('id', viewingSolicitud.id);
+        .eq('avance_id', viewingSolicitud.avance_id);
       
       if (solicitudError) throw solicitudError;
       
