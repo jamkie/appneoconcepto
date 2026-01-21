@@ -134,9 +134,10 @@ export const useExportCorteExcel = () => {
             inst.aDepositar = Math.floor(basePago / 50) * 50;
             inst.saldoAFavor = basePago - inst.aDepositar;
           } else {
+            // Negative basePago means salary exceeds earnings - no payout, no credit balance
             inst.destajoADepositar = 0;
             inst.aDepositar = 0;
-            inst.saldoAFavor = Math.abs(basePago);
+            inst.saldoAFavor = 0;
           }
         }
       });
