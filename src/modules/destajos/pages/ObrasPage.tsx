@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, Plus, Search, Pencil, Trash2, X, FileText, Download, CheckCircle, Clock } from 'lucide-react';
+import { Building2, Plus, Search, Pencil, Trash2, X, FileText, Download, CheckCircle, Clock, Eye } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -103,6 +103,8 @@ export default function ObrasPage() {
   const [mobiliarioItems, setMobiliarioItems] = useState<MobiliarioItem[]>([]);
   const [extrasDialogOpen, setExtrasDialogOpen] = useState(false);
   const [extrasDialogObra, setExtrasDialogObra] = useState<ObraWithItems | null>(null);
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [detailObra, setDetailObra] = useState<ObraWithItems | null>(null);
   const [activeTab, setActiveTab] = useState<string>('activas');
 
   useEffect(() => {
@@ -642,51 +644,23 @@ export default function ObrasPage() {
         </Badge>
       ),
     },
-    {
-      key: 'actions',
-      header: 'Acciones',
-      cell: (item: ObraWithItems) => (
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            title="Descargar estado de cuenta"
-            onClick={(e) => {
-              e.stopPropagation();
-              generateEstadoDeCuenta(item);
-            }}
-          >
-            <Download className="w-4 h-4" />
-          </Button>
-          {canUpdate && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleOpenModal(item);
-              }}
-            >
-              <Pencil className="w-4 h-4" />
-            </Button>
-          )}
-          {canDelete && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedObra(item);
-                setIsDeleteDialogOpen(true);
-              }}
-            >
-              <Trash2 className="w-4 h-4 text-destructive" />
-            </Button>
-          )}
-        </div>
-      ),
-    },
   ];
+
+  const handleOpenDetail = (obra: ObraWithItems) => {
+    setDetailObra(obra);
+    setDetailDialogOpen(true);
+  };
+
+  // Calculate detail obra values
+  const getObraCalculations = (obra: ObraWithItems) => {
+    const totalItems = obra.items.reduce((sum, pieza) => sum + pieza.cantidad * pieza.precio_unitario, 0);
+    const subtotal = totalItems + obra.totalExtras;
+    const descuento = (obra as any).descuento || 0;
+    const montoDescuento = subtotal * (descuento / 100);
+    const total = subtotal - montoDescuento;
+    const porPagar = total - obra.totalPagado;
+    return { totalItems, subtotal, descuento, montoDescuento, total, porPagar };
+  };
 
   if (loading || loadingData) {
     return (
@@ -764,6 +738,7 @@ export default function ObrasPage() {
             columns={columns}
             data={filteredObras}
             keyExtractor={(item) => item.id}
+            onRowClick={handleOpenDetail}
             emptyState={
               <EmptyState
                 icon={Building2}
@@ -812,6 +787,7 @@ export default function ObrasPage() {
             columns={columns}
             data={filteredObras}
             keyExtractor={(item) => item.id}
+            onRowClick={handleOpenDetail}
             emptyState={
               <EmptyState
                 icon={CheckCircle}
@@ -1050,6 +1026,217 @@ export default function ObrasPage() {
               </>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Detail Dialog */}
+      <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Building2 className="w-5 h-5" />
+              {detailObra?.nombre}
+            </DialogTitle>
+          </DialogHeader>
+          
+          {detailObra && (
+            <div className="space-y-6 overflow-y-auto flex-1 pr-2">
+              {/* Info general */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-muted-foreground">Cliente</p>
+                  <p className="font-medium">{detailObra.cliente || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Responsable</p>
+                  <p className="font-medium">{(detailObra as any).responsable || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Estado</p>
+                  <Badge
+                    variant="outline"
+                    className={
+                      detailObra.estado === 'activa'
+                        ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                        : 'bg-muted text-muted-foreground'
+                    }
+                  >
+                    {detailObra.estado === 'activa' ? 'Activa' : 'Cerrada'}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Descuento</p>
+                  <p className="font-medium text-amber-600">
+                    {(detailObra as any).descuento || 0}%
+                  </p>
+                </div>
+              </div>
+
+              {/* Piezas */}
+              <div>
+                <h4 className="font-semibold mb-2 flex items-center gap-2">
+                  <FileText className="w-4 h-4" />
+                  Piezas ({detailObra.items.length})
+                </h4>
+                {detailObra.items.length > 0 ? (
+                  <div className="space-y-2 border rounded-lg p-3 bg-muted/30">
+                    {detailObra.items.map((pieza) => {
+                      const completado = detailObra.avances[pieza.id] || 0;
+                      const total = pieza.cantidad;
+                      const percent = total > 0 ? (completado / total) * 100 : 0;
+                      return (
+                        <div key={pieza.id} className="flex justify-between items-center text-sm">
+                          <div className="flex-1">
+                            <div className="flex justify-between mb-1">
+                              <span>{pieza.descripcion}</span>
+                              <span className="text-muted-foreground">{completado}/{total} - {formatCurrency(pieza.precio_unitario)} c/u</span>
+                            </div>
+                            <Progress value={percent} className="h-1.5" />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-sm">Sin piezas registradas</p>
+                )}
+              </div>
+
+              {/* Extras */}
+              {detailObra.extras.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-2">Extras ({detailObra.extras.length})</h4>
+                  <div className="space-y-2 border rounded-lg p-3 bg-muted/30 max-h-[150px] overflow-y-auto">
+                    {detailObra.extras.map((extra) => (
+                      <div key={extra.id} className="flex justify-between items-center text-sm">
+                        <div className="flex items-center gap-2">
+                          <span>{extra.descripcion}</span>
+                          <Badge
+                            variant="outline"
+                            className={
+                              extra.estado === 'aprobado'
+                                ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-xs'
+                                : extra.estado === 'pendiente'
+                                ? 'bg-amber-500/10 text-amber-600 border-amber-500/20 text-xs'
+                                : 'bg-red-500/10 text-red-600 border-red-500/20 text-xs'
+                            }
+                          >
+                            {extra.estado.charAt(0).toUpperCase() + extra.estado.slice(1)}
+                          </Badge>
+                        </div>
+                        <span className={extra.estado === 'aprobado' ? 'text-emerald-600 font-medium' : 'text-muted-foreground'}>
+                          {formatCurrency(extra.montoNeto)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Pagos */}
+              {detailObra.pagos.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-2">Pagos Realizados ({detailObra.pagos.length})</h4>
+                  <div className="space-y-2 border rounded-lg p-3 bg-muted/30 max-h-[150px] overflow-y-auto">
+                    {detailObra.pagos.map((pago) => (
+                      <div key={pago.id} className="flex justify-between items-center text-sm">
+                        <div>
+                          <span>{pago.instalador_nombre}</span>
+                          <span className="text-muted-foreground ml-2 text-xs">
+                            {format(new Date(pago.fecha), 'dd/MM/yyyy', { locale: es })}
+                          </span>
+                        </div>
+                        <span className="font-medium">{formatCurrency(pago.monto)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Resumen financiero */}
+              <div className="border rounded-lg p-4 bg-muted/30 space-y-2">
+                <h4 className="font-semibold mb-3">Resumen Financiero</h4>
+                {(() => {
+                  const calc = getObraCalculations(detailObra);
+                  return (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Subtotal Piezas:</span>
+                        <span>{formatCurrency(calc.totalItems)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Subtotal Extras:</span>
+                        <span>{formatCurrency(detailObra.totalExtras)}</span>
+                      </div>
+                      {calc.descuento > 0 && (
+                        <div className="flex justify-between text-sm text-amber-600">
+                          <span>Descuento ({calc.descuento}%):</span>
+                          <span>-{formatCurrency(calc.montoDescuento)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between font-semibold border-t pt-2">
+                        <span>Monto Total:</span>
+                        <span>{formatCurrency(calc.total)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Total Pagado:</span>
+                        <span>{formatCurrency(detailObra.totalPagado)}</span>
+                      </div>
+                      <div className="flex justify-between font-semibold text-emerald-600">
+                        <span>Por Pagar:</span>
+                        <span>{formatCurrency(calc.porPagar)}</span>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex-col sm:flex-row gap-2 pt-4 border-t">
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (detailObra) generateEstadoDeCuenta(detailObra);
+              }}
+              className="w-full sm:w-auto"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Estado de Cuenta
+            </Button>
+            {canUpdate && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (detailObra) {
+                    setDetailDialogOpen(false);
+                    handleOpenModal(detailObra);
+                  }
+                }}
+                className="w-full sm:w-auto"
+              >
+                <Pencil className="w-4 h-4 mr-2" />
+                Editar
+              </Button>
+            )}
+            {canDelete && (
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  if (detailObra) {
+                    setDetailDialogOpen(false);
+                    setSelectedObra(detailObra);
+                    setIsDeleteDialogOpen(true);
+                  }
+                }}
+                disabled={obraTieneAvances(detailObra!)}
+                className="w-full sm:w-auto"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Eliminar
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
