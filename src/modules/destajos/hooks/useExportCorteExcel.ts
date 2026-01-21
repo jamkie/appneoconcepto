@@ -302,6 +302,8 @@ export const useExportCorteExcel = () => {
       // Total row
       const resumenDataStart = 4;
       const resumenDataEnd = resumenDataStart + instaladoresConDeposito.length - 1;
+      const totalRowNumResumen = resumenDataEnd + 1;
+      
       const totalRowResumen = sheetResumen.addRow([
         '',
         '',
@@ -310,6 +312,38 @@ export const useExportCorteExcel = () => {
       ]);
       totalRowResumen.font = { bold: true };
       totalRowResumen.alignment = { vertical: 'middle' };
+
+      // SUB TOTAL FACTURA = TOTAL / 1.16 (sin IVA)
+      const subTotalRowNum = totalRowNumResumen + 1;
+      const subTotalRow = sheetResumen.addRow([
+        '',
+        '',
+        'SUB TOTAL FACTURA',
+        { formula: `D${totalRowNumResumen}/1.16` },
+      ]);
+      subTotalRow.font = { bold: true };
+      subTotalRow.alignment = { vertical: 'middle' };
+
+      // IVA FACTURA = SUB TOTAL * 0.16
+      const ivaRowNum = subTotalRowNum + 1;
+      const ivaRow = sheetResumen.addRow([
+        '',
+        '',
+        'IVA FACTURA',
+        { formula: `D${subTotalRowNum}*0.16` },
+      ]);
+      ivaRow.font = { bold: true };
+      ivaRow.alignment = { vertical: 'middle' };
+
+      // TOTAL FACTURA = SUB TOTAL + IVA
+      const totalFacturaRow = sheetResumen.addRow([
+        '',
+        '',
+        'TOTAL FACTURA',
+        { formula: `D${subTotalRowNum}+D${ivaRowNum}` },
+      ]);
+      totalFacturaRow.font = { bold: true };
+      totalFacturaRow.alignment = { vertical: 'middle' };
 
       // Format currency column
       sheetResumen.getColumn(4).numFmt = '#,##0.00';
