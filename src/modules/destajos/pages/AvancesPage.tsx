@@ -65,7 +65,7 @@ interface AvanceRecord {
   observaciones: string | null;
   registrado_por: string;
   created_at: string;
-  obras: { nombre: string } | null;
+  obras: { nombre: string; descuento?: number } | null;
   instaladores: { nombre: string } | null;
   profiles: { full_name: string | null; email: string | null } | null;
   avance_items: {
@@ -74,7 +74,7 @@ interface AvanceRecord {
     cantidad_completada: number;
     obra_items: { descripcion: string; precio_unitario: number } | null;
   }[];
-  solicitudes_pago: { id: string; estado: string; created_at: string; pagos_destajos: { id: string }[] }[];
+  solicitudes_pago: { id: string; estado: string; created_at: string; total_solicitado: number; subtotal_piezas: number; retencion: number; pagos_destajos: { id: string }[] }[];
 }
 
 export default function AvancesPage() {
@@ -164,7 +164,7 @@ export default function AvancesPage() {
             observaciones,
             registrado_por,
             created_at,
-            obras(nombre),
+            obras(nombre, descuento),
             instaladores(nombre),
             profiles:registrado_por(full_name, email),
             avance_items(
@@ -173,7 +173,7 @@ export default function AvancesPage() {
               cantidad_completada,
               obra_items(descripcion, precio_unitario)
             ),
-            solicitudes_pago(id, estado, created_at, pagos_destajos(id))
+            solicitudes_pago(id, estado, created_at, total_solicitado, subtotal_piezas, retencion, pagos_destajos(id))
           `)
           .order('fecha', { ascending: false }),
         supabase.from('obras').select('*').eq('estado', 'activa'),
@@ -829,6 +829,7 @@ export default function AvancesPage() {
                 <TableHead>Obra</TableHead>
                 <TableHead className="hidden md:table-cell">Instalador</TableHead>
                 <TableHead>Piezas Completadas</TableHead>
+                <TableHead className="text-right">Monto</TableHead>
                 <TableHead className="hidden lg:table-cell">Estado</TableHead>
                 <TableHead className="hidden xl:table-cell">Registrado por</TableHead>
                 <TableHead className="hidden xl:table-cell">Observaciones</TableHead>
@@ -860,6 +861,44 @@ export default function AvancesPage() {
                         </div>
                       ))}
                     </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {(() => {
+                      const solicitud = avance.solicitudes_pago?.[0];
+                      if (solicitud) {
+                        const descuento = avance.obras?.descuento || 0;
+                        return (
+                          <div className="space-y-0.5">
+                            <div className="font-semibold text-primary">
+                              {new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(solicitud.total_solicitado)}
+                            </div>
+                            {descuento > 0 && (
+                              <div className="text-xs text-muted-foreground">
+                                -{descuento}% desc.
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+                      // Calculate from items if no solicitud
+                      const subtotal = avance.avance_items.reduce((acc, item) => {
+                        return acc + (item.cantidad_completada * (item.obra_items?.precio_unitario || 0));
+                      }, 0);
+                      const descuento = avance.obras?.descuento || 0;
+                      const total = subtotal * (1 - descuento / 100);
+                      return (
+                        <div className="space-y-0.5">
+                          <div className="font-semibold text-primary">
+                            {new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(total)}
+                          </div>
+                          {descuento > 0 && (
+                            <div className="text-xs text-muted-foreground">
+                              -{descuento}% desc.
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell className="hidden lg:table-cell">
                     {(() => {
