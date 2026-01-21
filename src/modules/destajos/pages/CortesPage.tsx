@@ -512,9 +512,10 @@ export default function CortesPage() {
             inst.aDepositar = Math.floor(basePago / 50) * 50;
             inst.saldoGenerado = basePago - inst.aDepositar;
           } else {
+            // Negative basePago means salary exceeds earnings - no payout, no credit balance
             inst.destajoADepositar = 0;
             inst.aDepositar = 0;
-            inst.saldoGenerado = Math.abs(basePago); // Saldo a favor para próximo corte
+            inst.saldoGenerado = 0; // No saldo a favor when there's nothing to pay
           }
         }
       });
