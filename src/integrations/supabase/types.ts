@@ -101,6 +101,45 @@ export type Database = {
           },
         ]
       }
+      avance_instaladores: {
+        Row: {
+          avance_id: string
+          created_at: string | null
+          id: string
+          instalador_id: string
+          porcentaje: number
+        }
+        Insert: {
+          avance_id: string
+          created_at?: string | null
+          id?: string
+          instalador_id: string
+          porcentaje: number
+        }
+        Update: {
+          avance_id?: string
+          created_at?: string | null
+          id?: string
+          instalador_id?: string
+          porcentaje?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "avance_instaladores_avance_id_fkey"
+            columns: ["avance_id"]
+            isOneToOne: false
+            referencedRelation: "avances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "avance_instaladores_instalador_id_fkey"
+            columns: ["instalador_id"]
+            isOneToOne: false
+            referencedRelation: "instaladores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       avance_items: {
         Row: {
           avance_id: string
@@ -148,7 +187,7 @@ export type Database = {
           cubiertas_completadas: number | null
           fecha: string
           id: string
-          instalador_id: string
+          instalador_id: string | null
           obra_id: string
           observaciones: string | null
           registrado_por: string
@@ -161,7 +200,7 @@ export type Database = {
           cubiertas_completadas?: number | null
           fecha?: string
           id?: string
-          instalador_id: string
+          instalador_id?: string | null
           obra_id: string
           observaciones?: string | null
           registrado_por: string
@@ -174,7 +213,7 @@ export type Database = {
           cubiertas_completadas?: number | null
           fecha?: string
           id?: string
-          instalador_id?: string
+          instalador_id?: string | null
           obra_id?: string
           observaciones?: string | null
           registrado_por?: string
