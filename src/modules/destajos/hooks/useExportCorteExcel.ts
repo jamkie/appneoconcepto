@@ -11,6 +11,7 @@ interface InstaladorPago {
   clabe: string;
   destajoAcumulado: number;
   nominaSemanal: number;
+  saldoAnterior: number;
   destajoADepositar: number;
   aDepositar: number;
   saldoAFavor: number;
@@ -19,14 +20,22 @@ interface InstaladorPago {
 export const useExportCorteExcel = () => {
   const exportCorteToExcel = async (corte: CorteSemanal) => {
     try {
+      // Fetch all active instaladores
+      const { data: allInstaladores, error: instError } = await supabase
+        .from('instaladores')
+        .select('id, nombre, nombre_banco, numero_cuenta, salario_semanal')
+        .eq('activo', true)
+        .order('nombre');
+      
+      if (instError) throw instError;
+      
       // Fetch solicitudes for this corte with instalador details
       const { data: solicitudes, error: solError } = await supabase
         .from('solicitudes_pago')
         .select(`
           total_solicitado,
           instalador_id,
-          solicitado_por,
-          instaladores(id, nombre, nombre_banco, numero_cuenta, salario_semanal)
+          solicitado_por
         `)
         .eq('corte_id', corte.id);
 
@@ -47,51 +56,89 @@ export const useExportCorteExcel = () => {
         profileNames[p.id] = firstName;
       });
 
-      // Group by instalador and sum totals
+      // Fetch saldos or corte_instaladores depending on corte state
+      let saldosMap: Record<string, number> = {};
+      let corteInstaladoresMap: Record<string, any> = {};
+      
+      if (corte.estado === 'cerrado') {
+        // Use historical data from corte_instaladores
+        const { data: ciData } = await supabase
+          .from('corte_instaladores')
+          .select('*')
+          .eq('corte_id', corte.id);
+        
+        (ciData || []).forEach((ci: any) => {
+          corteInstaladoresMap[ci.instalador_id] = ci;
+        });
+      } else {
+        // Use current saldos
+        const { data: saldosData } = await supabase
+          .from('saldos_instaladores')
+          .select('instalador_id, saldo_acumulado');
+        
+        (saldosData || []).forEach((s: any) => {
+          saldosMap[s.instalador_id] = Number(s.saldo_acumulado) || 0;
+        });
+      }
+
+      // Build instalador map with all active instaladores
       const instaladorMap: Record<string, InstaladorPago & { jefes: Set<string> }> = {};
       
+      // Initialize all active instaladores
+      (allInstaladores || []).forEach((inst: any) => {
+        instaladorMap[inst.id] = {
+          nombre: inst.nombre?.toUpperCase() || 'SIN NOMBRE',
+          jefesDirectos: '',
+          banco: inst.nombre_banco?.toUpperCase() || '',
+          clabe: inst.numero_cuenta || '',
+          destajoAcumulado: 0,
+          nominaSemanal: inst.salario_semanal || 0,
+          saldoAnterior: saldosMap[inst.id] || 0,
+          destajoADepositar: 0,
+          aDepositar: 0,
+          saldoAFavor: 0,
+          jefes: new Set(),
+        };
+      });
+      
+      // Add solicitudes data
       (solicitudes || []).forEach((sol: any) => {
-        const instalador = sol.instaladores;
-        if (!instalador) return;
-        
-        if (!instaladorMap[instalador.id]) {
-          instaladorMap[instalador.id] = {
-            nombre: instalador.nombre?.toUpperCase() || 'SIN NOMBRE',
-            jefesDirectos: '',
-            banco: instalador.nombre_banco?.toUpperCase() || '',
-            clabe: instalador.numero_cuenta || '',
-            destajoAcumulado: 0,
-            nominaSemanal: instalador.salario_semanal || 0,
-            destajoADepositar: 0,
-            aDepositar: 0,
-            saldoAFavor: 0,
-            jefes: new Set(),
-          };
-        }
-        
-        instaladorMap[instalador.id].destajoAcumulado += Number(sol.total_solicitado) || 0;
-        
-        // Add the person who registered this solicitud as "jefe directo"
-        if (sol.solicitado_por && profileNames[sol.solicitado_por]) {
-          instaladorMap[instalador.id].jefes.add(profileNames[sol.solicitado_por]);
+        if (instaladorMap[sol.instalador_id]) {
+          instaladorMap[sol.instalador_id].destajoAcumulado += Number(sol.total_solicitado) || 0;
+          
+          // Add the person who registered this solicitud as "jefe directo"
+          if (sol.solicitado_por && profileNames[sol.solicitado_por]) {
+            instaladorMap[sol.instalador_id].jefes.add(profileNames[sol.solicitado_por]);
+          }
         }
       });
 
-      // Calculate derived fields and set jefes directos
-      Object.values(instaladorMap).forEach((inst) => {
+      // Calculate derived fields
+      Object.entries(instaladorMap).forEach(([instId, inst]) => {
         inst.jefesDirectos = Array.from(inst.jefes).join(' ');
-
-        // Destajo a depositar = Destajo Acumulado - Nomina Semanal
-        const destajoADepositar = inst.destajoAcumulado - inst.nominaSemanal;
-        inst.destajoADepositar = destajoADepositar > 0 ? destajoADepositar : 0;
         
-        // A depositar = redondeado a múltiplos de 50
-        inst.aDepositar = inst.destajoADepositar > 0 
-          ? Math.floor(inst.destajoADepositar / 50) * 50 
-          : 0;
-        
-        // Saldo a favor = diferencia (si hay)
-        inst.saldoAFavor = inst.destajoADepositar - inst.aDepositar;
+        if (corte.estado === 'cerrado' && corteInstaladoresMap[instId]) {
+          // Use historical data
+          const ci = corteInstaladoresMap[instId];
+          inst.destajoAcumulado = Number(ci.destajo_acumulado);
+          inst.saldoAnterior = Number(ci.saldo_anterior);
+          inst.aDepositar = Number(ci.monto_depositado);
+          inst.saldoAFavor = Number(ci.saldo_generado);
+          inst.destajoADepositar = Math.max(0, inst.destajoAcumulado - inst.nominaSemanal + inst.saldoAnterior);
+        } else {
+          // Calculate in real-time
+          const basePago = inst.destajoAcumulado - inst.nominaSemanal + inst.saldoAnterior;
+          
+          if (basePago >= 0) {
+            inst.destajoADepositar = basePago;
+            inst.aDepositar = Math.floor(basePago / 50) * 50;
+            inst.saldoAFavor = basePago - inst.aDepositar;
+          } else {
+            inst.destajoADepositar = 0;
+            inst.aDepositar = 0;
+            inst.saldoAFavor = Math.abs(basePago);
+          }
+        }
       });
 
       const instaladores = Object.values(instaladorMap).sort((a, b) => 
@@ -110,7 +157,7 @@ export const useExportCorteExcel = () => {
       const weekNum = corte.nombre.match(/Semana (\d+)/i)?.[1] || '01';
 
       // Add title row
-      sheet.mergeCells('A1:I1');
+      sheet.mergeCells('A1:J1');
       const titleCell = sheet.getCell('A1');
       titleCell.value = `PAGO SEMANAL INSTALADORES SEMANA ${weekNum} DEL ${fechaInicio} AL ${fechaFin}`;
       titleCell.font = { bold: true, size: 12 };
@@ -120,7 +167,7 @@ export const useExportCorteExcel = () => {
       // Empty row
       sheet.addRow([]);
 
-      // Define headers
+      // Define headers (added SALDO ANTERIOR)
       const headers = [
         'NOMBRE DEL TRABAJADOR',
         'JEFES DIRECTOS',
@@ -128,6 +175,7 @@ export const useExportCorteExcel = () => {
         'CLABE',
         'DESTAJO ACUMULADO',
         'NOMINA SEMANAL',
+        'SALDO ANTERIOR',
         'DESTAJO A DEPOSITAR',
         'A DEPOSITAR',
         'SALDO A FAVOR',
@@ -138,17 +186,18 @@ export const useExportCorteExcel = () => {
       headerRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       headerRow.height = 30;
 
-      // Set column widths
+      // Set column widths (updated for 10 columns)
       sheet.columns = [
-        { width: 35 }, // Nombre
-        { width: 15 }, // Jefes
-        { width: 14 }, // Banco
-        { width: 20 }, // CLABE
-        { width: 18 }, // Destajo Acumulado
-        { width: 16 }, // Nomina Semanal
-        { width: 20 }, // Destajo a Depositar
-        { width: 14 }, // A Depositar
-        { width: 14 }, // Saldo a Favor
+        { width: 35 }, // A: Nombre
+        { width: 15 }, // B: Jefes
+        { width: 14 }, // C: Banco
+        { width: 20 }, // D: CLABE
+        { width: 18 }, // E: Destajo Acumulado
+        { width: 16 }, // F: Nomina Semanal
+        { width: 16 }, // G: Saldo Anterior
+        { width: 20 }, // H: Destajo a Depositar
+        { width: 14 }, // I: A Depositar
+        { width: 14 }, // J: Saldo a Favor
       ];
 
       // Add data rows with formulas
@@ -163,9 +212,13 @@ export const useExportCorteExcel = () => {
           inst.clabe,
           inst.destajoAcumulado || 0,
           inst.nominaSemanal || 0,
-          { formula: `MAX(E${rowNum}-F${rowNum},0)` }, // G: Destajo a Depositar
-          { formula: `FLOOR(G${rowNum},50)` },         // H: A Depositar
-          { formula: `G${rowNum}-H${rowNum}` },        // I: Saldo a Favor
+          inst.saldoAnterior || 0,
+          // H: Destajo a Depositar = MAX(E - F + G, 0)
+          { formula: `MAX(E${rowNum}-F${rowNum}+G${rowNum},0)` },
+          // I: A Depositar = FLOOR(H, 50)
+          { formula: `FLOOR(H${rowNum},50)` },
+          // J: Saldo a Favor = H - I (positive = residual, negative would be absorbed but formula handles it)
+          { formula: `H${rowNum}-I${rowNum}` },
         ]);
         row.alignment = { vertical: 'middle' };
       });
@@ -174,6 +227,7 @@ export const useExportCorteExcel = () => {
       const dataEndRow = dataStartRow + instaladores.length - 1;
       const totalRowNum = dataEndRow + 1;
       
+      // Add total row with SUM formulas (updated for 10 columns)
       const totalRow = sheet.addRow([
         '',
         '',
@@ -184,12 +238,13 @@ export const useExportCorteExcel = () => {
         { formula: `SUM(G${dataStartRow}:G${dataEndRow})` },
         { formula: `SUM(H${dataStartRow}:H${dataEndRow})` },
         { formula: `SUM(I${dataStartRow}:I${dataEndRow})` },
+        { formula: `SUM(J${dataStartRow}:J${dataEndRow})` },
       ]);
       totalRow.font = { bold: true };
       totalRow.alignment = { vertical: 'middle' };
 
-      // Format number columns
-      const numCols = [5, 6, 7, 8, 9]; // E, F, G, H, I
+      // Format number columns (updated: E, F, G, H, I, J are now columns 5-10)
+      const numCols = [5, 6, 7, 8, 9, 10]; // E, F, G, H, I, J
       numCols.forEach((colNum) => {
         sheet.getColumn(colNum).numFmt = '#,##0.00';
         sheet.getColumn(colNum).alignment = { horizontal: 'right', vertical: 'middle' };
