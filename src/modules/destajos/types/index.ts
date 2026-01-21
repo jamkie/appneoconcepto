@@ -181,6 +181,19 @@ export interface AnticipoWithDetails extends Anticipo {
   instalador?: { nombre: string };
 }
 
+export interface AvanceInstalador {
+  id: string;
+  avance_id: string;
+  instalador_id: string;
+  porcentaje: number;
+  created_at: string;
+}
+
+export interface AvanceInstaladorInput {
+  instalador_id: string;
+  porcentaje: number;
+}
+
 export type CorteStatus = 'abierto' | 'cerrado';
 
 export interface CorteSemanal {

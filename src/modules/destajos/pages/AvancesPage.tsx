@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ClipboardList, Plus, Search, Pencil, Trash2, Calendar, Box, RefreshCw } from 'lucide-react';
+import { ClipboardList, Plus, Search, Pencil, Trash2, Calendar, Box, RefreshCw, Users, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -42,7 +42,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import type { Obra, Instalador, ObraItem } from '../types';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import type { Obra, Instalador, ObraItem, AvanceInstaladorInput } from '../types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useSubmodulePermissions } from '@/hooks/useSubmodulePermissions';
@@ -60,7 +66,7 @@ interface AvanceItemDisplay {
 interface AvanceRecord {
   id: string;
   obra_id: string;
-  instalador_id: string;
+  instalador_id: string | null;
   fecha: string;
   observaciones: string | null;
   registrado_por: string;
@@ -74,7 +80,8 @@ interface AvanceRecord {
     cantidad_completada: number;
     obra_items: { descripcion: string; precio_unitario: number } | null;
   }[];
-  solicitudes_pago: { id: string; estado: string; created_at: string; total_solicitado: number; subtotal_piezas: number; retencion: number; pagos_destajos: { id: string }[] }[];
+  solicitudes_pago: { id: string; estado: string; created_at: string; total_solicitado: number; subtotal_piezas: number; retencion: number; pagos_destajos: { id: string }[]; instaladores: { nombre: string } | null }[];
+  avance_instaladores?: { id: string; instalador_id: string; porcentaje: number; instaladores: { nombre: string } | null }[];
 }
 
 export default function AvancesPage() {
@@ -104,7 +111,7 @@ export default function AvancesPage() {
   
   // Form state
   const [selectedObraId, setSelectedObraId] = useState('');
-  const [selectedInstaladorId, setSelectedInstaladorId] = useState('');
+  const [selectedInstaladores, setSelectedInstaladores] = useState<AvanceInstaladorInput[]>([]);
   const [fecha, setFecha] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [observaciones, setObservaciones] = useState('');
   const [obraItems, setObraItems] = useState<AvanceItemDisplay[]>([]);
@@ -153,7 +160,7 @@ export default function AvancesPage() {
     try {
       setLoadingData(true);
       
-      const [avancesRes, obrasRes, instaladoresRes, obraItemsRes, allAvanceItemsRes] = await Promise.all([
+      const [avancesRes, obrasRes, instaladoresRes, obraItemsRes, allAvanceItemsRes, avanceInstaladoresRes] = await Promise.all([
         supabase
           .from('avances')
           .select(`
@@ -173,13 +180,15 @@ export default function AvancesPage() {
               cantidad_completada,
               obra_items(descripcion, precio_unitario)
             ),
-            solicitudes_pago(id, estado, created_at, total_solicitado, subtotal_piezas, retencion, pagos_destajos(id))
+            solicitudes_pago(id, estado, created_at, total_solicitado, subtotal_piezas, retencion, pagos_destajos(id), instaladores(nombre)),
+            avance_instaladores(id, instalador_id, porcentaje, instaladores(nombre))
           `)
           .order('fecha', { ascending: false }),
         supabase.from('obras').select('*').eq('estado', 'activa'),
         supabase.from('instaladores').select('*').eq('activo', true),
         supabase.from('obra_items').select('id, obra_id, cantidad'),
         supabase.from('avance_items').select('obra_item_id, cantidad_completada'),
+        supabase.from('avance_instaladores').select('avance_id, instalador_id, porcentaje, instaladores(nombre)'),
       ]);
 
       if (avancesRes.error) throw avancesRes.error;
@@ -288,7 +297,19 @@ export default function AvancesPage() {
   const handleOpenEdit = async (avance: AvanceRecord) => {
     setEditingAvance(avance);
     setSelectedObraId(avance.obra_id);
-    setSelectedInstaladorId(avance.instalador_id);
+    
+    // Load instaladores from avance_instaladores or fallback to single instalador_id
+    if (avance.avance_instaladores && avance.avance_instaladores.length > 0) {
+      setSelectedInstaladores(avance.avance_instaladores.map(ai => ({
+        instalador_id: ai.instalador_id,
+        porcentaje: ai.porcentaje,
+      })));
+    } else if (avance.instalador_id) {
+      setSelectedInstaladores([{ instalador_id: avance.instalador_id, porcentaje: 100 }]);
+    } else {
+      setSelectedInstaladores([]);
+    }
+    
     setFecha(avance.fecha);
     setObservaciones(avance.observaciones || '');
     
@@ -368,10 +389,21 @@ export default function AvancesPage() {
   };
 
   const handleSave = async () => {
-    if (!selectedObraId || !selectedInstaladorId) {
+    if (!selectedObraId || selectedInstaladores.length === 0) {
       toast({
         title: 'Error',
-        description: 'Obra e instalador son requeridos',
+        description: 'Obra e instalador(es) son requeridos',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Validar que los porcentajes sumen 100%
+    const totalPorcentaje = selectedInstaladores.reduce((acc, inst) => acc + inst.porcentaje, 0);
+    if (Math.abs(totalPorcentaje - 100) > 0.01) {
+      toast({
+        title: 'Error',
+        description: `Los porcentajes deben sumar 100% (actualmente: ${totalPorcentaje.toFixed(1)}%)`,
         variant: 'destructive',
       });
       return;
@@ -405,13 +437,21 @@ export default function AvancesPage() {
     try {
       setSaving(true);
       
+      // Get obra discount
+      const obraData = obras.find(o => o.id === selectedObraId);
+      const descuento = Number((obraData as any)?.descuento || 0);
+      
+      const subtotalPiezas = itemsWithProgress.reduce((acc, item) => {
+        return acc + (parseInt(item.cantidad_a_avanzar) * item.precio_unitario);
+      }, 0);
+      
       if (editingAvance) {
-        // Update avance with obra_id and instalador_id
+        // Update avance - set instalador_id to first one for backwards compatibility
         const { error: avanceError } = await supabase
           .from('avances')
           .update({
             obra_id: selectedObraId,
-            instalador_id: selectedInstaladorId,
+            instalador_id: selectedInstaladores.length === 1 ? selectedInstaladores[0].instalador_id : null,
             fecha,
             observaciones: observaciones.trim() || null,
           })
@@ -419,13 +459,21 @@ export default function AvancesPage() {
         
         if (avanceError) throw avanceError;
         
-        const { error: deleteError } = await supabase
+        // Delete old avance_items
+        const { error: deleteItemsError } = await supabase
           .from('avance_items')
           .delete()
           .eq('avance_id', editingAvance.id);
         
-        if (deleteError) throw deleteError;
+        if (deleteItemsError) throw deleteItemsError;
         
+        // Delete old avance_instaladores
+        await supabase
+          .from('avance_instaladores')
+          .delete()
+          .eq('avance_id', editingAvance.id);
+        
+        // Insert new avance_items
         const avanceItemsToInsert = itemsWithProgress.map((item) => ({
           avance_id: editingAvance.id,
           obra_item_id: item.obra_item_id,
@@ -438,42 +486,56 @@ export default function AvancesPage() {
         
         if (itemsError) throw itemsError;
 
-        // Update associated pending solicitud if exists
-        const solicitud = editingAvance.solicitudes_pago?.find(s => s.estado === 'pendiente');
-        if (solicitud) {
-          const subtotalPiezas = itemsWithProgress.reduce((acc, item) => {
-            return acc + (parseInt(item.cantidad_a_avanzar) * item.precio_unitario);
-          }, 0);
-
-          // Get obra discount
-          const obraData = obras.find(o => o.id === selectedObraId);
-          const descuento = Number((obraData as any)?.descuento || 0);
-          const montoDescuento = subtotalPiezas * (descuento / 100);
-          const totalConDescuento = subtotalPiezas - montoDescuento;
-
-          const { error: solicitudError } = await supabase
-            .from('solicitudes_pago')
-            .update({
-              obra_id: selectedObraId,
-              instalador_id: selectedInstaladorId,
-              subtotal_piezas: subtotalPiezas,
-              retencion: montoDescuento,
-              total_solicitado: totalConDescuento,
-            })
-            .eq('id', solicitud.id);
+        // Insert new avance_instaladores if multiple
+        if (selectedInstaladores.length > 1) {
+          const avanceInstaladoresInsert = selectedInstaladores.map(inst => ({
+            avance_id: editingAvance.id,
+            instalador_id: inst.instalador_id,
+            porcentaje: inst.porcentaje,
+          }));
           
-          if (solicitudError) {
-            console.error('Error updating solicitud:', solicitudError);
-          }
+          await supabase.from('avance_instaladores').insert(avanceInstaladoresInsert);
+        }
+
+        // Delete old pending solicitudes and create new ones
+        const pendingSolicitudes = editingAvance.solicitudes_pago?.filter(s => s.estado === 'pendiente') || [];
+        for (const sol of pendingSolicitudes) {
+          await supabase.from('solicitudes_pago').delete().eq('id', sol.id);
+        }
+
+        // Create new solicitudes for each instalador
+        for (const inst of selectedInstaladores) {
+          const porcentajeFactor = inst.porcentaje / 100;
+          const subtotalInst = subtotalPiezas * porcentajeFactor;
+          const montoDescuento = subtotalInst * (descuento / 100);
+          const totalConDescuento = subtotalInst - montoDescuento;
+
+          const instaladorNombre = instaladores.find(i => i.id === inst.instalador_id)?.nombre || 'Instalador';
+
+          await supabase.from('solicitudes_pago').insert({
+            obra_id: selectedObraId,
+            instalador_id: inst.instalador_id,
+            solicitado_por: user?.id,
+            tipo: 'avance',
+            subtotal_piezas: subtotalInst,
+            subtotal_extras: 0,
+            retencion: montoDescuento,
+            total_solicitado: totalConDescuento,
+            observaciones: selectedInstaladores.length > 1
+              ? `Avance ${format(new Date(fecha), 'dd/MM/yyyy')} - ${instaladorNombre} (${inst.porcentaje}%)${descuento > 0 ? ` - Descuento ${descuento}%` : ''}`
+              : `Avance registrado el ${format(new Date(fecha), 'dd/MM/yyyy')}${descuento > 0 ? ` (Descuento ${descuento}%)` : ''}`,
+            avance_id: editingAvance.id,
+          });
         }
 
         toast({ title: 'Éxito', description: 'Avance actualizado correctamente' });
       } else {
+        // Create new avance
         const { data: avanceData, error: avanceError } = await supabase
           .from('avances')
           .insert({
             obra_id: selectedObraId,
-            instalador_id: selectedInstaladorId,
+            instalador_id: selectedInstaladores.length === 1 ? selectedInstaladores[0].instalador_id : null,
             fecha,
             observaciones: observaciones.trim() || null,
             registrado_por: user?.id,
@@ -483,6 +545,7 @@ export default function AvancesPage() {
         
         if (avanceError) throw avanceError;
         
+        // Insert avance_items
         const avanceItemsToInsert = itemsWithProgress.map((item) => ({
           avance_id: avanceData.id,
           obra_item_id: item.obra_item_id,
@@ -495,42 +558,61 @@ export default function AvancesPage() {
         
         if (itemsError) throw itemsError;
 
-        const subtotalPiezas = itemsWithProgress.reduce((acc, item) => {
-          return acc + (parseInt(item.cantidad_a_avanzar) * item.precio_unitario);
-        }, 0);
+        // Insert avance_instaladores if multiple
+        if (selectedInstaladores.length > 1) {
+          const avanceInstaladoresInsert = selectedInstaladores.map(inst => ({
+            avance_id: avanceData.id,
+            instalador_id: inst.instalador_id,
+            porcentaje: inst.porcentaje,
+          }));
+          
+          await supabase.from('avance_instaladores').insert(avanceInstaladoresInsert);
+        }
 
-        // Get obra discount
-        const obraData = obras.find(o => o.id === selectedObraId);
-        const descuento = Number((obraData as any)?.descuento || 0);
-        const montoDescuento = subtotalPiezas * (descuento / 100);
-        const totalConDescuento = subtotalPiezas - montoDescuento;
+        // Create solicitudes for each instalador
+        let solicitudSuccess = true;
+        for (const inst of selectedInstaladores) {
+          const porcentajeFactor = inst.porcentaje / 100;
+          const subtotalInst = subtotalPiezas * porcentajeFactor;
+          const montoDescuento = subtotalInst * (descuento / 100);
+          const totalConDescuento = subtotalInst - montoDescuento;
 
-        const { error: solicitudError } = await supabase
-          .from('solicitudes_pago')
-          .insert({
+          const instaladorNombre = instaladores.find(i => i.id === inst.instalador_id)?.nombre || 'Instalador';
+
+          const { error: solicitudError } = await supabase.from('solicitudes_pago').insert({
             obra_id: selectedObraId,
-            instalador_id: selectedInstaladorId,
+            instalador_id: inst.instalador_id,
             solicitado_por: user?.id,
             tipo: 'avance',
-            subtotal_piezas: subtotalPiezas,
+            subtotal_piezas: subtotalInst,
             subtotal_extras: 0,
             retencion: montoDescuento,
             total_solicitado: totalConDescuento,
-            observaciones: descuento > 0 
-              ? `Avance registrado el ${format(new Date(fecha), 'dd/MM/yyyy')} (Descuento ${descuento}%)`
-              : `Avance registrado el ${format(new Date(fecha), 'dd/MM/yyyy')}`,
+            observaciones: selectedInstaladores.length > 1
+              ? `Avance ${format(new Date(fecha), 'dd/MM/yyyy')} - ${instaladorNombre} (${inst.porcentaje}%)${descuento > 0 ? ` - Descuento ${descuento}%` : ''}`
+              : `Avance registrado el ${format(new Date(fecha), 'dd/MM/yyyy')}${descuento > 0 ? ` (Descuento ${descuento}%)` : ''}`,
             avance_id: avanceData.id,
           });
 
-        if (solicitudError) {
-          console.error('Error creating solicitud:', solicitudError);
+          if (solicitudError) {
+            console.error('Error creating solicitud:', solicitudError);
+            solicitudSuccess = false;
+          }
+        }
+
+        if (!solicitudSuccess) {
           toast({ 
             title: 'Aviso', 
-            description: 'Avance registrado, pero hubo un error al crear la solicitud de pago',
+            description: 'Avance registrado, pero hubo un error al crear alguna solicitud de pago',
             variant: 'destructive',
           });
         } else {
-          toast({ title: 'Éxito', description: 'Avance y solicitud de pago registrados correctamente' });
+          toast({ 
+            title: 'Éxito', 
+            description: selectedInstaladores.length > 1 
+              ? `Avance y ${selectedInstaladores.length} solicitudes de pago registradas correctamente`
+              : 'Avance y solicitud de pago registrados correctamente'
+          });
         }
       }
 
@@ -679,12 +761,60 @@ export default function AvancesPage() {
 
   const resetForm = () => {
     setSelectedObraId('');
-    setSelectedInstaladorId('');
+    setSelectedInstaladores([]);
     setFecha(format(new Date(), 'yyyy-MM-dd'));
     setObservaciones('');
     setObraItems([]);
     setEditingAvance(null);
   };
+
+  // Helper functions for managing instaladores
+  const handleAddInstalador = () => {
+    // Find first instalador not already selected
+    const availableInstalador = instaladores.find(
+      i => !selectedInstaladores.some(si => si.instalador_id === i.id)
+    );
+    if (availableInstalador) {
+      setSelectedInstaladores(prev => [...prev, { instalador_id: availableInstalador.id, porcentaje: 0 }]);
+    }
+  };
+
+  const handleRemoveInstalador = (instaladorId: string) => {
+    setSelectedInstaladores(prev => prev.filter(i => i.instalador_id !== instaladorId));
+  };
+
+  const handleInstaladorChange = (index: number, instaladorId: string) => {
+    setSelectedInstaladores(prev => prev.map((item, i) => 
+      i === index ? { ...item, instalador_id: instaladorId } : item
+    ));
+  };
+
+  const handlePorcentajeChange = (index: number, porcentaje: number) => {
+    setSelectedInstaladores(prev => prev.map((item, i) => 
+      i === index ? { ...item, porcentaje: Math.max(0, Math.min(100, porcentaje)) } : item
+    ));
+  };
+
+  const distribuirEquitativamente = () => {
+    if (selectedInstaladores.length === 0) return;
+    const porcentajeIgual = Math.floor(100 / selectedInstaladores.length);
+    const resto = 100 - (porcentajeIgual * selectedInstaladores.length);
+    
+    setSelectedInstaladores(prev => prev.map((item, i) => ({
+      ...item,
+      porcentaje: porcentajeIgual + (i === 0 ? resto : 0)
+    })));
+  };
+
+  const totalPorcentaje = selectedInstaladores.reduce((acc, i) => acc + i.porcentaje, 0);
+
+  // Calculate estimated amount per instalador
+  const subtotalPiezasEstimado = obraItems.reduce((acc, item) => {
+    return acc + (parseInt(item.cantidad_a_avanzar || '0') * item.precio_unitario);
+  }, 0);
+  const obraData = obras.find(o => o.id === selectedObraId);
+  const descuentoObra = Number((obraData as any)?.descuento || 0);
+  const totalConDescuentoEstimado = subtotalPiezasEstimado * (1 - descuentoObra / 100);
 
   // Get unique users who registered avances for filter
   const registradoresUnicos = Array.from(
@@ -696,12 +826,19 @@ export default function AvancesPage() {
   );
 
   const filteredAvances = avances.filter((avance) => {
+    // Check search in obra name or any instalador name
+    const instaladorNames = avance.avance_instaladores?.map(ai => ai.instaladores?.nombre || '').join(' ') || '';
     const matchesSearch = avance.obras?.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      avance.instaladores?.nombre.toLowerCase().includes(searchTerm.toLowerCase());
+      avance.instaladores?.nombre?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      instaladorNames.toLowerCase().includes(searchTerm.toLowerCase());
     
-    // Filter by instalador
-    if (instaladorFilter !== 'todos' && avance.instalador_id !== instaladorFilter) {
-      return false;
+    // Filter by instalador (check both single and multiple)
+    if (instaladorFilter !== 'todos') {
+      const matchesSingle = avance.instalador_id === instaladorFilter;
+      const matchesMultiple = avance.avance_instaladores?.some(ai => ai.instalador_id === instaladorFilter);
+      if (!matchesSingle && !matchesMultiple) {
+        return false;
+      }
     }
     
     // Filter by registrado_por
@@ -849,7 +986,31 @@ export default function AvancesPage() {
                     {avance.obras?.nombre || 'N/A'}
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
-                    {avance.instaladores?.nombre || 'N/A'}
+                    {(() => {
+                      // Check if has multiple instaladores
+                      if (avance.avance_instaladores && avance.avance_instaladores.length > 1) {
+                        const nombres = avance.avance_instaladores
+                          .map(ai => `${ai.instaladores?.nombre || 'N/A'} (${ai.porcentaje}%)`)
+                          .join(', ');
+                        return (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className="flex items-center gap-1 cursor-help">
+                                  <Users className="w-4 h-4 text-muted-foreground" />
+                                  <span>Varios ({avance.avance_instaladores.length})</span>
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>{nombres}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        );
+                      }
+                      // Single instalador
+                      return avance.instaladores?.nombre || 'N/A';
+                    })()}
                   </TableCell>
                   <TableCell>
                     <div className="space-y-1">
@@ -1020,23 +1181,111 @@ export default function AvancesPage() {
               </Select>
             </div>
             
-            <div>
-              <Label htmlFor="instalador_id">Instalador *</Label>
-              <Select 
-                value={selectedInstaladorId} 
-                onValueChange={setSelectedInstaladorId}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar instalador" />
-                </SelectTrigger>
-                <SelectContent>
-                  {instaladores.map((instalador) => (
-                    <SelectItem key={instalador.id} value={instalador.id}>
-                      {instalador.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            {/* Instaladores Section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-base font-medium">Instaladores *</Label>
+                <div className="flex gap-2">
+                  {selectedInstaladores.length > 1 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={distribuirEquitativamente}
+                    >
+                      Distribuir igual
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAddInstalador}
+                    disabled={selectedInstaladores.length >= instaladores.length}
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Agregar
+                  </Button>
+                </div>
+              </div>
+              
+              {selectedInstaladores.length === 0 ? (
+                <div className="text-sm text-muted-foreground py-4 text-center border rounded-lg bg-muted/30">
+                  Agrega al menos un instalador
+                </div>
+              ) : (
+                <div className="space-y-2 border rounded-lg p-3 bg-muted/30">
+                  {selectedInstaladores.map((inst, index) => {
+                    const instaladorNombre = instaladores.find(i => i.id === inst.instalador_id)?.nombre || '';
+                    const montoEstimado = totalConDescuentoEstimado * (inst.porcentaje / 100);
+                    
+                    return (
+                      <div key={index} className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <Select 
+                            value={inst.instalador_id} 
+                            onValueChange={(value) => handleInstaladorChange(index, value)}
+                          >
+                            <SelectTrigger className="h-9">
+                              <SelectValue placeholder="Seleccionar instalador" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {instaladores
+                                .filter(i => i.id === inst.instalador_id || !selectedInstaladores.some(si => si.instalador_id === i.id))
+                                .map((instalador) => (
+                                  <SelectItem key={instalador.id} value={instalador.id}>
+                                    {instalador.nombre}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="w-20">
+                          <Input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={inst.porcentaje}
+                            onChange={(e) => handlePorcentajeChange(index, parseFloat(e.target.value) || 0)}
+                            className="text-center h-9"
+                            placeholder="%"
+                          />
+                        </div>
+                        <div className="w-24 text-right text-sm text-muted-foreground">
+                          {new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(montoEstimado)}
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 flex-shrink-0"
+                          onClick={() => handleRemoveInstalador(inst.instalador_id)}
+                        >
+                          <X className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                  
+                  {/* Total row */}
+                  <div className="flex items-center gap-2 pt-2 border-t mt-2">
+                    <div className="flex-1 text-sm font-medium">Total</div>
+                    <div className={`w-20 text-center text-sm font-bold ${Math.abs(totalPorcentaje - 100) < 0.01 ? 'text-green-600' : 'text-destructive'}`}>
+                      {totalPorcentaje.toFixed(0)}%
+                    </div>
+                    <div className="w-24 text-right text-sm font-semibold">
+                      {new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(totalConDescuentoEstimado)}
+                    </div>
+                    <div className="w-9" /> {/* Spacer for alignment */}
+                  </div>
+                  
+                  {Math.abs(totalPorcentaje - 100) > 0.01 && (
+                    <p className="text-xs text-destructive">
+                      Los porcentajes deben sumar 100%
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
             
             <div>
