@@ -149,7 +149,7 @@ export default function InstaladoresPage() {
 
   const handleToggleActivo = async (instalador: Instalador) => {
     try {
-      // If trying to deactivate, check for pending destajo (solicitudes pendientes or saldo a favor)
+      // If trying to deactivate, check for pending destajo
       if (instalador.activo) {
         // Check for pending solicitudes
         const { data: pendingSolicitudes, error: solError } = await supabase
@@ -165,6 +165,25 @@ export default function InstaladoresPage() {
           toast({
             title: 'No se puede desactivar',
             description: 'El instalador tiene solicitudes de pago pendientes',
+            variant: 'destructive',
+          });
+          return;
+        }
+        
+        // Check for solicitudes in an open corte
+        const { data: openCorteSolicitudes, error: openCorteError } = await supabase
+          .from('solicitudes_pago')
+          .select('id, cortes_semanales!inner(estado)')
+          .eq('instalador_id', instalador.id)
+          .eq('cortes_semanales.estado', 'abierto')
+          .limit(1);
+        
+        if (openCorteError) throw openCorteError;
+        
+        if (openCorteSolicitudes && openCorteSolicitudes.length > 0) {
+          toast({
+            title: 'No se puede desactivar',
+            description: 'El instalador tiene solicitudes en un corte abierto',
             variant: 'destructive',
           });
           return;
