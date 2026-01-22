@@ -1374,70 +1374,65 @@ export default function ObrasPage() {
           <DialogFooter className="flex-col gap-3 pt-4 border-t bg-muted/30 -mx-6 -mb-6 px-6 pb-6 rounded-b-lg">
             {/* Quick action buttons for adding avances/extras/anticipos - Only for active obras */}
             {detailObra?.estado === 'activa' && (
-              <div className="w-full space-y-3">
-                <div>
-                  <p className="text-xs text-muted-foreground mb-2 font-medium">Acciones rápidas</p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={() => {
-                        if (detailObra) {
-                          setDetailDialogOpen(false);
-                          navigate(`/destajos/avances?obra=${detailObra.id}`);
-                        }
-                      }}
-                      className="gap-2"
-                    >
-                      <ClipboardList className="w-4 h-4" />
-                      Agregar Avance
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        if (detailObra) {
-                          setDetailDialogOpen(false);
-                          navigate(`/destajos/extras?obra=${detailObra.id}`);
-                        }
-                      }}
-                      className="gap-2"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Agregar Extra
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        if (detailObra) {
-                          setDetailDialogOpen(false);
-                          navigate(`/destajos/solicitudes?anticipo_obra=${detailObra.id}`);
-                        }
-                      }}
-                      className="gap-2 border-dashed"
-                    >
-                      <Banknote className="w-4 h-4" />
-                      Agregar Anticipo
-                    </Button>
-                  </div>
+              <div className="w-full space-y-2">
+                <div className="flex flex-wrap gap-1.5">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => {
+                      if (detailObra) {
+                        setDetailDialogOpen(false);
+                        navigate(`/destajos/avances?obra=${detailObra.id}`);
+                      }
+                    }}
+                    className="gap-1.5 h-8 text-xs"
+                  >
+                    <ClipboardList className="w-3.5 h-3.5" />
+                    Avance
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      if (detailObra) {
+                        setDetailDialogOpen(false);
+                        navigate(`/destajos/extras?obra=${detailObra.id}`);
+                      }
+                    }}
+                    className="gap-1.5 h-8 text-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Extra
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (detailObra) {
+                        setDetailDialogOpen(false);
+                        navigate(`/destajos/solicitudes?anticipo_obra=${detailObra.id}`);
+                      }
+                    }}
+                    className="gap-1.5 h-8 text-xs border-dashed"
+                  >
+                    <Banknote className="w-3.5 h-3.5" />
+                    Anticipo
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      if (detailObra) {
+                        setConcludeObra(detailObra);
+                        setConcludeDialogOpen(true);
+                      }
+                    }}
+                    className="gap-1.5 h-8 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    Concluir
+                  </Button>
                 </div>
-                
-                {/* Conclude button inline */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    if (detailObra) {
-                      setConcludeObra(detailObra);
-                      setConcludeDialogOpen(true);
-                    }
-                  }}
-                  className="gap-2 w-full border-amber-500/50 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
-                >
-                  <CheckCircle className="w-4 h-4" />
-                  Concluir Obra Manualmente
-                </Button>
               </div>
             )}
 
