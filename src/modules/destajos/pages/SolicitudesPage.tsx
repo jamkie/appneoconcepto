@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Wallet, Search, Check, X, Trash2, Plus, Banknote, ArrowDownCircle, Eye, Pencil, ExternalLink } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -54,6 +54,7 @@ export default function SolicitudesPage() {
   const { user, loading } = useAuth();
   const { canCreate, canUpdate, canDelete } = useSubmodulePermissions('destajos', 'solicitudes');
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
   const [solicitudes, setSolicitudes] = useState<SolicitudWithDetails[]>([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -111,6 +112,16 @@ export default function SolicitudesPage() {
       fetchData();
     }
   }, [user]);
+
+  // Handle deep link for creating anticipo from obras modal
+  useEffect(() => {
+    const obraId = searchParams.get('anticipo_obra');
+    if (obraId && obras.length > 0 && !loadingData && canCreate) {
+      setAnticipoForm(prev => ({ ...prev, obra_id: obraId }));
+      setIsAnticipoModalOpen(true);
+      setSearchParams({});
+    }
+  }, [searchParams, obras, loadingData, canCreate, setSearchParams]);
 
   const fetchData = async () => {
     try {
