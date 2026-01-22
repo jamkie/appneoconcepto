@@ -147,6 +147,9 @@ export default function CortesPage() {
   // Bulk removal selection
   const [selectedForRemoval, setSelectedForRemoval] = useState<Set<string>>(new Set());
   const [removingBulk, setRemovingBulk] = useState(false);
+  
+  // Instaladores excluded from corte
+  const [excludedInstaladores, setExcludedInstaladores] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!loading && !user) {
@@ -467,6 +470,7 @@ export default function CortesPage() {
   const handleViewCorte = async (corte: CorteWithDetails) => {
     setViewingCorte(corte);
     setLoadingDetail(true);
+    setExcludedInstaladores(new Set()); // Reset excluded instaladores when viewing a new corte
     
     try {
       // Fetch solicitudes assigned to this corte
@@ -1076,9 +1080,14 @@ export default function CortesPage() {
   const handleCloseCorte = async () => {
     if (!viewingCorte || !user) return;
     
+    // Filter out excluded instaladores
+    const instaladoresIncluidos = resumenInstaladores.filter(
+      inst => !excludedInstaladores.has(inst.id)
+    );
+    
     // Calculate values with edited salaries for each instalador
     // Formula: basePago = Destajo - Salario - SaldoAnterior (saldo is a DEDUCTION)
-    const instaladoresCalculados = resumenInstaladores.map(inst => {
+    const instaladoresCalculados = instaladoresIncluidos.map(inst => {
       const salario = salarioEdits[inst.id] ?? inst.salarioSemanal;
       const basePago = inst.destajoAcumulado - salario - inst.saldoAnterior;
       
@@ -1112,8 +1121,86 @@ export default function CortesPage() {
       return;
     }
     
+    // Get solicitudes only from included instaladores
+    const solicitudesIncluidas = corteSolicitudes.filter(
+      sol => !excludedInstaladores.has(sol.instalador_id)
+    );
+    
+    // Get solicitudes from excluded instaladores to remove from corte
+    const solicitudesExcluidas = corteSolicitudes.filter(
+      sol => excludedInstaladores.has(sol.instalador_id)
+    );
+    
     try {
       setClosingCorte(true);
+      
+      // Remove solicitudes from excluded instaladores from the corte (revert to pendiente)
+      if (solicitudesExcluidas.length > 0) {
+        for (const sol of solicitudesExcluidas) {
+          // If it has extras, revert them to pendiente
+          if (sol.extras_ids && sol.extras_ids.length > 0) {
+            await supabase
+              .from('extras')
+              .update({
+                estado: 'pendiente',
+                aprobado_por: null,
+                fecha_aprobacion: null,
+              })
+              .in('id', sol.extras_ids);
+          }
+          
+          // If it's an anticipo, delete the associated anticipo record
+          if (sol.tipo === 'anticipo') {
+            await supabase
+              .from('anticipos')
+              .delete()
+              .eq('solicitud_pago_id', sol.id);
+          }
+          
+          // If it's a saldo type, restore the saldo to the instalador
+          if (sol.tipo === 'saldo') {
+            const { data: existingSaldo } = await supabase
+              .from('saldos_instaladores')
+              .select('id, saldo_acumulado')
+              .eq('instalador_id', sol.instalador_id)
+              .maybeSingle();
+            
+            if (existingSaldo) {
+              await supabase
+                .from('saldos_instaladores')
+                .update({ 
+                  saldo_acumulado: Number(existingSaldo.saldo_acumulado) + Number(sol.total_solicitado),
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', existingSaldo.id);
+            } else {
+              await supabase
+                .from('saldos_instaladores')
+                .insert({
+                  instalador_id: sol.instalador_id,
+                  saldo_acumulado: sol.total_solicitado
+                });
+            }
+            
+            // Delete the saldo solicitud
+            await supabase
+              .from('solicitudes_pago')
+              .delete()
+              .eq('id', sol.id);
+          } else {
+            // Revert regular solicitudes to pendiente and remove from corte
+            await supabase
+              .from('solicitudes_pago')
+              .update({ 
+                corte_id: null,
+                estado: 'pendiente',
+                aprobado_por: null,
+                fecha_aprobacion: null
+              })
+              .eq('id', sol.id);
+          }
+        }
+      }
       
       // Update salaries in instaladores table if they changed
       for (const inst of resumenInstaladores) {
@@ -1128,7 +1215,7 @@ export default function CortesPage() {
         }
       }
       
-      // Group solicitudes by instalador and obra for payment generation
+      // Group solicitudes by instalador and obra for payment generation (only included instaladores)
       const pagoGroups: Record<string, { 
         instalador_id: string; 
         obra_id: string;
@@ -1136,7 +1223,7 @@ export default function CortesPage() {
         solicitud_ids: string[];
       }> = {};
       
-      corteSolicitudes.forEach((sol) => {
+      solicitudesIncluidas.forEach((sol) => {
         const key = `${sol.instalador_id}-${sol.obra_id}`;
         if (!pagoGroups[key]) {
           pagoGroups[key] = {
@@ -1188,7 +1275,7 @@ export default function CortesPage() {
         
         // Create pagos for each obra based on the FULL destajo amount (not net after salary)
         // Salaries are an installer concern, not an obra accounting concern
-        const instSolicitudes = corteSolicitudes.filter(
+        const instSolicitudes = solicitudesIncluidas.filter(
           s => s.instalador_id === inst.id && s.tipo !== 'anticipo'
         );
         
@@ -1226,8 +1313,8 @@ export default function CortesPage() {
         }
       }
       
-      // CRITICAL: Update all solicitudes in this corte to 'aprobada' status
-      const solicitudIds = corteSolicitudes.map(s => s.id);
+      // CRITICAL: Update all solicitudes from INCLUDED instaladores in this corte to 'aprobada' status
+      const solicitudIds = solicitudesIncluidas.map(s => s.id);
       if (solicitudIds.length > 0) {
         const { error: updateSolError } = await supabase
           .from('solicitudes_pago')
@@ -1241,7 +1328,7 @@ export default function CortesPage() {
         if (updateSolError) throw updateSolError;
         
         // Also update related extras to 'aprobado'
-        const allExtrasIds = corteSolicitudes
+        const allExtrasIds = solicitudesIncluidas
           .flatMap(s => s.extras_ids || [])
           .filter(Boolean);
         
@@ -1259,7 +1346,7 @@ export default function CortesPage() {
         }
         
         // Create anticipos for anticipo-type solicitudes that don't have one yet
-        const anticipoSolicitudes = corteSolicitudes.filter(s => s.tipo === 'anticipo');
+        const anticipoSolicitudes = solicitudesIncluidas.filter(s => s.tipo === 'anticipo');
         for (const sol of anticipoSolicitudes) {
           // Check if anticipo already exists for this solicitud
           const { data: existingAnticipo } = await supabase
@@ -1301,15 +1388,18 @@ export default function CortesPage() {
       
       if (corteError) throw corteError;
       
+      const excludedCount = solicitudesExcluidas.length;
       toast({
         title: 'Éxito',
-        description: `Corte cerrado. Se generaron ${pagosGenerados} pagos por un total de ${formatCurrency(totalADepositar)}`,
+        description: `Corte cerrado. Se generaron ${pagosGenerados} pagos por un total de ${formatCurrency(totalADepositar)}${excludedCount > 0 ? `. ${excludedCount} solicitud${excludedCount !== 1 ? 'es' : ''} excluida${excludedCount !== 1 ? 's' : ''} regresada${excludedCount !== 1 ? 's' : ''} a pendiente.` : ''}`,
       });
       
       setConfirmClose(false);
       setViewingCorte(null);
       setSelectedForRemoval(new Set());
+      setExcludedInstaladores(new Set());
       fetchCortes();
+      fetchSaldosInstaladores(); // Refresh saldos in case any were restored
     } catch (error) {
       console.error('Error closing corte:', error);
       toast({
@@ -2103,7 +2193,7 @@ export default function CortesPage() {
       </Dialog>
 
       {/* View Corte Detail Modal */}
-      <Dialog open={!!viewingCorte} onOpenChange={(open) => { if (!open) { setViewingCorte(null); setSelectedForRemoval(new Set()); } }}>
+      <Dialog open={!!viewingCorte} onOpenChange={(open) => { if (!open) { setViewingCorte(null); setSelectedForRemoval(new Set()); setExcludedInstaladores(new Set()); } }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -2123,10 +2213,30 @@ export default function CortesPage() {
             <div className="space-y-6 py-4">
               {/* Resumen por instalador */}
               <div>
-                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                  <Users className="w-5 h-5" />
-                  Resumen por Instalador
-                </h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold flex items-center gap-2">
+                    <Users className="w-5 h-5" />
+                    Resumen por Instalador
+                  </h3>
+                  {viewingCorte?.estado === 'abierto' && resumenInstaladores.filter(i => i.destajoAcumulado > 0 || i.saldoAnterior > 0).length > 0 && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Checkbox
+                        id="select-all-instaladores"
+                        checked={excludedInstaladores.size === 0}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setExcludedInstaladores(new Set());
+                          } else {
+                            setExcludedInstaladores(new Set(resumenInstaladores.filter(i => i.destajoAcumulado > 0 || i.saldoAnterior > 0).map(i => i.id)));
+                          }
+                        }}
+                      />
+                      <label htmlFor="select-all-instaladores" className="cursor-pointer">
+                        Incluir todos
+                      </label>
+                    </div>
+                  )}
+                </div>
 {resumenInstaladores.length === 0 ? (
                   <p className="text-muted-foreground text-sm">No hay instaladores activos</p>
                 ) : (
@@ -2135,11 +2245,13 @@ export default function CortesPage() {
                     {(() => {
                       const hasAnticipos = resumenInstaladores.some(i => i.anticiposEnCorte > 0);
                       const hasSaldos = resumenInstaladores.some(i => i.saldoAnterior > 0);
+                      const showCheckbox = viewingCorte?.estado === 'abierto';
                       
                       if (hasAnticipos) {
                         return (
-                          <div className={`grid ${hasSaldos ? 'grid-cols-7' : 'grid-cols-6'} gap-2 px-3 py-2 bg-muted rounded-lg text-xs font-semibold text-muted-foreground`}>
-                            <div className="col-span-2">Instalador</div>
+                          <div className={`grid gap-2 px-3 py-2 bg-muted rounded-lg text-xs font-semibold text-muted-foreground`} style={{ gridTemplateColumns: showCheckbox ? `auto repeat(${hasSaldos ? 6 : 5}, 1fr)` : `repeat(${hasSaldos ? 7 : 6}, minmax(0, 1fr))` }}>
+                            {showCheckbox && <div></div>}
+                            <div className={showCheckbox ? '' : 'col-span-2'}>Instalador</div>
                             <div className="text-right">Destajo</div>
                             <div className="text-right">Anticipo</div>
                             <div className="text-right">Salario</div>
@@ -2149,8 +2261,9 @@ export default function CortesPage() {
                         );
                       } else if (hasSaldos) {
                         return (
-                          <div className="grid grid-cols-6 gap-2 px-3 py-2 bg-muted rounded-lg text-xs font-semibold text-muted-foreground">
-                            <div className="col-span-2">Instalador</div>
+                          <div className={`grid gap-2 px-3 py-2 bg-muted rounded-lg text-xs font-semibold text-muted-foreground`} style={{ gridTemplateColumns: showCheckbox ? `auto repeat(5, 1fr)` : `repeat(6, minmax(0, 1fr))` }}>
+                            {showCheckbox && <div></div>}
+                            <div className={showCheckbox ? '' : 'col-span-2'}>Instalador</div>
                             <div className="text-right">Destajo</div>
                             <div className="text-right">Salario</div>
                             <div className="text-right">Descuento</div>
@@ -2159,8 +2272,9 @@ export default function CortesPage() {
                         );
                       } else {
                         return (
-                          <div className="grid grid-cols-5 gap-2 px-3 py-2 bg-muted rounded-lg text-xs font-semibold text-muted-foreground">
-                            <div className="col-span-2">Instalador</div>
+                          <div className={`grid gap-2 px-3 py-2 bg-muted rounded-lg text-xs font-semibold text-muted-foreground`} style={{ gridTemplateColumns: showCheckbox ? `auto repeat(4, 1fr)` : `repeat(5, minmax(0, 1fr))` }}>
+                            {showCheckbox && <div></div>}
+                            <div className={showCheckbox ? '' : 'col-span-2'}>Instalador</div>
                             <div className="text-right">Destajo</div>
                             <div className="text-right">Salario</div>
                             <div className="text-right">A Depositar</div>
@@ -2176,21 +2290,50 @@ export default function CortesPage() {
                       const displaySaldoGenerado = basePago < 0 ? Math.max(0, displaySalario - inst.destajoAcumulado + inst.saldoAnterior) : 0;
                       const hasAnticipos = resumenInstaladores.some(i => i.anticiposEnCorte > 0);
                       const hasSaldos = resumenInstaladores.some(i => i.saldoAnterior > 0);
+                      const showCheckbox = viewingCorte?.estado === 'abierto';
+                      const isExcluded = excludedInstaladores.has(inst.id);
+                      const hasActivity = inst.destajoAcumulado > 0 || inst.saldoGenerado > 0 || inst.anticiposEnCorte > 0 || inst.saldoAnterior > 0;
+                      
+                      // Calculate column count for grid
+                      const baseColCount = hasAnticipos ? (hasSaldos ? 6 : 5) : (hasSaldos ? 5 : 4);
                       
                       return (
                         <div 
                           key={inst.id} 
-                          className={`grid ${hasAnticipos ? 'grid-cols-7' : hasSaldos ? 'grid-cols-6' : 'grid-cols-5'} gap-2 px-3 py-2 rounded-lg items-center ${
-                            inst.destajoAcumulado > 0 || inst.saldoGenerado > 0 || inst.anticiposEnCorte > 0 || inst.saldoAnterior > 0
-                              ? 'bg-muted/50' 
+                          className={`grid gap-2 px-3 py-2 rounded-lg items-center transition-opacity ${
+                            hasActivity
+                              ? isExcluded ? 'bg-muted/30 opacity-50' : 'bg-muted/50' 
                               : 'bg-muted/20 opacity-60'
                           }`}
+                          style={{ gridTemplateColumns: showCheckbox ? `auto repeat(${baseColCount}, 1fr)` : `repeat(${baseColCount + 1}, minmax(0, 1fr))` }}
                         >
-                          <div className="col-span-2">
-                            <span className="font-medium text-sm">{inst.nombre}</span>
-                            {displaySaldoGenerado > 0 && (
+                          {showCheckbox && hasActivity && (
+                            <Checkbox
+                              checked={!isExcluded}
+                              onCheckedChange={(checked) => {
+                                setExcludedInstaladores(prev => {
+                                  const next = new Set(prev);
+                                  if (checked) {
+                                    next.delete(inst.id);
+                                  } else {
+                                    next.add(inst.id);
+                                  }
+                                  return next;
+                                });
+                              }}
+                            />
+                          )}
+                          {showCheckbox && !hasActivity && <div></div>}
+                          <div className={showCheckbox ? '' : 'col-span-2'}>
+                            <span className={`font-medium text-sm ${isExcluded ? 'line-through text-muted-foreground' : ''}`}>{inst.nombre}</span>
+                            {displaySaldoGenerado > 0 && !isExcluded && (
                               <Badge variant="outline" className="ml-2 text-xs text-amber-600 border-amber-300">
                                 +{formatCurrency(displaySaldoGenerado)} saldo
+                              </Badge>
+                            )}
+                            {isExcluded && hasActivity && (
+                              <Badge variant="outline" className="ml-2 text-xs text-muted-foreground border-muted">
+                                Excluido
                               </Badge>
                             )}
                           </div>
@@ -2201,7 +2344,7 @@ export default function CortesPage() {
                             </div>
                           )}
                           <div className="text-right">
-                            {viewingCorte?.estado === 'abierto' ? (
+                            {viewingCorte?.estado === 'abierto' && !isExcluded ? (
                               <div className="flex items-center justify-end gap-1">
                                 <Input
                                   type="number"
@@ -2229,7 +2372,9 @@ export default function CortesPage() {
                               {inst.saldoAnterior > 0 ? `-${formatCurrency(inst.saldoAnterior)}` : '-'}
                             </div>
                           )}
-                          <div className="text-right font-semibold text-primary">{formatCurrency(displayADepositar)}</div>
+                          <div className={`text-right font-semibold ${isExcluded ? 'text-muted-foreground' : 'text-primary'}`}>
+                            {isExcluded ? '-' : formatCurrency(displayADepositar)}
+                          </div>
                         </div>
                       );
                     })}
@@ -2237,28 +2382,46 @@ export default function CortesPage() {
                     {(() => {
                       const hasAnticipos = resumenInstaladores.some(i => i.anticiposEnCorte > 0);
                       const hasSaldos = resumenInstaladores.some(i => i.saldoAnterior > 0);
-                      const totalAnticipos = resumenInstaladores.reduce((sum, i) => sum + i.anticiposEnCorte, 0);
-                      const totalSaldos = resumenInstaladores.reduce((sum, i) => sum + i.saldoAnterior, 0);
+                      const showCheckbox = viewingCorte?.estado === 'abierto';
                       
-                      const colCount = hasAnticipos ? (hasSaldos ? 7 : 6) : (hasSaldos ? 6 : 5);
+                      // Only count included instaladores for totals
+                      const includedInstaladores = resumenInstaladores.filter(i => !excludedInstaladores.has(i.id));
+                      const totalAnticipos = includedInstaladores.reduce((sum, i) => sum + i.anticiposEnCorte, 0);
+                      const totalSaldos = includedInstaladores.reduce((sum, i) => sum + i.saldoAnterior, 0);
+                      const totalDestajo = includedInstaladores.reduce((sum, i) => sum + i.destajoAcumulado, 0);
+                      const totalSalario = includedInstaladores.reduce((sum, i) => sum + (salarioEdits[i.id] ?? i.salarioSemanal), 0);
+                      const totalDepositar = includedInstaladores.reduce((sum, inst) => {
+                        const sal = salarioEdits[inst.id] ?? inst.salarioSemanal;
+                        const base = inst.destajoAcumulado - sal - inst.saldoAnterior;
+                        return sum + (base >= 0 ? Math.floor(base / 50) * 50 : 0);
+                      }, 0);
+                      
+                      const baseColCount = hasAnticipos ? (hasSaldos ? 6 : 5) : (hasSaldos ? 5 : 4);
                       
                       return (
-                        <div className={`grid grid-cols-${colCount} gap-2 px-3 py-3 bg-primary/10 rounded-lg border border-primary/20 font-semibold`} style={{ gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))` }}>
-                          <div className="col-span-2">Total del Corte</div>
-                          <div className="text-right">{formatCurrency(resumenInstaladores.reduce((sum, i) => sum + i.destajoAcumulado, 0))}</div>
+                        <div 
+                          className={`grid gap-2 px-3 py-3 bg-primary/10 rounded-lg border border-primary/20 font-semibold`} 
+                          style={{ gridTemplateColumns: showCheckbox ? `auto repeat(${baseColCount}, 1fr)` : `repeat(${baseColCount + 1}, minmax(0, 1fr))` }}
+                        >
+                          {showCheckbox && <div></div>}
+                          <div className={showCheckbox ? '' : 'col-span-2'}>
+                            Total del Corte
+                            {excludedInstaladores.size > 0 && (
+                              <span className="text-xs font-normal text-muted-foreground ml-2">
+                                ({excludedInstaladores.size} excluido{excludedInstaladores.size !== 1 ? 's' : ''})
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-right">{formatCurrency(totalDestajo)}</div>
                           {hasAnticipos && (
                             <div className="text-right text-orange-600">+{formatCurrency(totalAnticipos)}</div>
                           )}
-                          <div className="text-right">{formatCurrency(resumenInstaladores.reduce((sum, i) => sum + (salarioEdits[i.id] ?? i.salarioSemanal), 0))}</div>
+                          <div className="text-right">{formatCurrency(totalSalario)}</div>
                           {hasSaldos && (
                             <div className="text-right text-amber-600">-{formatCurrency(totalSaldos)}</div>
                           )}
                           <div className="text-right text-primary text-lg">
-                            {formatCurrency(resumenInstaladores.reduce((sum, inst) => {
-                              const sal = salarioEdits[inst.id] ?? inst.salarioSemanal;
-                              const base = inst.destajoAcumulado - sal - inst.saldoAnterior;
-                              return sum + (base >= 0 ? Math.floor(base / 50) * 50 : 0);
-                            }, 0))}
+                            {formatCurrency(totalDepositar)}
                           </div>
                         </div>
                       );
@@ -2463,7 +2626,7 @@ export default function CortesPage() {
           )}
 
           <DialogFooter className="gap-2 flex-wrap">
-            <Button variant="outline" onClick={() => { setViewingCorte(null); setSelectedForRemoval(new Set()); }}>
+            <Button variant="outline" onClick={() => { setViewingCorte(null); setSelectedForRemoval(new Set()); setExcludedInstaladores(new Set()); }}>
               Cerrar
             </Button>
             {resumenInstaladores.length > 0 && (
