@@ -1109,7 +1109,7 @@ export default function AvancesPage() {
                       if (hasPago || corteCerrado) {
                         return (
                           <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
-                            ✓ Pagado
+                            Pagado
                           </Badge>
                         );
                       } else if (estado === 'aprobada') {
@@ -1264,7 +1264,7 @@ export default function AvancesPage() {
                   if (hasPago || corteCerrado) {
                     return (
                       <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
-                        ✓ Pagado
+                        Pagado
                       </Badge>
                     );
                   } else if (estado === 'aprobada') {

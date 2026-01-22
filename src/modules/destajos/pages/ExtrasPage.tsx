@@ -418,7 +418,7 @@ export default function ExtrasPage() {
     if (extra.solicitudPagada) {
       return (
         <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
-          ✓ Pagado
+          Pagado
         </Badge>
       );
     } else if (extra.solicitudRechazada) {
