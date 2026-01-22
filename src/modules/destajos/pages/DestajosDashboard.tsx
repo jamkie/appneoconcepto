@@ -7,7 +7,8 @@ import {
   DollarSign,
   Wallet,
   Calendar,
-  AlertCircle
+  AlertCircle,
+  ClipboardList
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -20,6 +21,7 @@ interface DashboardStats {
   instaladoresActivos: number;
   totalPagado: number;
   totalPorPagar: number;
+  solicitudesPendientes: number;
 }
 
 interface RecentCorte {
@@ -40,6 +42,7 @@ export default function DestajosDashboard() {
     instaladoresActivos: 0,
     totalPagado: 0,
     totalPorPagar: 0,
+    solicitudesPendientes: 0,
   });
   const [recentCortes, setRecentCortes] = useState<RecentCorte[]>([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -128,11 +131,28 @@ export default function DestajosDashboard() {
         totalPorPagar += Math.max(0, montoTotal - pagadoObra);
       });
 
+      // Count solicitudes pending payment (pendiente or aprobada without closed corte)
+      const { data: solicitudesPendientesData } = await supabase
+        .from('solicitudes_pago')
+        .select('id, estado, corte_id, cortes_semanales(estado)')
+        .in('estado', ['pendiente', 'aprobada']);
+
+      const solicitudesPendientes = (solicitudesPendientesData || []).filter((s: any) => {
+        // Pending if: estado is pendiente OR aprobada but corte is not closed
+        if (s.estado === 'pendiente') return true;
+        if (s.estado === 'aprobada') {
+          const corteCerrado = s.cortes_semanales?.estado === 'cerrado';
+          return !corteCerrado;
+        }
+        return false;
+      }).length;
+
       setStats({
         obrasActivas: obrasCount || 0,
         instaladoresActivos: instaladoresCount || 0,
         totalPagado,
         totalPorPagar,
+        solicitudesPendientes,
       });
 
       // Fetch recent cortes with aggregated data
@@ -240,7 +260,7 @@ export default function DestajosDashboard() {
       />
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
         <StatCard
           title="Obras Activas"
           value={stats.obrasActivas}
@@ -251,6 +271,12 @@ export default function DestajosDashboard() {
           title="Instaladores"
           value={stats.instaladoresActivos}
           icon={<Users className="w-5 h-5" />}
+        />
+        <StatCard
+          title="Pendientes de Pago"
+          value={stats.solicitudesPendientes}
+          icon={<ClipboardList className="w-5 h-5" />}
+          variant={stats.solicitudesPendientes > 0 ? 'warning' : 'default'}
         />
         <StatCard
           title="Total Pagado"
