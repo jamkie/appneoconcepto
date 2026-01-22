@@ -360,34 +360,9 @@ export default function SolicitudesPage() {
       
       if (updateError) throw updateError;
       
-      // If this is an anticipo type, create the anticipo record (without creating a payment)
-      // Use upsert with solicitud_pago_id to prevent duplicates
-      if (isAnticipo) {
-        // First check if anticipo already exists for this solicitud
-        const { data: existingAnticipo } = await supabase
-          .from('anticipos')
-          .select('id')
-          .eq('solicitud_pago_id', solicitud.id)
-          .maybeSingle();
-        
-        if (!existingAnticipo) {
-          const { error: anticipoError } = await supabase
-            .from('anticipos')
-            .insert({
-              obra_id: solicitud.obra_id,
-              instalador_id: solicitud.instalador_id,
-              monto_original: montoSolicitud,
-              monto_disponible: montoSolicitud,
-              observaciones: solicitud.observaciones,
-              registrado_por: user.id,
-              solicitud_pago_id: solicitud.id,
-            });
-          
-          if (anticipoError) {
-            console.error('Error creating anticipo record:', anticipoError);
-          }
-        }
-      }
+      // IMPORTANTE:
+      // NO crear el registro en `anticipos` al aprobar.
+      // Debe volverse disponible únicamente cuando el pago del anticipo se ejecute (al cerrar el corte).
       
       // If solicitud has associated extras, approve them automatically
       if (solicitud.extras_ids && solicitud.extras_ids.length > 0) {
@@ -416,11 +391,11 @@ export default function SolicitudesPage() {
           .eq('estado', 'pendiente');
       }
       
-      toast({ 
-        title: 'Éxito', 
+      toast({
+        title: 'Éxito',
         description: isAnticipo
-          ? 'Anticipo aprobado - disponible para aplicar'
-          : 'Solicitud aprobada - lista para asignar a un corte'
+          ? 'Anticipo aprobado - quedará disponible al pagarse en el corte'
+          : 'Solicitud aprobada - lista para asignar a un corte',
       });
       
       // Reset dialog states
@@ -768,26 +743,9 @@ export default function SolicitudesPage() {
         
         if (updateError) throw updateError;
         
-        // If anticipo type, create anticipo record (check for existing to prevent duplicates)
-        if (isAnticipo) {
-          const { data: existingAnticipo } = await supabase
-            .from('anticipos')
-            .select('id')
-            .eq('solicitud_pago_id', solicitud.id)
-            .maybeSingle();
-          
-          if (!existingAnticipo) {
-            await supabase.from('anticipos').insert({
-              obra_id: solicitud.obra_id,
-              instalador_id: solicitud.instalador_id,
-              monto_original: montoSolicitud,
-              monto_disponible: montoSolicitud,
-              observaciones: solicitud.observaciones,
-              registrado_por: user.id,
-              solicitud_pago_id: solicitud.id,
-            });
-          }
-        }
+        // IMPORTANTE:
+        // En aprobación masiva NO crear anticipos disponibles.
+        // El anticipo se vuelve disponible al pagarse (cuando se cierre el corte).
         
         // If has extras, approve them
         if (solicitud.extras_ids && solicitud.extras_ids.length > 0) {
@@ -822,11 +780,14 @@ export default function SolicitudesPage() {
     
     // Show results
     if (aprobadas > 0) {
+      const incluyeAnticipos = solicitudesAProbar.some(s => s.tipo === 'anticipo');
       toast({
         title: `${aprobadas} solicitud${aprobadas > 1 ? 'es' : ''} aprobada${aprobadas > 1 ? 's' : ''}`,
-        description: fallidas.length > 0 
+        description: fallidas.length > 0
           ? `${fallidas.length} no se pudieron aprobar`
-          : 'Listas para asignar a un corte',
+          : incluyeAnticipos
+            ? 'Listas para asignar a un corte (anticipos disponibles al pagarse)'
+            : 'Listas para asignar a un corte',
       });
     }
     
