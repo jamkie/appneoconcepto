@@ -119,7 +119,7 @@ export const useExportCorteExcel = () => {
         }
       });
 
-      // Calculate derived fields
+       // Calculate derived fields
       Object.entries(instaladorMap).forEach(([instId, inst]) => {
         inst.jefesDirectos = Array.from(inst.jefes).join(' ');
         
@@ -131,20 +131,23 @@ export const useExportCorteExcel = () => {
           inst.saldoAnterior = Number(ci.saldo_anterior);
           inst.aDepositar = Number(ci.monto_depositado);
           inst.saldoAFavor = Number(ci.saldo_generado);
-          inst.destajoADepositar = Math.max(0, inst.destajoAcumulado - inst.nominaSemanal + inst.saldoAnterior);
+           // NOTE: "saldoAnterior" es un adeudo (saldo a favor de la empresa), por lo que se RESTA del neto a depositar.
+           inst.destajoADepositar = Math.max(0, inst.destajoAcumulado - inst.nominaSemanal - inst.saldoAnterior);
         } else {
           // Calculate in real-time
-          const basePago = inst.destajoAcumulado - inst.nominaSemanal + inst.saldoAnterior;
+           // "saldoAnterior" (saldos_instaladores.saldo_acumulado) es un saldo a favor de la empresa (adeudo del instalador)
+           // y por lo tanto se descuenta del pago neto.
+           const basePago = inst.destajoAcumulado - inst.nominaSemanal - inst.saldoAnterior;
           
           if (basePago >= 0) {
             inst.destajoADepositar = basePago;
             inst.aDepositar = Math.floor(basePago / 50) * 50;
-            inst.saldoAFavor = 0; // No saldo a favor cuando destajo cubre o supera salario
+             inst.saldoAFavor = 0; // No queda adeudo cuando el neto cubre el descuento
           } else {
-            // Salario mayor que destajo - se genera saldo a favor (lo que la empresa debe)
+             // Neto negativo: no se deposita y el adeudo queda pendiente (a favor de la empresa)
             inst.destajoADepositar = 0;
             inst.aDepositar = 0;
-            inst.saldoAFavor = Math.max(0, inst.nominaSemanal - inst.destajoAcumulado);
+             inst.saldoAFavor = Math.abs(basePago);
           }
         }
       });
@@ -208,7 +211,7 @@ export const useExportCorteExcel = () => {
         { width: 14 }, // J: Saldo a Favor
       ];
 
-      // Add data rows with formulas
+       // Add data rows with formulas
       const dataStartRow = 4; // Row where data starts (after title, empty, headers)
       
       instaladores.forEach((inst) => {
@@ -221,12 +224,14 @@ export const useExportCorteExcel = () => {
           inst.destajoAcumulado || 0,
           inst.nominaSemanal || 0,
           inst.saldoAnterior || 0,
-          // H: Destajo a Depositar = MAX(E - F + G, 0)
-          { formula: `MAX(E${rowNum}-F${rowNum}+G${rowNum},0)` },
+           // H: Destajo a Depositar = MAX(E - F - G, 0)
+           //    (G es adeudo a favor de la empresa y se descuenta)
+           { formula: `MAX(E${rowNum}-F${rowNum}-G${rowNum},0)` },
           // I: A Depositar = FLOOR(H, 50)
           { formula: `FLOOR(H${rowNum},50)` },
-          // J: Saldo a Favor = MAX(F - E, 0) (solo cuando salario > destajo)
-          { formula: `MAX(F${rowNum}-E${rowNum},0)` },
+           // J: Saldo a Favor (empresa) = MAX(F - E + G, 0)
+           //    (si no alcanza el destajo para cubrir salario + adeudo previo)
+           { formula: `MAX(F${rowNum}-E${rowNum}+G${rowNum},0)` },
         ]);
         row.alignment = { vertical: 'middle' };
       });
