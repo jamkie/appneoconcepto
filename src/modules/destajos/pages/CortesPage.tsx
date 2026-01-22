@@ -2322,7 +2322,7 @@ export default function CortesPage() {
                           }`}
                           style={{ gridTemplateColumns: showCheckbox ? `auto repeat(${baseColCount}, 1fr)` : `repeat(${baseColCount + 1}, minmax(0, 1fr))` }}
                         >
-                          {showCheckbox && hasActivity && (
+                          {showCheckbox && (
                             <Checkbox
                               checked={!isExcluded}
                               disabled={inst.destajoAcumulado > 0}
@@ -2339,7 +2339,6 @@ export default function CortesPage() {
                               }}
                             />
                           )}
-                          {showCheckbox && !hasActivity && <div></div>}
                           <div className={showCheckbox ? '' : 'col-span-2'}>
                             <span className={`font-medium text-sm ${isExcluded ? 'line-through text-muted-foreground' : ''}`}>{inst.nombre}</span>
                             {displaySaldoGenerado > 0 && !isExcluded && (
