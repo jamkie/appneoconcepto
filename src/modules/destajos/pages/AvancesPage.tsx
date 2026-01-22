@@ -80,7 +80,7 @@ interface AvanceRecord {
     cantidad_completada: number;
     obra_items: { descripcion: string; precio_unitario: number } | null;
   }[];
-  solicitudes_pago: { id: string; estado: string; created_at: string; total_solicitado: number; subtotal_piezas: number; retencion: number; pagos_destajos: { id: string }[]; instaladores: { nombre: string } | null }[];
+  solicitudes_pago: { id: string; estado: string; created_at: string; total_solicitado: number; subtotal_piezas: number; retencion: number; corte_id: string | null; cortes_semanales: { estado: string } | null; pagos_destajos: { id: string }[]; instaladores: { nombre: string } | null }[];
   avance_instaladores?: { id: string; instalador_id: string; porcentaje: number; instaladores: { nombre: string } | null }[];
 }
 
@@ -180,7 +180,7 @@ export default function AvancesPage() {
               cantidad_completada,
               obra_items(descripcion, precio_unitario)
             ),
-            solicitudes_pago(id, estado, created_at, total_solicitado, subtotal_piezas, retencion, pagos_destajos(id), instaladores(nombre)),
+            solicitudes_pago(id, estado, created_at, total_solicitado, subtotal_piezas, retencion, corte_id, cortes_semanales(estado), pagos_destajos(id), instaladores(nombre)),
             avance_instaladores(id, instalador_id, porcentaje, instaladores(nombre))
           `)
           .order('fecha', { ascending: false }),
@@ -748,13 +748,17 @@ export default function AvancesPage() {
 
   const canDeleteAvance = (avance: AvanceRecord): boolean => {
     const solicitud = avance.solicitudes_pago?.[0];
-    return !solicitud || solicitud.pagos_destajos?.length === 0;
+    const hasPago = solicitud?.pagos_destajos?.length > 0;
+    const corteCerrado = solicitud?.cortes_semanales?.estado === 'cerrado';
+    return !solicitud || (!hasPago && !corteCerrado);
   };
 
   const canEditAvance = (avance: AvanceRecord): boolean => {
     const solicitud = avance.solicitudes_pago?.[0];
-    // No permitir editar si tiene pago asociado
-    return !solicitud?.pagos_destajos || solicitud.pagos_destajos.length === 0;
+    const hasPago = solicitud?.pagos_destajos?.length > 0;
+    const corteCerrado = solicitud?.cortes_semanales?.estado === 'cerrado';
+    // No permitir editar si tiene pago asociado o corte cerrado
+    return !hasPago && !corteCerrado;
   };
 
   const resetForm = () => {
@@ -866,15 +870,17 @@ export default function AvancesPage() {
     
     const solicitud = avance.solicitudes_pago?.[0];
     const hasPago = solicitud?.pagos_destajos?.length > 0;
+    const corteCerrado = solicitud?.cortes_semanales?.estado === 'cerrado';
+    const isPagado = hasPago || corteCerrado;
     
     if (statusFilter === 'pagado') {
-      return matchesSearch && hasPago;
+      return matchesSearch && isPagado;
     }
     if (statusFilter === 'rechazada') {
       return matchesSearch && solicitud?.estado === 'rechazada';
     }
     if (statusFilter === 'pendiente') {
-      return matchesSearch && solicitud?.estado === 'pendiente' && !hasPago;
+      return matchesSearch && solicitud?.estado === 'pendiente' && !isPagado;
     }
     
     return matchesSearch;
@@ -1080,8 +1086,10 @@ export default function AvancesPage() {
                       const solicitud = avance.solicitudes_pago?.[0];
                       const estado = solicitud?.estado || 'sin_solicitud';
                       const hasPago = solicitud?.pagos_destajos?.length > 0;
+                      const corteCerrado = solicitud?.cortes_semanales?.estado === 'cerrado';
                       
-                      if (hasPago) {
+                      // If corte is closed, it means payment was processed
+                      if (hasPago || corteCerrado) {
                         return (
                           <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
                             ✓ Pagado
