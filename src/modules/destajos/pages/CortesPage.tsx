@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Plus, Lock, Search, Users, Unlock, Download, FileText, Trash2, CheckCircle } from 'lucide-react';
+import { Calendar, Plus, Lock, Search, Users, Unlock, Download, FileText, Trash2, CheckCircle, Minus } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { PageHeader, DataTable, EmptyState, StatusBadge } from '../components';
@@ -128,6 +129,10 @@ export default function CortesPage() {
   const [searchDisponibles, setSearchDisponibles] = useState('');
   const [filterInstaladorDisponibles, setFilterInstaladorDisponibles] = useState<string>('todos');
   const [cancelingId, setCancelingId] = useState<string | null>(null);
+  
+  // Bulk removal selection
+  const [selectedForRemoval, setSelectedForRemoval] = useState<Set<string>>(new Set());
+  const [removingBulk, setRemovingBulk] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -678,9 +683,7 @@ export default function CortesPage() {
     }
   };
 
-  const handleRemoveSolicitudFromCorte = async (solicitudId: string) => {
-    if (!viewingCorte) return;
-    
+  const removeSolicitudFromCorteInternal = async (solicitudId: string): Promise<boolean> => {
     try {
       // Get solicitud details first to check type and extras
       const { data: solicitud, error: fetchError } = await supabase
@@ -727,6 +730,19 @@ export default function CortesPage() {
         .eq('id', solicitudId);
       
       if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Error removing solicitud:', solicitudId, error);
+      return false;
+    }
+  };
+
+  const handleRemoveSolicitudFromCorte = async (solicitudId: string) => {
+    if (!viewingCorte) return;
+    
+    try {
+      const success = await removeSolicitudFromCorteInternal(solicitudId);
+      if (!success) throw new Error('Failed to remove');
       
       // Check if the corte now has no solicitudes
       const { count } = await supabase
@@ -749,6 +765,7 @@ export default function CortesPage() {
         });
         
         setViewingCorte(null);
+        setSelectedForRemoval(new Set());
         fetchCortes();
         return;
       }
@@ -767,6 +784,84 @@ export default function CortesPage() {
         description: 'No se pudo remover la solicitud',
         variant: 'destructive',
       });
+    }
+  };
+
+  const handleBulkRemoveFromCorte = async () => {
+    if (!viewingCorte || selectedForRemoval.size === 0) return;
+    
+    setRemovingBulk(true);
+    try {
+      const ids = Array.from(selectedForRemoval);
+      let successCount = 0;
+      
+      for (const id of ids) {
+        const success = await removeSolicitudFromCorteInternal(id);
+        if (success) successCount++;
+      }
+      
+      // Check if the corte now has no solicitudes
+      const { count } = await supabase
+        .from('solicitudes_pago')
+        .select('id', { count: 'exact', head: true })
+        .eq('corte_id', viewingCorte.id);
+      
+      if (count === 0) {
+        // Delete the empty corte
+        const { error: deleteError } = await supabase
+          .from('cortes_semanales')
+          .delete()
+          .eq('id', viewingCorte.id);
+        
+        if (deleteError) throw deleteError;
+        
+        toast({
+          title: 'Corte eliminado',
+          description: `Se removieron ${successCount} solicitudes y el corte fue eliminado`,
+        });
+        
+        setViewingCorte(null);
+        setSelectedForRemoval(new Set());
+        fetchCortes();
+        return;
+      }
+      
+      toast({
+        title: 'Éxito',
+        description: `Se removieron ${successCount} solicitudes del corte`,
+      });
+      
+      setSelectedForRemoval(new Set());
+      handleViewCorte(viewingCorte);
+    } catch (error) {
+      console.error('Error in bulk removal:', error);
+      toast({
+        title: 'Error',
+        description: 'Hubo un error al remover las solicitudes',
+        variant: 'destructive',
+      });
+    } finally {
+      setRemovingBulk(false);
+    }
+  };
+
+  const toggleSolicitudSelection = (solicitudId: string) => {
+    setSelectedForRemoval(prev => {
+      const next = new Set(prev);
+      if (next.has(solicitudId)) {
+        next.delete(solicitudId);
+      } else {
+        next.add(solicitudId);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAllSolicitudes = () => {
+    if (selectedForRemoval.size === corteSolicitudes.length) {
+      setSelectedForRemoval(new Set());
+    } else {
+      setSelectedForRemoval(new Set(corteSolicitudes.map(s => s.id)));
     }
   };
 
@@ -1004,6 +1099,7 @@ export default function CortesPage() {
       
       setConfirmClose(false);
       setViewingCorte(null);
+      setSelectedForRemoval(new Set());
       fetchCortes();
     } catch (error) {
       console.error('Error closing corte:', error);
@@ -1106,6 +1202,7 @@ export default function CortesPage() {
       
       setConfirmReopen(false);
       setViewingCorte(null);
+      setSelectedForRemoval(new Set());
       fetchCortes();
     } catch (error) {
       console.error('Error reopening corte:', error);
@@ -1193,6 +1290,7 @@ export default function CortesPage() {
       
       setConfirmDelete(false);
       setViewingCorte(null);
+      setSelectedForRemoval(new Set());
       fetchCortes();
     } catch (error) {
       console.error('Error deleting corte:', error);
@@ -1694,7 +1792,7 @@ export default function CortesPage() {
       </Dialog>
 
       {/* View Corte Detail Modal */}
-      <Dialog open={!!viewingCorte} onOpenChange={(open) => !open && setViewingCorte(null)}>
+      <Dialog open={!!viewingCorte} onOpenChange={(open) => { if (!open) { setViewingCorte(null); setSelectedForRemoval(new Set()); } }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1805,17 +1903,39 @@ export default function CortesPage() {
 
               {/* Solicitudes asignadas */}
               <div>
-                <h3 className="text-lg font-semibold mb-3">Solicitudes en el Corte</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold">Solicitudes en el Corte</h3>
+                  {viewingCorte?.estado === 'abierto' && corteSolicitudes.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="select-all"
+                        checked={selectedForRemoval.size === corteSolicitudes.length && corteSolicitudes.length > 0}
+                        onCheckedChange={toggleSelectAllSolicitudes}
+                      />
+                      <label htmlFor="select-all" className="text-sm text-muted-foreground cursor-pointer">
+                        Seleccionar todas
+                      </label>
+                    </div>
+                  )}
+                </div>
                 {corteSolicitudes.length === 0 ? (
                   <p className="text-muted-foreground text-sm">No hay solicitudes asignadas</p>
                 ) : (
                   <div className="space-y-2 max-h-60 overflow-y-auto">
                     {corteSolicitudes.map((sol) => (
-                      <div key={sol.id} className="flex justify-between items-center p-2 border rounded-lg">
-                        <div className="flex-1">
-                          <div className="font-medium text-sm">{sol.obras?.nombre}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {sol.instaladores?.nombre} • {sol.tipo}
+                      <div key={sol.id} className={`flex justify-between items-center p-2 border rounded-lg transition-colors ${selectedForRemoval.has(sol.id) ? 'bg-destructive/10 border-destructive/30' : ''}`}>
+                        <div className="flex items-center gap-3 flex-1">
+                          {viewingCorte?.estado === 'abierto' && (
+                            <Checkbox
+                              checked={selectedForRemoval.has(sol.id)}
+                              onCheckedChange={() => toggleSolicitudSelection(sol.id)}
+                            />
+                          )}
+                          <div className="flex-1">
+                            <div className="font-medium text-sm">{sol.obras?.nombre}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {sol.instaladores?.nombre} • {sol.tipo}
+                            </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -1823,21 +1943,44 @@ export default function CortesPage() {
                           {viewingCorte?.estado === 'cerrado' ? (
                             <StatusBadge status="pagado" />
                           ) : (
-                            <>
-                              <StatusBadge status="aprobado" />
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleRemoveSolicitudFromCorte(sol.id)}
-                                className="text-destructive hover:text-destructive"
-                              >
-                                Quitar
-                              </Button>
-                            </>
+                            <StatusBadge status="aprobado" />
                           )}
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+                
+                {/* Bulk action bar */}
+                {viewingCorte?.estado === 'abierto' && selectedForRemoval.size > 0 && (
+                  <div className="flex items-center justify-between mt-3 p-3 bg-destructive/10 border border-destructive/30 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Minus className="w-4 h-4 text-destructive" />
+                      <span className="text-sm font-medium">
+                        {selectedForRemoval.size} solicitud{selectedForRemoval.size !== 1 ? 'es' : ''} seleccionada{selectedForRemoval.size !== 1 ? 's' : ''} • {formatCurrency(
+                          corteSolicitudes
+                            .filter(s => selectedForRemoval.has(s.id))
+                            .reduce((sum, s) => sum + Number(s.total_solicitado), 0)
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedForRemoval(new Set())}
+                      >
+                        Cancelar
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={handleBulkRemoveFromCorte}
+                        disabled={removingBulk}
+                      >
+                        {removingBulk ? 'Quitando...' : 'Quitar Seleccionadas'}
+                      </Button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1954,7 +2097,7 @@ export default function CortesPage() {
           )}
 
           <DialogFooter className="gap-2 flex-wrap">
-            <Button variant="outline" onClick={() => setViewingCorte(null)}>
+            <Button variant="outline" onClick={() => { setViewingCorte(null); setSelectedForRemoval(new Set()); }}>
               Cerrar
             </Button>
             {resumenInstaladores.length > 0 && (
