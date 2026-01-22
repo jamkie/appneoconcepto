@@ -2241,7 +2241,8 @@ export default function CortesPage() {
                           if (checked) {
                             setExcludedInstaladores(new Set());
                           } else {
-                            setExcludedInstaladores(new Set(resumenInstaladores.filter(i => i.destajoAcumulado > 0 || i.saldoAnterior > 0).map(i => i.id)));
+                            // Only exclude installers without destajo (those with only saldoAnterior)
+                            setExcludedInstaladores(new Set(resumenInstaladores.filter(i => i.destajoAcumulado === 0 && i.saldoAnterior > 0).map(i => i.id)));
                           }
                         }}
                       />
