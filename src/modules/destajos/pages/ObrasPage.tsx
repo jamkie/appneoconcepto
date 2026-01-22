@@ -1195,102 +1195,112 @@ export default function ObrasPage() {
             </div>
           )}
 
-          <DialogFooter className="flex-col sm:flex-row gap-2 pt-4 border-t">
-            {/* Quick action buttons for adding avances/extras */}
+          <DialogFooter className="flex-col gap-4 pt-4 border-t bg-muted/30 -mx-6 -mb-6 px-6 pb-6 rounded-b-lg">
+            {/* Quick action buttons for adding avances/extras/anticipos */}
             {detailObra?.estado === 'activa' && (
-              <div className="flex gap-2 w-full sm:w-auto">
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => {
-                    if (detailObra) {
-                      setDetailDialogOpen(false);
-                      navigate(`/destajos/avances?obra=${detailObra.id}`);
-                    }
-                  }}
-                  className="flex-1 sm:flex-none"
-                >
-                  <ClipboardList className="w-4 h-4 mr-2" />
-                  Agregar Avance
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    if (detailObra) {
-                      setDetailDialogOpen(false);
-                      navigate(`/destajos/extras?obra=${detailObra.id}`);
-                    }
-                  }}
-                  className="flex-1 sm:flex-none"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Agregar Extra
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    if (detailObra) {
-                      setDetailDialogOpen(false);
-                      navigate(`/destajos/solicitudes?anticipo_obra=${detailObra.id}`);
-                    }
-                  }}
-                  className="flex-1 sm:flex-none"
-                >
-                  <Banknote className="w-4 h-4 mr-2" />
-                  Agregar Anticipo
-                </Button>
+              <div className="w-full">
+                <p className="text-xs text-muted-foreground mb-2 font-medium">Acciones rápidas</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => {
+                      if (detailObra) {
+                        setDetailDialogOpen(false);
+                        navigate(`/destajos/avances?obra=${detailObra.id}`);
+                      }
+                    }}
+                    className="gap-2"
+                  >
+                    <ClipboardList className="w-4 h-4" />
+                    Agregar Avance
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      if (detailObra) {
+                        setDetailDialogOpen(false);
+                        navigate(`/destajos/extras?obra=${detailObra.id}`);
+                      }
+                    }}
+                    className="gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Agregar Extra
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (detailObra) {
+                        setDetailDialogOpen(false);
+                        navigate(`/destajos/solicitudes?anticipo_obra=${detailObra.id}`);
+                      }
+                    }}
+                    className="gap-2 border-dashed"
+                  >
+                    <Banknote className="w-4 h-4" />
+                    Agregar Anticipo
+                  </Button>
+                </div>
               </div>
             )}
             
-            <div className="flex gap-2 w-full sm:w-auto sm:ml-auto">
+            {/* Management actions */}
+            <div className="flex flex-wrap gap-2 w-full justify-between items-center">
               <Button
-                variant="outline"
+                variant="ghost"
+                size="sm"
                 onClick={() => {
                   if (detailObra) handleDownloadEstadoCuenta(detailObra);
                 }}
                 disabled={generatingPDF}
-                className="flex-1 sm:flex-none"
+                className="gap-2 text-muted-foreground hover:text-foreground"
               >
                 {generatingPDF ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  <Download className="w-4 h-4 mr-2" />
+                  <Download className="w-4 h-4" />
                 )}
                 Estado de Cuenta
               </Button>
-              {canUpdate && (
+              
+              <div className="flex gap-2">
+                {canUpdate && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (detailObra) {
+                        setDetailDialogOpen(false);
+                        handleOpenModal(detailObra);
+                      }
+                    }}
+                    className="gap-2"
+                  >
+                    <Pencil className="w-4 h-4" />
+                    Editar
+                  </Button>
+                )}
                 <Button
-                  variant="outline"
+                  variant="destructive"
+                  size="sm"
                   onClick={() => {
                     if (detailObra) {
                       setDetailDialogOpen(false);
-                      handleOpenModal(detailObra);
+                      setSelectedObra(detailObra);
+                      setIsDeleteDialogOpen(true);
                     }
                   }}
-                  className="flex-1 sm:flex-none"
+                  disabled={!detailObra || obraTieneAvances(detailObra)}
+                  className="gap-2"
+                  title={detailObra && obraTieneAvances(detailObra) ? 'No se puede eliminar una obra con avances' : ''}
                 >
-                  <Pencil className="w-4 h-4 mr-2" />
-                  Editar
+                  <Trash2 className="w-4 h-4" />
+                  Eliminar
                 </Button>
-              )}
-              <Button
-                variant="destructive"
-                onClick={() => {
-                  if (detailObra) {
-                    setDetailDialogOpen(false);
-                    setSelectedObra(detailObra);
-                    setIsDeleteDialogOpen(true);
-                  }
-                }}
-                disabled={!detailObra || obraTieneAvances(detailObra)}
-                className="flex-1 sm:flex-none"
-                title={detailObra && obraTieneAvances(detailObra) ? 'No se puede eliminar una obra con avances' : ''}
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                Eliminar
-              </Button>
+              </div>
             </div>
           </DialogFooter>
         </DialogContent>
