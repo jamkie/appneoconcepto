@@ -14,14 +14,24 @@ interface ObraExport {
   created_by: string | null;
 }
 
+export type ExportFilter = 'todas' | 'activas' | 'cerradas';
+
 export const useExportObrasExcel = () => {
-  const exportObrasToExcel = async () => {
+  const exportObrasToExcel = async (filter: ExportFilter = 'todas') => {
     try {
-      // Fetch all obras
-      const { data: obrasData, error: obrasError } = await supabase
+      // Fetch obras based on filter
+      let query = supabase
         .from('obras')
         .select('*')
         .order('created_at', { ascending: false });
+
+      if (filter === 'activas') {
+        query = query.eq('estado', 'activa');
+      } else if (filter === 'cerradas') {
+        query = query.eq('estado', 'cerrada');
+      }
+
+      const { data: obrasData, error: obrasError } = await query;
 
       if (obrasError) throw obrasError;
 
