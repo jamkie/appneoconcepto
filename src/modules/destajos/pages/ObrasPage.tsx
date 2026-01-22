@@ -408,9 +408,11 @@ export default function ObrasPage() {
     }
   };
 
-  // Helper to check if obra has avances
+  // Helper to check if obra has avances or anticipos (cannot be deleted)
   const obraTieneAvances = (obra: ObraWithItems) => {
-    return Object.values(obra.avances).some(cantidad => cantidad > 0);
+    const tieneAvances = Object.values(obra.avances).some(cantidad => cantidad > 0);
+    const tieneAnticipos = (obra.anticipos?.length ?? 0) > 0;
+    return tieneAvances || tieneAnticipos;
   };
 
   const handleDelete = async () => {
@@ -986,7 +988,7 @@ export default function ObrasPage() {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {selectedObra && obraTieneAvances(selectedObra) 
-                ? `La obra "${selectedObra.nombre}" tiene avances registrados y no puede ser eliminada. Para eliminarla, primero debe eliminar todos los avances asociados.`
+                ? `La obra "${selectedObra.nombre}" tiene avances o anticipos registrados y no puede ser eliminada. Para eliminarla, primero debe eliminar todos los registros asociados.`
                 : `Esta acción no se puede deshacer. Se eliminará la obra "${selectedObra?.nombre}" y todos sus datos asociados.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1363,7 +1365,7 @@ export default function ObrasPage() {
                   }}
                   disabled={!detailObra || obraTieneAvances(detailObra)}
                   className="gap-2"
-                  title={detailObra && obraTieneAvances(detailObra) ? 'No se puede eliminar una obra con avances' : ''}
+                  title={detailObra && obraTieneAvances(detailObra) ? 'No se puede eliminar una obra con avances o anticipos' : ''}
                 >
                   <Trash2 className="w-4 h-4" />
                   Eliminar
