@@ -99,6 +99,11 @@ export default function CortesPage() {
   const [filterInstaladorId, setFilterInstaladorId] = useState<string>('todos');
   const [loadingDetail, setLoadingDetail] = useState(false);
   
+  // Nomina configuration step (before closing)
+  const [showNominaConfig, setShowNominaConfig] = useState(false);
+  const [salarioEdits, setSalarioEdits] = useState<Record<string, number>>({});
+  const [savingSalarios, setSavingSalarios] = useState(false);
+  
   // Close corte confirmation
   const [confirmClose, setConfirmClose] = useState(false);
   const [closingCorte, setClosingCorte] = useState(false);
@@ -1052,6 +1057,110 @@ export default function CortesPage() {
     }).format(value);
   };
 
+  // Calculate values with edited salaries for nomina config preview
+  const getCalculatedValues = (inst: InstaladorResumen) => {
+    const salario = salarioEdits[inst.id] ?? inst.salarioSemanal;
+    const basePago = inst.destajoAcumulado - salario + inst.saldoAnterior;
+    
+    if (basePago >= 0) {
+      return {
+        salario,
+        destajoADepositar: basePago,
+        aDepositar: Math.floor(basePago / 50) * 50,
+        saldoGenerado: 0,
+      };
+    } else {
+      return {
+        salario,
+        destajoADepositar: 0,
+        aDepositar: 0,
+        saldoGenerado: Math.max(0, salario - inst.destajoAcumulado),
+      };
+    }
+  };
+
+  // Open nomina config step
+  const openNominaConfig = () => {
+    // Pre-load current salaries
+    const initialEdits: Record<string, number> = {};
+    resumenInstaladores.forEach(inst => {
+      initialEdits[inst.id] = inst.salarioSemanal;
+    });
+    setSalarioEdits(initialEdits);
+    setShowNominaConfig(true);
+  };
+
+  // Confirm nomina and proceed to close
+  const confirmNominaAndClose = async () => {
+    try {
+      setSavingSalarios(true);
+      
+      // Update salaries in instaladores table if they changed
+      for (const inst of resumenInstaladores) {
+        const editedSalario = salarioEdits[inst.id];
+        if (editedSalario !== undefined && editedSalario !== inst.salarioSemanal) {
+          const { error } = await supabase
+            .from('instaladores')
+            .update({ salario_semanal: editedSalario })
+            .eq('id', inst.id);
+          
+          if (error) throw error;
+        }
+      }
+      // Count how many salaries were updated
+      const updatedCount = resumenInstaladores.filter(inst => {
+        const editedSalario = salarioEdits[inst.id];
+        return editedSalario !== undefined && editedSalario !== inst.salarioSemanal;
+      }).length;
+      
+      if (updatedCount > 0) {
+        toast({
+          title: 'Salarios actualizados',
+          description: `Se actualizaron ${updatedCount} salario${updatedCount !== 1 ? 's' : ''}`,
+        });
+      }
+      
+      // Update local state with new salaries
+      setResumenInstaladores(prev => 
+        prev.map(inst => {
+          const newSalario = salarioEdits[inst.id] ?? inst.salarioSemanal;
+          const basePago = inst.destajoAcumulado - newSalario + inst.saldoAnterior;
+          
+          if (basePago >= 0) {
+            return {
+              ...inst,
+              salarioSemanal: newSalario,
+              destajoADepositar: basePago,
+              aDepositar: Math.floor(basePago / 50) * 50,
+              saldoGenerado: 0,
+            };
+          } else {
+            return {
+              ...inst,
+              salarioSemanal: newSalario,
+              destajoADepositar: 0,
+              aDepositar: 0,
+              saldoGenerado: Math.max(0, newSalario - inst.destajoAcumulado),
+            };
+          }
+        })
+      );
+      
+      // Close config and open confirmation
+      setShowNominaConfig(false);
+      setConfirmClose(true);
+    } catch (error) {
+      console.error('Error updating salaries:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudieron actualizar los salarios',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingSalarios(false);
+    }
+  };
+
   const handleExportExcel = async () => {
     if (!viewingCorte) return;
     
@@ -1643,7 +1752,7 @@ export default function CortesPage() {
               </Button>
             )}
             {viewingCorte?.estado === 'abierto' && corteSolicitudes.length > 0 && (
-              <Button onClick={() => setConfirmClose(true)}>
+              <Button onClick={openNominaConfig}>
                 <Lock className="w-4 h-4 mr-2" />
                 Cerrar Corte y Generar Pagos
               </Button>
@@ -1657,6 +1766,141 @@ export default function CortesPage() {
                 Eliminar Corte
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Nomina Configuration Step */}
+      <Dialog open={showNominaConfig} onOpenChange={setShowNominaConfig}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              Configurar Nómina - {viewingCorte?.nombre}
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <p className="text-muted-foreground text-sm">
+              Revisa y ajusta los salarios semanales antes de cerrar el corte. Los cambios se guardarán automáticamente.
+            </p>
+            
+            {/* Editable salary table */}
+            <div className="border rounded-lg overflow-hidden">
+              <div className="grid grid-cols-6 gap-2 px-4 py-3 bg-muted text-xs font-semibold text-muted-foreground">
+                <div className="col-span-2">Instalador</div>
+                <div className="text-right">Destajo</div>
+                <div className="text-right">Salario Semanal</div>
+                <div className="text-right">Saldo Ant.</div>
+                <div className="text-right">A Depositar</div>
+              </div>
+              
+              <div className="divide-y max-h-80 overflow-y-auto">
+                {resumenInstaladores
+                  .filter(inst => inst.destajoAcumulado > 0 || inst.saldoAnterior !== 0)
+                  .map((inst) => {
+                    const calculated = getCalculatedValues(inst);
+                    return (
+                      <div 
+                        key={inst.id} 
+                        className="grid grid-cols-6 gap-2 px-4 py-3 items-center hover:bg-muted/50"
+                      >
+                        <div className="col-span-2">
+                          <p className="font-medium text-sm">{inst.nombre}</p>
+                          {inst.banco && (
+                            <p className="text-xs text-muted-foreground">{inst.banco}</p>
+                          )}
+                        </div>
+                        <div className="text-right font-medium text-sm">
+                          {formatCurrency(inst.destajoAcumulado)}
+                        </div>
+                        <div className="text-right">
+                          <Input
+                            type="number"
+                            min="0"
+                            step="100"
+                            value={salarioEdits[inst.id] ?? inst.salarioSemanal}
+                            onChange={(e) => {
+                              const value = parseFloat(e.target.value) || 0;
+                              setSalarioEdits(prev => ({ ...prev, [inst.id]: value }));
+                            }}
+                            className="w-28 h-8 text-right text-sm ml-auto"
+                          />
+                        </div>
+                        <div className="text-right text-sm">
+                          {inst.saldoAnterior > 0 ? (
+                            <span className="text-green-600">+{formatCurrency(inst.saldoAnterior)}</span>
+                          ) : inst.saldoAnterior < 0 ? (
+                            <span className="text-red-600">{formatCurrency(inst.saldoAnterior)}</span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          {calculated.aDepositar > 0 ? (
+                            <span className="font-bold text-primary">{formatCurrency(calculated.aDepositar)}</span>
+                          ) : calculated.saldoGenerado > 0 ? (
+                            <span className="text-amber-600 text-sm">Saldo +{formatCurrency(calculated.saldoGenerado)}</span>
+                          ) : (
+                            <span className="text-muted-foreground">$0</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+            
+            {/* Summary */}
+            <div className="flex justify-between items-center p-4 bg-muted rounded-lg">
+              <div>
+                <p className="text-sm text-muted-foreground">Total a depositar</p>
+                <p className="text-2xl font-bold text-primary">
+                  {formatCurrency(
+                    resumenInstaladores
+                      .filter(inst => inst.destajoAcumulado > 0 || inst.saldoAnterior !== 0)
+                      .reduce((sum, inst) => sum + getCalculatedValues(inst).aDepositar, 0)
+                  )}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-muted-foreground">Saldos generados</p>
+                <p className="text-lg font-medium text-amber-600">
+                  {formatCurrency(
+                    resumenInstaladores
+                      .filter(inst => inst.destajoAcumulado > 0 || inst.saldoAnterior !== 0)
+                      .reduce((sum, inst) => sum + getCalculatedValues(inst).saldoGenerado, 0)
+                  )}
+                </p>
+              </div>
+            </div>
+            
+            {/* Payment method */}
+            <div className="space-y-2">
+              <Label>Método de pago</Label>
+              <Select value={metodoPago} onValueChange={(v) => setMetodoPago(v as any)}>
+                <SelectTrigger className="w-full sm:w-[200px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="transferencia">Transferencia</SelectItem>
+                  <SelectItem value="efectivo">Efectivo</SelectItem>
+                  <SelectItem value="cheque">Cheque</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowNominaConfig(false)}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={confirmNominaAndClose}
+              disabled={savingSalarios}
+            >
+              {savingSalarios ? 'Guardando...' : 'Confirmar y Cerrar Corte'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
