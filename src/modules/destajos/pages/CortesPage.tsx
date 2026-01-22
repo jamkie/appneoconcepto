@@ -2298,15 +2298,16 @@ export default function CortesPage() {
                       }
                     })()}
                     {resumenInstaladores.map((inst) => {
+                      const isExcluded = excludedInstaladores.has(inst.id);
                       const displaySalario = salarioEdits[inst.id] ?? inst.salarioSemanal;
                       // Formula: basePago = Destajo - Salario - SaldoAnterior (saldo is a DEDUCTION)
+                      // Excluded installers don't generate saldo
                       const basePago = inst.destajoAcumulado - displaySalario - inst.saldoAnterior;
-                      const displayADepositar = basePago >= 0 ? Math.floor(basePago / 50) * 50 : 0;
-                      const displaySaldoGenerado = basePago < 0 ? Math.max(0, displaySalario - inst.destajoAcumulado + inst.saldoAnterior) : 0;
+                      const displayADepositar = isExcluded ? 0 : (basePago >= 0 ? Math.floor(basePago / 50) * 50 : 0);
+                      const displaySaldoGenerado = isExcluded ? 0 : (basePago < 0 ? Math.max(0, displaySalario - inst.destajoAcumulado + inst.saldoAnterior) : 0);
                       const hasAnticipos = resumenInstaladores.some(i => i.anticiposEnCorte > 0);
                       const hasSaldos = resumenInstaladores.some(i => i.saldoAnterior > 0);
                       const showCheckbox = viewingCorte?.estado === 'abierto';
-                      const isExcluded = excludedInstaladores.has(inst.id);
                       const hasActivity = inst.destajoAcumulado > 0 || inst.saldoGenerado > 0 || inst.anticiposEnCorte > 0 || inst.saldoAnterior > 0;
                       
                       // Calculate column count for grid
