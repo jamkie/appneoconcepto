@@ -485,10 +485,15 @@ export default function CortesPage() {
       });
       
       // Add solicitudes to their instaladores
+      // IMPORTANT: Anticipos are NOT included in destajoAcumulado because they represent
+      // money already given in advance, not work to be paid. Anticipos are handled separately.
       (asignadas || []).forEach((sol: any) => {
         const instaladorId = sol.instalador_id;
         if (resumenMap[instaladorId]) {
-          resumenMap[instaladorId].destajoAcumulado += Number(sol.total_solicitado);
+          // Only add non-anticipo solicitudes to destajo calculation
+          if (sol.tipo !== 'anticipo') {
+            resumenMap[instaladorId].destajoAcumulado += Number(sol.total_solicitado);
+          }
           resumenMap[instaladorId].solicitudes.push(sol);
         }
       });
