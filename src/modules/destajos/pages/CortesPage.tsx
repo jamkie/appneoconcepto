@@ -1346,10 +1346,20 @@ export default function CortesPage() {
         </TabsList>
 
         <TabsContent value="cortes" className="space-y-4 mt-4">
-          {/* Summary banners */}
+          {/* Summary banners - clickable to open/create corte */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {/* Pending approval banner */}
-            <div className="flex items-center justify-between p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+            <button
+              onClick={() => {
+                const corteAbierto = cortes.find(c => c.estado === 'abierto');
+                if (corteAbierto) {
+                  handleViewCorte(corteAbierto);
+                } else {
+                  openNewCorteModal();
+                }
+              }}
+              className="flex items-center justify-between p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-950/40 transition-colors cursor-pointer text-left w-full"
+            >
               <div className="flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-amber-600" />
                 <span className="font-medium text-amber-800 dark:text-amber-200 text-sm">
@@ -1359,10 +1369,20 @@ export default function CortesPage() {
               <Badge variant="outline" className="bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border-amber-300">
                 {solicitudesPendientesGlobal.length} solicitudes
               </Badge>
-            </div>
+            </button>
             
             {/* Available approved banner */}
-            <div className="flex items-center justify-between p-3 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg">
+            <button
+              onClick={() => {
+                const corteAbierto = cortes.find(c => c.estado === 'abierto');
+                if (corteAbierto) {
+                  handleViewCorte(corteAbierto);
+                } else {
+                  openNewCorteModal();
+                }
+              }}
+              className="flex items-center justify-between p-3 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg hover:bg-green-100 dark:hover:bg-green-950/40 transition-colors cursor-pointer text-left w-full"
+            >
               <div className="flex items-center gap-2">
                 <CheckCircle className="w-4 h-4 text-green-600" />
                 <span className="font-medium text-green-800 dark:text-green-200 text-sm">
@@ -1372,7 +1392,7 @@ export default function CortesPage() {
               <Badge variant="outline" className="bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300 border-green-300">
                 {solicitudesAprobadasDisponibles.length} solicitudes • {formatCurrency(solicitudesAprobadasDisponibles.reduce((sum, s) => sum + Number(s.total_solicitado), 0))}
               </Badge>
-            </div>
+            </button>
           </div>
           
           {/* Search and Filters */}
