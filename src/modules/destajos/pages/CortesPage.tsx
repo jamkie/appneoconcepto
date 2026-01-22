@@ -1117,23 +1117,6 @@ export default function CortesPage() {
         <StatusBadge status={corte.estado} />
       ),
     },
-    {
-      key: 'acciones',
-      header: 'Acciones',
-      cell: (corte: CorteWithDetails) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleViewCorte(corte);
-          }}
-        >
-          <Eye className="w-4 h-4 mr-1" />
-          Ver
-        </Button>
-      ),
-    },
   ];
 
   if (loading || loadingData) {
