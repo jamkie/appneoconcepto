@@ -20,15 +20,6 @@ interface InstaladorPago {
 export const useExportCorteExcel = () => {
   const exportCorteToExcel = async (corte: CorteSemanal) => {
     try {
-      // Fetch all active instaladores
-      const { data: allInstaladores, error: instError } = await supabase
-        .from('instaladores')
-        .select('id, nombre, nombre_banco, numero_cuenta, salario_semanal')
-        .eq('activo', true)
-        .order('nombre');
-      
-      if (instError) throw instError;
-      
       // Fetch solicitudes for this corte with instalador details
       const { data: solicitudes, error: solError } = await supabase
         .from('solicitudes_pago')
@@ -61,8 +52,11 @@ export const useExportCorteExcel = () => {
       let saldosMap: Record<string, number> = {};
       let corteInstaladoresMap: Record<string, any> = {};
       
+      // Get the list of instaladores that are PART of this corte
+      let involvedInstaladorIds: string[] = [];
+      
       if (corte.estado === 'cerrado') {
-        // Use historical data from corte_instaladores
+        // Use historical data from corte_instaladores (only those who were included)
         const { data: ciData } = await supabase
           .from('corte_instaladores')
           .select('*')
@@ -70,8 +64,13 @@ export const useExportCorteExcel = () => {
         
         (ciData || []).forEach((ci: any) => {
           corteInstaladoresMap[ci.instalador_id] = ci;
+          involvedInstaladorIds.push(ci.instalador_id);
         });
       } else {
+        // For open cortes, get instaladores from solicitudes assigned to this corte
+        const solicitudInstaladorIds = [...new Set((solicitudes || []).map((s: any) => s.instalador_id).filter(Boolean))];
+        involvedInstaladorIds = solicitudInstaladorIds;
+        
         // Use current saldos
         const { data: saldosData } = await supabase
           .from('saldos_instaladores')
@@ -82,11 +81,24 @@ export const useExportCorteExcel = () => {
         });
       }
 
-      // Build instalador map with all active instaladores
+      // Fetch ONLY the instaladores involved in this corte
+      let allInstaladores: any[] = [];
+      if (involvedInstaladorIds.length > 0) {
+        const { data: instData, error: instError } = await supabase
+          .from('instaladores')
+          .select('id, nombre, nombre_banco, numero_cuenta, salario_semanal')
+          .in('id', involvedInstaladorIds)
+          .order('nombre');
+        
+        if (instError) throw instError;
+        allInstaladores = instData || [];
+      }
+
+      // Build instalador map with ONLY involved instaladores
       const instaladorMap: Record<string, InstaladorPago & { jefes: Set<string> }> = {};
       
-      // Initialize all active instaladores
-      (allInstaladores || []).forEach((inst: any) => {
+      // Initialize only involved instaladores
+      (allInstaladores).forEach((inst: any) => {
         instaladorMap[inst.id] = {
           nombre: inst.nombre?.toUpperCase() || 'SIN NOMBRE',
           jefesDirectos: '',
