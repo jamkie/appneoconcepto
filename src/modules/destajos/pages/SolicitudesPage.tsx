@@ -361,20 +361,31 @@ export default function SolicitudesPage() {
       if (updateError) throw updateError;
       
       // If this is an anticipo type, create the anticipo record (without creating a payment)
+      // Use upsert with solicitud_pago_id to prevent duplicates
       if (isAnticipo) {
-        const { error: anticipoError } = await supabase
+        // First check if anticipo already exists for this solicitud
+        const { data: existingAnticipo } = await supabase
           .from('anticipos')
-          .insert({
-            obra_id: solicitud.obra_id,
-            instalador_id: solicitud.instalador_id,
-            monto_original: montoSolicitud,
-            monto_disponible: montoSolicitud,
-            observaciones: solicitud.observaciones,
-            registrado_por: user.id,
-          });
+          .select('id')
+          .eq('solicitud_pago_id', solicitud.id)
+          .maybeSingle();
         
-        if (anticipoError) {
-          console.error('Error creating anticipo record:', anticipoError);
+        if (!existingAnticipo) {
+          const { error: anticipoError } = await supabase
+            .from('anticipos')
+            .insert({
+              obra_id: solicitud.obra_id,
+              instalador_id: solicitud.instalador_id,
+              monto_original: montoSolicitud,
+              monto_disponible: montoSolicitud,
+              observaciones: solicitud.observaciones,
+              registrado_por: user.id,
+              solicitud_pago_id: solicitud.id,
+            });
+          
+          if (anticipoError) {
+            console.error('Error creating anticipo record:', anticipoError);
+          }
         }
       }
       
@@ -757,16 +768,25 @@ export default function SolicitudesPage() {
         
         if (updateError) throw updateError;
         
-        // If anticipo type, create anticipo record
+        // If anticipo type, create anticipo record (check for existing to prevent duplicates)
         if (isAnticipo) {
-          await supabase.from('anticipos').insert({
-            obra_id: solicitud.obra_id,
-            instalador_id: solicitud.instalador_id,
-            monto_original: montoSolicitud,
-            monto_disponible: montoSolicitud,
-            observaciones: solicitud.observaciones,
-            registrado_por: user.id,
-          });
+          const { data: existingAnticipo } = await supabase
+            .from('anticipos')
+            .select('id')
+            .eq('solicitud_pago_id', solicitud.id)
+            .maybeSingle();
+          
+          if (!existingAnticipo) {
+            await supabase.from('anticipos').insert({
+              obra_id: solicitud.obra_id,
+              instalador_id: solicitud.instalador_id,
+              monto_original: montoSolicitud,
+              monto_disponible: montoSolicitud,
+              observaciones: solicitud.observaciones,
+              registrado_por: user.id,
+              solicitud_pago_id: solicitud.id,
+            });
+          }
         }
         
         // If has extras, approve them
