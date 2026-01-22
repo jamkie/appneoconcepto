@@ -118,9 +118,10 @@ export const useExportCorteExcel = () => {
         inst.jefesDirectos = Array.from(inst.jefes).join(' ');
         
         if (corte.estado === 'cerrado' && corteInstaladoresMap[instId]) {
-          // Use historical data
+          // Use historical data (frozen at close time)
           const ci = corteInstaladoresMap[instId];
           inst.destajoAcumulado = Number(ci.destajo_acumulado);
+          inst.nominaSemanal = Number(ci.salario_semanal); // Use historical salary
           inst.saldoAnterior = Number(ci.saldo_anterior);
           inst.aDepositar = Number(ci.monto_depositado);
           inst.saldoAFavor = Number(ci.saldo_generado);

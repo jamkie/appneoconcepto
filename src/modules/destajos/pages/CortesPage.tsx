@@ -496,9 +496,10 @@ export default function CortesPage() {
       // Calculate derived fields for each instalador
       Object.values(resumenMap).forEach((inst) => {
         if (corte.estado === 'cerrado' && corteInstaladoresMap[inst.id]) {
-          // Use historical data from corte_instaladores
+          // Use historical data from corte_instaladores (frozen at close time)
           const ci = corteInstaladoresMap[inst.id];
           inst.destajoAcumulado = Number(ci.destajo_acumulado);
+          inst.salarioSemanal = Number(ci.salario_semanal); // Use historical salary
           inst.saldoAnterior = Number(ci.saldo_anterior);
           inst.destajoADepositar = Math.max(0, inst.destajoAcumulado - inst.salarioSemanal + inst.saldoAnterior);
           inst.aDepositar = Number(ci.monto_depositado);
