@@ -425,11 +425,12 @@ export default function ObrasPage() {
     }
   };
 
-  // Helper to check if obra has avances or anticipos (cannot be deleted)
-  const obraTieneAvances = (obra: ObraWithItems) => {
+  // Helper to check if obra has avances, anticipos or extras (cannot be deleted)
+  const obraTieneRegistros = (obra: ObraWithItems) => {
     const tieneAvances = Object.values(obra.avances).some(cantidad => cantidad > 0);
     const tieneAnticipos = (obra.anticipos?.length ?? 0) > 0;
-    return tieneAvances || tieneAnticipos;
+    const tieneExtras = (obra.extras?.length ?? 0) > 0;
+    return tieneAvances || tieneAnticipos || tieneExtras;
   };
 
   const handleDelete = async () => {
@@ -999,21 +1000,21 @@ export default function ObrasPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {selectedObra && obraTieneAvances(selectedObra) 
+              {selectedObra && obraTieneRegistros(selectedObra) 
                 ? '⚠️ No se puede eliminar' 
                 : '¿Eliminar obra?'}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {selectedObra && obraTieneAvances(selectedObra) 
-                ? `La obra "${selectedObra.nombre}" tiene avances o anticipos registrados y no puede ser eliminada. Para eliminarla, primero debe eliminar todos los registros asociados.`
+              {selectedObra && obraTieneRegistros(selectedObra) 
+                ? `La obra "${selectedObra.nombre}" tiene avances, anticipos o extras registrados y no puede ser eliminada. Para eliminarla, primero debe eliminar todos los registros asociados.`
                 : `Esta acción no se puede deshacer. Se eliminará la obra "${selectedObra?.nombre}" y todos sus datos asociados.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>
-              {selectedObra && obraTieneAvances(selectedObra) ? 'Entendido' : 'Cancelar'}
+              {selectedObra && obraTieneRegistros(selectedObra) ? 'Entendido' : 'Cancelar'}
             </AlertDialogCancel>
-            {selectedObra && !obraTieneAvances(selectedObra) && (
+            {selectedObra && !obraTieneRegistros(selectedObra) && (
               <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
                 Eliminar
               </AlertDialogAction>
@@ -1402,9 +1403,9 @@ export default function ObrasPage() {
                       setIsDeleteDialogOpen(true);
                     }
                   }}
-                  disabled={!detailObra || obraTieneAvances(detailObra)}
+                  disabled={!detailObra || obraTieneRegistros(detailObra)}
                   className="gap-2"
-                  title={detailObra && obraTieneAvances(detailObra) ? 'No se puede eliminar una obra con avances o anticipos' : ''}
+                  title={detailObra && obraTieneRegistros(detailObra) ? 'No se puede eliminar una obra con avances, anticipos o extras' : ''}
                 >
                   <Trash2 className="w-4 h-4" />
                   Eliminar
