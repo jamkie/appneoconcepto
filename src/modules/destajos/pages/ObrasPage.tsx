@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, Plus, Search, Pencil, Trash2, X, FileText, Download, CheckCircle, Clock, Eye, Loader2, FileSpreadsheet } from 'lucide-react';
 import { useGenerateEstadoCuentaPDF } from '../hooks/useGenerateEstadoCuentaPDF';
-import { useExportObrasExcel } from '../hooks/useExportObrasExcel';
+import { useExportObrasExcel, type ExportFilter } from '../hooks/useExportObrasExcel';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -99,6 +99,7 @@ export default function ObrasPage() {
   const [saving, setSaving] = useState(false);
   const [generatingPDF, setGeneratingPDF] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [formData, setFormData] = useState({
     nombre: '',
     cliente: '',
@@ -632,6 +633,26 @@ export default function ObrasPage() {
     return { totalItems, subtotal, descuento, montoDescuento, total, porPagar };
   };
 
+  const handleExportExcel = async (filter: ExportFilter) => {
+    try {
+      setExportingExcel(true);
+      await exportObrasToExcel(filter);
+      toast({
+        title: 'Excel generado',
+        description: 'El archivo de obras se descargó correctamente',
+      });
+      setExportDialogOpen(false);
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'No se pudo generar el archivo Excel',
+        variant: 'destructive',
+      });
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
   if (loading || loadingData) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -650,31 +671,9 @@ export default function ObrasPage() {
           <div className="flex gap-2">
             <Button
               variant="outline"
-              onClick={async () => {
-                try {
-                  setExportingExcel(true);
-                  await exportObrasToExcel();
-                  toast({
-                    title: 'Excel generado',
-                    description: 'El archivo de obras se descargó correctamente',
-                  });
-                } catch (error) {
-                  toast({
-                    title: 'Error',
-                    description: 'No se pudo generar el archivo Excel',
-                    variant: 'destructive',
-                  });
-                } finally {
-                  setExportingExcel(false);
-                }
-              }}
-              disabled={exportingExcel}
+              onClick={() => setExportDialogOpen(true)}
             >
-              {exportingExcel ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <FileSpreadsheet className="w-4 h-4 mr-2" />
-              )}
+              <FileSpreadsheet className="w-4 h-4 mr-2" />
               Exportar Excel
             </Button>
             {canCreate && (
@@ -1244,6 +1243,56 @@ export default function ObrasPage() {
               Eliminar
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Export Dialog */}
+      <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Exportar Obras a Excel</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-4">
+            <p className="text-sm text-muted-foreground">¿Qué obras deseas exportar?</p>
+            <div className="flex flex-col gap-2">
+              <Button
+                variant="outline"
+                className="justify-start"
+                disabled={exportingExcel}
+                onClick={async () => {
+                  await handleExportExcel('activas');
+                }}
+              >
+                <Clock className="w-4 h-4 mr-2" />
+                Solo En Proceso ({obrasActivas})
+              </Button>
+              <Button
+                variant="outline"
+                className="justify-start"
+                disabled={exportingExcel}
+                onClick={async () => {
+                  await handleExportExcel('cerradas');
+                }}
+              >
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Solo Concluidas ({obrasCerradas})
+              </Button>
+              <Button
+                className="justify-start"
+                disabled={exportingExcel}
+                onClick={async () => {
+                  await handleExportExcel('todas');
+                }}
+              >
+                {exportingExcel ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="w-4 h-4 mr-2" />
+                )}
+                Todas las Obras ({obras.length})
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
