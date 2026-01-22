@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, Plus, Search, Pencil, Trash2, X, FileText, Download, CheckCircle, Clock, Eye, Loader2, FileSpreadsheet, ClipboardList } from 'lucide-react';
+import { Building2, Plus, Search, Pencil, Trash2, X, FileText, Download, CheckCircle, Clock, Eye, Loader2, FileSpreadsheet, ClipboardList, Banknote } from 'lucide-react';
 import { useGenerateEstadoCuentaPDF } from '../hooks/useGenerateEstadoCuentaPDF';
 import { useExportObrasExcel, type ExportFilter } from '../hooks/useExportObrasExcel';
 import { useAuth } from '@/contexts/AuthContext';
@@ -1226,6 +1226,20 @@ export default function ObrasPage() {
                 >
                   <Plus className="w-4 h-4 mr-2" />
                   Agregar Extra
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (detailObra) {
+                      setDetailDialogOpen(false);
+                      navigate(`/destajos/solicitudes?anticipo_obra=${detailObra.id}`);
+                    }
+                  }}
+                  className="flex-1 sm:flex-none"
+                >
+                  <Banknote className="w-4 h-4 mr-2" />
+                  Agregar Anticipo
                 </Button>
               </div>
             )}
