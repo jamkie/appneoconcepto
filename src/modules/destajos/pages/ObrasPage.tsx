@@ -1187,7 +1187,7 @@ export default function ObrasPage() {
               )}
 
               {/* Anticipos */}
-              {detailObra.anticipos.length > 0 && (
+              {(detailObra.anticipos?.length ?? 0) > 0 && (
                 <div>
                   <h4 className="font-semibold mb-2 flex items-center gap-2">
                     <Banknote className="w-4 h-4" />
