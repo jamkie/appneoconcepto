@@ -1371,100 +1371,90 @@ export default function ObrasPage() {
             </div>
           )}
 
-          <DialogFooter className="flex-col gap-3 pt-4 border-t bg-muted/30 -mx-6 -mb-6 px-6 pb-6 rounded-b-lg">
-            {/* Quick action buttons for adding avances/extras/anticipos - Only for active obras */}
+          <DialogFooter className="flex-col gap-3 pt-4 border-t -mx-6 -mb-6 px-6 pb-5 bg-gradient-to-t from-muted/50 to-transparent">
+            {/* Quick actions for active obras */}
             {detailObra?.estado === 'activa' && (
-              <div className="w-full space-y-2">
-                <div className="flex flex-wrap gap-1.5">
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => {
-                      if (detailObra) {
-                        setDetailDialogOpen(false);
-                        navigate(`/destajos/avances?obra=${detailObra.id}`);
-                      }
-                    }}
-                    className="gap-1.5 h-8 text-xs"
-                  >
-                    <ClipboardList className="w-3.5 h-3.5" />
-                    Avance
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      if (detailObra) {
-                        setDetailDialogOpen(false);
-                        navigate(`/destajos/extras?obra=${detailObra.id}`);
-                      }
-                    }}
-                    className="gap-1.5 h-8 text-xs"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Extra
-                  </Button>
+              <div className="grid grid-cols-4 gap-2 w-full">
+                <button
+                  onClick={() => {
+                    if (detailObra) {
+                      setDetailDialogOpen(false);
+                      navigate(`/destajos/avances?obra=${detailObra.id}`);
+                    }
+                  }}
+                  className="flex flex-col items-center gap-1 p-3 rounded-lg border bg-primary/5 hover:bg-primary/10 border-primary/20 transition-colors group"
+                >
+                  <ClipboardList className="w-5 h-5 text-primary" />
+                  <span className="text-xs font-medium text-primary">Avance</span>
+                </button>
+                <button
+                  onClick={() => {
+                    if (detailObra) {
+                      setDetailDialogOpen(false);
+                      navigate(`/destajos/extras?obra=${detailObra.id}`);
+                    }
+                  }}
+                  className="flex flex-col items-center gap-1 p-3 rounded-lg border bg-secondary/50 hover:bg-secondary border-secondary transition-colors"
+                >
+                  <Plus className="w-5 h-5 text-secondary-foreground" />
+                  <span className="text-xs font-medium text-secondary-foreground">Extra</span>
+                </button>
+                <button
+                  onClick={() => {
+                    if (detailObra) {
+                      setDetailDialogOpen(false);
+                      navigate(`/destajos/solicitudes?anticipo_obra=${detailObra.id}`);
+                    }
+                  }}
+                  className="flex flex-col items-center gap-1 p-3 rounded-lg border border-dashed hover:bg-muted/50 transition-colors"
+                >
+                  <Banknote className="w-5 h-5 text-muted-foreground" />
+                  <span className="text-xs font-medium text-muted-foreground">Anticipo</span>
+                </button>
+                <button
+                  onClick={() => {
+                    if (detailObra) {
+                      setConcludeObra(detailObra);
+                      setConcludeDialogOpen(true);
+                    }
+                  }}
+                  className="flex flex-col items-center gap-1 p-3 rounded-lg border border-amber-200 bg-amber-50/50 hover:bg-amber-100/50 transition-colors"
+                >
+                  <CheckCircle className="w-5 h-5 text-amber-600" />
+                  <span className="text-xs font-medium text-amber-600">Concluir</span>
+                </button>
+              </div>
+            )}
+
+            {/* Reopen obra for manually closed obras */}
+            {detailObra?.estado === 'cerrada' && (detailObra as any).cerrado_manualmente && (
+              <div className="w-full p-3 rounded-lg border border-amber-200 bg-amber-50/30">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-amber-700">Cerrada manualmente</p>
+                    {(detailObra as any).motivo_cierre && (
+                      <p className="text-xs text-amber-600/80 truncate">
+                        {(detailObra as any).motivo_cierre}
+                      </p>
+                    )}
+                  </div>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      if (detailObra) {
-                        setDetailDialogOpen(false);
-                        navigate(`/destajos/solicitudes?anticipo_obra=${detailObra.id}`);
-                      }
+                      if (detailObra) handleReopenObra(detailObra);
                     }}
-                    className="gap-1.5 h-8 text-xs border-dashed"
+                    className="gap-1.5 shrink-0 border-amber-300 text-amber-700 hover:bg-amber-100"
                   >
-                    <Banknote className="w-3.5 h-3.5" />
-                    Anticipo
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      if (detailObra) {
-                        setConcludeObra(detailObra);
-                        setConcludeDialogOpen(true);
-                      }
-                    }}
-                    className="gap-1.5 h-8 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-                  >
-                    <CheckCircle className="w-3.5 h-3.5" />
-                    Concluir
+                    <Clock className="w-3.5 h-3.5" />
+                    Reabrir
                   </Button>
                 </div>
-              </div>
-            )}
-
-            {/* Reopen obra info for manually closed obras */}
-            {detailObra?.estado === 'cerrada' && (detailObra as any).cerrado_manualmente && (
-              <div className="w-full space-y-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-xs">
-                    Cerrada manualmente
-                  </Badge>
-                  {(detailObra as any).motivo_cierre && (
-                    <span className="text-xs text-muted-foreground">
-                      {(detailObra as any).motivo_cierre}
-                    </span>
-                  )}
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    if (detailObra) handleReopenObra(detailObra);
-                  }}
-                  className="gap-2 w-full"
-                >
-                  <Clock className="w-4 h-4" />
-                  Reabrir Obra
-                </Button>
               </div>
             )}
             
-            {/* Management actions - Always visible */}
-            <div className="flex flex-wrap gap-2 w-full justify-between items-center pt-2 border-t border-border/50">
+            {/* Management actions row */}
+            <div className="flex gap-2 w-full justify-between items-center">
               <Button
                 variant="ghost"
                 size="sm"
@@ -1472,20 +1462,20 @@ export default function ObrasPage() {
                   if (detailObra) handleDownloadEstadoCuenta(detailObra);
                 }}
                 disabled={generatingPDF}
-                className="gap-2 text-muted-foreground hover:text-foreground"
+                className="gap-1.5 text-muted-foreground hover:text-foreground h-8 px-2"
               >
                 {generatingPDF ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <Download className="w-4 h-4" />
                 )}
-                Estado de Cuenta
+                <span className="text-xs">Estado de Cuenta</span>
               </Button>
               
-              <div className="flex gap-2">
+              <div className="flex gap-1.5">
                 {canUpdate && (
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
                     onClick={() => {
                       if (detailObra) {
@@ -1493,14 +1483,14 @@ export default function ObrasPage() {
                         handleOpenModal(detailObra);
                       }
                     }}
-                    className="gap-2"
+                    className="gap-1.5 h-8 px-2"
                   >
                     <Pencil className="w-4 h-4" />
-                    Editar
+                    <span className="text-xs">Editar</span>
                   </Button>
                 )}
                 <Button
-                  variant="destructive"
+                  variant="ghost"
                   size="sm"
                   onClick={() => {
                     if (detailObra) {
@@ -1510,11 +1500,11 @@ export default function ObrasPage() {
                     }
                   }}
                   disabled={!detailObra || obraTieneRegistros(detailObra)}
-                  className="gap-2"
+                  className="gap-1.5 h-8 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
                   title={detailObra && obraTieneRegistros(detailObra) ? 'No se puede eliminar una obra con avances, anticipos o extras' : ''}
                 >
                   <Trash2 className="w-4 h-4" />
-                  Eliminar
+                  <span className="text-xs">Eliminar</span>
                 </Button>
               </div>
             </div>
