@@ -800,14 +800,6 @@ export default function SolicitudesPage() {
         title="Solicitudes de Pago"
         description="Gestión de solicitudes de pago de instaladores"
         icon={Wallet}
-        actions={
-          canCreate && (
-            <Button onClick={() => setIsAnticipoModalOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nuevo Anticipo
-            </Button>
-          )
-        }
       />
 
       {/* Anticipos Summary - Clickable */}
