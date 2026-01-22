@@ -124,6 +124,7 @@ export default function CortesPage() {
   
   // Available approved solicitudes (not in any corte) for standalone tab
   const [solicitudesAprobadasDisponibles, setSolicitudesAprobadasDisponibles] = useState<SolicitudForCorte[]>([]);
+  const [solicitudesPendientesGlobal, setSolicitudesPendientesGlobal] = useState<SolicitudForCorte[]>([]);
   const [loadingDisponibles, setLoadingDisponibles] = useState(false);
   const [searchDisponibles, setSearchDisponibles] = useState('');
   const [filterInstaladorDisponibles, setFilterInstaladorDisponibles] = useState<string>('todos');
@@ -138,8 +139,9 @@ export default function CortesPage() {
   useEffect(() => {
     if (user) {
       fetchCortes();
-      // Also fetch disponibles for the badge counter
+      // Also fetch disponibles and pendientes for the banner counters
       fetchSolicitudesDisponiblesCount();
+      fetchSolicitudesPendientesCount();
     }
   }, [user]);
 
@@ -160,6 +162,26 @@ export default function CortesPage() {
       setSolicitudesAprobadasDisponibles((data || []) as SolicitudForCorte[]);
     } catch (error) {
       console.error('Error fetching solicitudes count:', error);
+    }
+  };
+
+  // Quick fetch for pending count (used on mount)
+  const fetchSolicitudesPendientesCount = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('solicitudes_pago')
+        .select(`
+          *,
+          obras(nombre),
+          instaladores(nombre)
+        `)
+        .eq('estado', 'pendiente')
+        .is('corte_id', null);
+      
+      if (error) throw error;
+      setSolicitudesPendientesGlobal((data || []) as SolicitudForCorte[]);
+    } catch (error) {
+      console.error('Error fetching pendientes count:', error);
     }
   };
 
@@ -1324,6 +1346,35 @@ export default function CortesPage() {
         </TabsList>
 
         <TabsContent value="cortes" className="space-y-4 mt-4">
+          {/* Summary banners */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Pending approval banner */}
+            <div className="flex items-center justify-between p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-amber-600" />
+                <span className="font-medium text-amber-800 dark:text-amber-200 text-sm">
+                  Pendientes de aprobación
+                </span>
+              </div>
+              <Badge variant="outline" className="bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border-amber-300">
+                {solicitudesPendientesGlobal.length} solicitudes
+              </Badge>
+            </div>
+            
+            {/* Available approved banner */}
+            <div className="flex items-center justify-between p-3 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-green-600" />
+                <span className="font-medium text-green-800 dark:text-green-200 text-sm">
+                  Aprobadas sin asignar
+                </span>
+              </div>
+              <Badge variant="outline" className="bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300 border-green-300">
+                {solicitudesAprobadasDisponibles.length} solicitudes • {formatCurrency(solicitudesAprobadasDisponibles.reduce((sum, s) => sum + Number(s.total_solicitado), 0))}
+              </Badge>
+            </div>
+          </div>
+          
           {/* Search and Filters */}
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="relative flex-1">
