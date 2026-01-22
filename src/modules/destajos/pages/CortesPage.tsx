@@ -1611,9 +1611,21 @@ export default function CortesPage() {
   };
 
   // Calculate values with edited salaries for nomina config preview
+  // IMPORTANT: Excluded installers should show 0 saldoGenerado since they won't be processed
   const getCalculatedValues = (inst: InstaladorResumen) => {
+    // If installer is excluded, they don't generate any saldo
+    if (excludedInstaladores.has(inst.id)) {
+      return {
+        salario: salarioEdits[inst.id] ?? inst.salarioSemanal,
+        destajoADepositar: 0,
+        aDepositar: 0,
+        saldoGenerado: 0,
+      };
+    }
+    
     const salario = salarioEdits[inst.id] ?? inst.salarioSemanal;
-    const basePago = inst.destajoAcumulado - salario + inst.saldoAnterior;
+    // Formula: basePago = Destajo - Salario - SaldoAnterior (saldo is a DEDUCTION)
+    const basePago = inst.destajoAcumulado - salario - inst.saldoAnterior;
     
     if (basePago >= 0) {
       return {
@@ -1623,11 +1635,13 @@ export default function CortesPage() {
         saldoGenerado: 0,
       };
     } else {
+      // Saldo generado = what the company credits when salary exceeds destajo
+      const saldoGen = Math.max(0, salario - inst.destajoAcumulado + inst.saldoAnterior);
       return {
         salario,
         destajoADepositar: 0,
         aDepositar: 0,
-        saldoGenerado: Math.max(0, salario - inst.destajoAcumulado),
+        saldoGenerado: saldoGen,
       };
     }
   };
