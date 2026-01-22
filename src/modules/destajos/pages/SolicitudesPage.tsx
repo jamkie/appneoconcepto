@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Wallet, Search, Check, X, Trash2, Plus, Banknote, ArrowDownCircle, Eye, Pencil, ExternalLink } from 'lucide-react';
+import { Wallet, Search, Check, X, Trash2, Banknote, ArrowDownCircle, Eye, Pencil, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -8,6 +8,7 @@ import { PageHeader, DataTable, EmptyState, StatusBadge } from '../components';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -60,6 +61,10 @@ export default function SolicitudesPage() {
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterTipo, setFilterTipo] = useState<'todos' | 'avance' | 'anticipo' | 'extra'>('todos');
+  
+  // Bulk selection states
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [processingBulk, setProcessingBulk] = useState(false);
   
   // Action states
   const [actionType, setActionType] = useState<'aprobar' | 'rechazar' | 'eliminar' | null>(null);
@@ -661,6 +666,163 @@ export default function SolicitudesPage() {
     return !hasPago && !hasAvance && !isExtra;
   };
 
+  // Toggle single selection
+  const toggleSelection = (id: string) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  // Toggle all pending solicitudes
+  const toggleSelectAll = () => {
+    const pendingIds = filteredSolicitudes.map(s => s.id);
+    const allSelected = pendingIds.every(id => selectedIds.has(id));
+    
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(pendingIds));
+    }
+  };
+
+  // Bulk approval handler
+  const handleAprobarMasivo = async () => {
+    if (!user || selectedIds.size === 0) return;
+    
+    setProcessingBulk(true);
+    
+    const solicitudesAProbar = filteredSolicitudes.filter(s => selectedIds.has(s.id));
+    let aprobadas = 0;
+    let fallidas: { nombre: string; motivo: string }[] = [];
+    
+    for (const solicitud of solicitudesAProbar) {
+      const isAnticipo = solicitud.tipo === 'anticipo';
+      const montoSolicitud = Number(solicitud.total_solicitado);
+      
+      // For non-anticipo, validate obra limits
+      if (!isAnticipo) {
+        try {
+          const [obraRes, itemsRes, extrasRes, pagosRes] = await Promise.all([
+            supabase.from('obras').select('descuento').eq('id', solicitud.obra_id).single(),
+            supabase.from('obra_items').select('cantidad, precio_unitario').eq('obra_id', solicitud.obra_id),
+            supabase.from('extras').select('monto').eq('obra_id', solicitud.obra_id).eq('estado', 'aprobado'),
+            supabase.from('pagos_destajos').select('monto').eq('obra_id', solicitud.obra_id),
+          ]);
+          
+          const descuento = Number(obraRes.data?.descuento || 0);
+          const totalItems = (itemsRes.data || []).reduce((sum, item) => 
+            sum + (Number(item.cantidad) * Number(item.precio_unitario)), 0);
+          const totalExtras = (extrasRes.data || []).reduce((sum, extra) => 
+            sum + Number(extra.monto), 0);
+          const totalPagado = (pagosRes.data || []).reduce((sum, pago) => 
+            sum + Number(pago.monto), 0);
+          
+          const subtotal = totalItems + totalExtras;
+          const montoDescuento = subtotal * (descuento / 100);
+          const totalObra = subtotal - montoDescuento;
+          const saldoPendiente = totalObra - totalPagado;
+          
+          if (montoSolicitud > saldoPendiente) {
+            fallidas.push({
+              nombre: `${solicitud.instaladores?.nombre} - ${solicitud.obras?.nombre}`,
+              motivo: `Excede saldo (${formatCurrency(saldoPendiente)})`
+            });
+            continue;
+          }
+        } catch (error) {
+          fallidas.push({
+            nombre: `${solicitud.instaladores?.nombre} - ${solicitud.obras?.nombre}`,
+            motivo: 'Error validando obra'
+          });
+          continue;
+        }
+      }
+      
+      // Approve the solicitud
+      try {
+        const { error: updateError } = await supabase
+          .from('solicitudes_pago')
+          .update({
+            estado: 'aprobada',
+            aprobado_por: user.id,
+            fecha_aprobacion: new Date().toISOString(),
+          })
+          .eq('id', solicitud.id);
+        
+        if (updateError) throw updateError;
+        
+        // If anticipo type, create anticipo record
+        if (isAnticipo) {
+          await supabase.from('anticipos').insert({
+            obra_id: solicitud.obra_id,
+            instalador_id: solicitud.instalador_id,
+            monto_original: montoSolicitud,
+            monto_disponible: montoSolicitud,
+            observaciones: solicitud.observaciones,
+            registrado_por: user.id,
+          });
+        }
+        
+        // If has extras, approve them
+        if (solicitud.extras_ids && solicitud.extras_ids.length > 0) {
+          await supabase.from('extras').update({
+            estado: 'aprobado',
+            aprobado_por: user.id,
+            fecha_aprobacion: new Date().toISOString(),
+          }).in('id', solicitud.extras_ids);
+        }
+        
+        // If extra type, approve matching extra
+        if (solicitud.tipo === 'extra') {
+          await supabase.from('extras').update({
+            estado: 'aprobado',
+            aprobado_por: user.id,
+            fecha_aprobacion: new Date().toISOString(),
+          })
+          .eq('obra_id', solicitud.obra_id)
+          .eq('instalador_id', solicitud.instalador_id)
+          .eq('monto', montoSolicitud)
+          .eq('estado', 'pendiente');
+        }
+        
+        aprobadas++;
+      } catch (error) {
+        fallidas.push({
+          nombre: `${solicitud.instaladores?.nombre} - ${solicitud.obras?.nombre}`,
+          motivo: 'Error al aprobar'
+        });
+      }
+    }
+    
+    // Show results
+    if (aprobadas > 0) {
+      toast({
+        title: `${aprobadas} solicitud${aprobadas > 1 ? 'es' : ''} aprobada${aprobadas > 1 ? 's' : ''}`,
+        description: fallidas.length > 0 
+          ? `${fallidas.length} no se pudieron aprobar`
+          : 'Listas para asignar a un corte',
+      });
+    }
+    
+    if (fallidas.length > 0 && aprobadas === 0) {
+      toast({
+        title: 'No se aprobaron solicitudes',
+        description: fallidas.map(f => `${f.nombre}: ${f.motivo}`).join('; '),
+        variant: 'destructive',
+      });
+    }
+    
+    setSelectedIds(new Set());
+    setProcessingBulk(false);
+    fetchSolicitudes();
+  };
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-MX', {
       style: 'currency',
@@ -685,7 +847,43 @@ export default function SolicitudesPage() {
     return matchesSearch && matchesTipo;
   });
 
+  // Check if all filtered are selected
+  const allPendingSelected = filteredSolicitudes.length > 0 && 
+    filteredSolicitudes.every(s => selectedIds.has(s.id));
+  const somePendingSelected = filteredSolicitudes.some(s => selectedIds.has(s.id));
+  const selectedTotal = filteredSolicitudes
+    .filter(s => selectedIds.has(s.id))
+    .reduce((sum, s) => sum + Number(s.total_solicitado), 0);
+
   const columns = [
+    {
+      key: 'select',
+      header: () => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <Checkbox
+            checked={allPendingSelected}
+            // @ts-ignore - indeterminate is valid HTML but not typed
+            ref={(el: HTMLButtonElement | null) => {
+              if (el) {
+                (el as unknown as HTMLInputElement).indeterminate = somePendingSelected && !allPendingSelected;
+              }
+            }}
+            onCheckedChange={() => toggleSelectAll()}
+            disabled={!canUpdate}
+          />
+        </div>
+      ),
+      cell: (item: SolicitudWithDetails) => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <Checkbox
+            checked={selectedIds.has(item.id)}
+            onCheckedChange={() => toggleSelection(item.id)}
+            disabled={!canUpdate}
+          />
+        </div>
+      ),
+      className: 'w-10',
+    },
     {
       key: 'fecha',
       header: 'Fecha',
@@ -872,6 +1070,49 @@ export default function SolicitudesPage() {
           </div>
         </div>
       </div>
+
+      {/* Bulk Action Bar */}
+      {selectedIds.size > 0 && canUpdate && (
+        <div className="mb-4 p-3 rounded-lg border bg-emerald-50 border-emerald-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+            <span className="font-medium text-emerald-800">
+              {selectedIds.size} solicitud{selectedIds.size > 1 ? 'es' : ''} seleccionada{selectedIds.size > 1 ? 's' : ''}
+            </span>
+            <span className="text-emerald-700">
+              · Total: {formatCurrency(selectedTotal)}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedIds(new Set())}
+              disabled={processingBulk}
+            >
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              className="bg-emerald-600 hover:bg-emerald-700"
+              onClick={handleAprobarMasivo}
+              disabled={processingBulk}
+            >
+              {processingBulk ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                  Aprobando...
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4 mr-2" />
+                  Aprobar seleccionadas
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Table */}
       <DataTable
