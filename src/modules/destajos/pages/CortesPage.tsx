@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Plus, Lock, Search, Users, Unlock, Download, FileText, Trash2, CheckCircle, Minus } from 'lucide-react';
+import { Calendar, Plus, Lock, Search, Users, Unlock, Download, FileText, Trash2, CheckCircle, Minus, DollarSign } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/integrations/supabase/client';
@@ -125,6 +125,18 @@ export default function CortesPage() {
   
   // Available approved solicitudes (not in any corte) for standalone tab
   const [solicitudesAprobadasDisponibles, setSolicitudesAprobadasDisponibles] = useState<SolicitudForCorte[]>([]);
+  
+  // Saldos a favor state
+  interface SaldoInstaladorView {
+    id: string;
+    instalador_id: string;
+    instalador_nombre: string;
+    saldo_acumulado: number;
+    ultimo_corte_nombre: string | null;
+    ultimo_corte_fecha: string | null;
+  }
+  const [saldosInstaladores, setSaldosInstaladores] = useState<SaldoInstaladorView[]>([]);
+  const [loadingSaldos, setLoadingSaldos] = useState(false);
   const [solicitudesPendientesGlobal, setSolicitudesPendientesGlobal] = useState<SolicitudForCorte[]>([]);
   const [loadingDisponibles, setLoadingDisponibles] = useState(false);
   const [searchDisponibles, setSearchDisponibles] = useState('');
@@ -147,8 +159,43 @@ export default function CortesPage() {
       // Also fetch disponibles and pendientes for the banner counters
       fetchSolicitudesDisponiblesCount();
       fetchSolicitudesPendientesCount();
+      fetchSaldosInstaladores();
     }
   }, [user]);
+
+  // Fetch saldos a favor de instaladores
+  const fetchSaldosInstaladores = async () => {
+    setLoadingSaldos(true);
+    try {
+      const { data, error } = await supabase
+        .from('saldos_instaladores')
+        .select(`
+          id,
+          instalador_id,
+          saldo_acumulado,
+          ultimo_corte_id,
+          instaladores!inner(nombre),
+          cortes_semanales(nombre, fecha_fin)
+        `)
+        .gt('saldo_acumulado', 0)
+        .order('saldo_acumulado', { ascending: false });
+      
+      if (error) throw error;
+      
+      setSaldosInstaladores((data || []).map((s: any) => ({
+        id: s.id,
+        instalador_id: s.instalador_id,
+        instalador_nombre: s.instaladores?.nombre || 'Desconocido',
+        saldo_acumulado: Number(s.saldo_acumulado),
+        ultimo_corte_nombre: s.cortes_semanales?.nombre || null,
+        ultimo_corte_fecha: s.cortes_semanales?.fecha_fin || null
+      })));
+    } catch (error) {
+      console.error('Error fetching saldos:', error);
+    } finally {
+      setLoadingSaldos(false);
+    }
+  };
 
   // Quick fetch just for count (used on mount)
   const fetchSolicitudesDisponiblesCount = async () => {
@@ -1572,6 +1619,14 @@ export default function CortesPage() {
               </Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="saldos" className="flex items-center gap-2">
+            Saldos a Favor
+            {saldosInstaladores.length > 0 && (
+              <Badge variant="outline" className="ml-1 bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border-amber-300">
+                {saldosInstaladores.length}
+              </Badge>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="cortes" className="space-y-4 mt-4">
@@ -1751,6 +1806,73 @@ export default function CortesPage() {
                         >
                           {cancelingId === sol.id ? 'Cancelando...' : 'Cancelar'}
                         </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </TabsContent>
+
+        <TabsContent value="saldos" className="space-y-4 mt-4">
+          {loadingSaldos ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+          ) : (
+            <>
+              {/* Summary card */}
+              <div className="flex items-center justify-between p-4 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <DollarSign className="w-5 h-5 text-amber-600" />
+                  <div>
+                    <p className="font-medium text-amber-800 dark:text-amber-200">
+                      {saldosInstaladores.length} instalador{saldosInstaladores.length !== 1 ? 'es' : ''} con saldo a favor
+                    </p>
+                    <p className="text-sm text-amber-600 dark:text-amber-400">
+                      Estos saldos se descontarán automáticamente en el próximo corte de cada instalador
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-muted-foreground">Total pendiente</p>
+                  <p className="text-lg font-bold text-amber-700 dark:text-amber-300">
+                    {formatCurrency(saldosInstaladores.reduce((sum, s) => sum + s.saldo_acumulado, 0))}
+                  </p>
+                </div>
+              </div>
+
+              {/* Saldos list */}
+              {saldosInstaladores.length === 0 ? (
+                <EmptyState
+                  icon={CheckCircle}
+                  title="Sin saldos pendientes"
+                  description="No hay instaladores con saldo a favor actualmente"
+                />
+              ) : (
+                <div className="space-y-2">
+                  {saldosInstaladores.map((saldo) => (
+                    <div 
+                      key={saldo.id} 
+                      className="flex justify-between items-center p-4 bg-card border rounded-lg"
+                    >
+                      <div className="flex-1">
+                        <div className="font-medium">{saldo.instalador_nombre}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {saldo.ultimo_corte_nombre 
+                            ? `Generado en: ${saldo.ultimo_corte_nombre}`
+                            : 'Sin corte asociado'}
+                          {saldo.ultimo_corte_fecha && (
+                            <span> • {format(new Date(saldo.ultimo_corte_fecha), 'dd MMM yyyy', { locale: es })}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-lg text-amber-600">
+                          {formatCurrency(saldo.saldo_acumulado)}
+                        </p>
+                        <span className="text-xs text-muted-foreground">Saldo a favor</span>
                       </div>
                     </div>
                   ))}
