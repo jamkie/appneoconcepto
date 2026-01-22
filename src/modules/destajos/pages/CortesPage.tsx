@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Plus, Eye, Lock, Search, Users, Unlock, Download, FileText, Trash2, CheckCircle } from 'lucide-react';
+import { Calendar, Plus, Lock, Search, Users, Unlock, Download, FileText, Trash2, CheckCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -36,9 +36,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { format, startOfWeek, endOfWeek, addWeeks, getWeek } from 'date-fns';
+import { format, startOfWeek, endOfWeek, getWeek } from 'date-fns';
 import { es } from 'date-fns/locale';
-import type { CorteSemanal, SolicitudPago, Instalador, Obra } from '../types';
+import type { CorteSemanal, SolicitudPago } from '../types';
 
 interface CorteWithDetails extends CorteSemanal {
   solicitudes_count?: number;
@@ -99,10 +99,9 @@ export default function CortesPage() {
   const [filterInstaladorId, setFilterInstaladorId] = useState<string>('todos');
   const [loadingDetail, setLoadingDetail] = useState(false);
   
-  // Nomina configuration step (before closing)
-  const [showNominaConfig, setShowNominaConfig] = useState(false);
+  // Inline salary editing
   const [salarioEdits, setSalarioEdits] = useState<Record<string, number>>({});
-  const [savingSalarios, setSavingSalarios] = useState(false);
+  const [savingSalarioId, setSavingSalarioId] = useState<string | null>(null);
   
   // Close corte confirmation
   const [confirmClose, setConfirmClose] = useState(false);
@@ -774,8 +773,32 @@ export default function CortesPage() {
   const handleCloseCorte = async () => {
     if (!viewingCorte || !user) return;
     
+    // Calculate values with edited salaries for each instalador
+    const instaladoresCalculados = resumenInstaladores.map(inst => {
+      const salario = salarioEdits[inst.id] ?? inst.salarioSemanal;
+      const basePago = inst.destajoAcumulado - salario + inst.saldoAnterior;
+      
+      if (basePago >= 0) {
+        return {
+          ...inst,
+          salarioSemanal: salario,
+          destajoADepositar: basePago,
+          aDepositar: Math.floor(basePago / 50) * 50,
+          saldoGenerado: 0,
+        };
+      } else {
+        return {
+          ...inst,
+          salarioSemanal: salario,
+          destajoADepositar: 0,
+          aDepositar: 0,
+          saldoGenerado: Math.max(0, salario - inst.destajoAcumulado),
+        };
+      }
+    });
+    
     // Check if there are any instaladores with aDepositar > 0 or saldoGenerado > 0
-    const instaladoresConPago = resumenInstaladores.filter(i => i.aDepositar > 0 || i.saldoGenerado > 0);
+    const instaladoresConPago = instaladoresCalculados.filter(i => i.aDepositar > 0 || i.saldoGenerado > 0);
     if (instaladoresConPago.length === 0 && corteSolicitudes.length === 0) {
       toast({
         title: 'Error',
@@ -787,6 +810,19 @@ export default function CortesPage() {
     
     try {
       setClosingCorte(true);
+      
+      // Update salaries in instaladores table if they changed
+      for (const inst of resumenInstaladores) {
+        const editedSalario = salarioEdits[inst.id];
+        if (editedSalario !== undefined && editedSalario !== inst.salarioSemanal) {
+          const { error } = await supabase
+            .from('instaladores')
+            .update({ salario_semanal: editedSalario })
+            .eq('id', inst.id);
+          
+          if (error) throw error;
+        }
+      }
       
       // Group solicitudes by instalador and obra for payment generation
       const pagoGroups: Record<string, { 
@@ -810,11 +846,11 @@ export default function CortesPage() {
         pagoGroups[key].solicitud_ids.push(sol.id);
       });
       
-      // Process each active instalador
+      // Process each active instalador (use calculated values)
       let pagosGenerados = 0;
-      const totalADepositar = resumenInstaladores.reduce((sum, i) => sum + i.aDepositar, 0);
+      const totalADepositar = instaladoresCalculados.reduce((sum, i) => sum + i.aDepositar, 0);
       
-      for (const inst of resumenInstaladores) {
+      for (const inst of instaladoresCalculados) {
         // Save corte_instaladores record for historical data
         const { error: ciError } = await supabase
           .from('corte_instaladores')
@@ -1199,85 +1235,67 @@ export default function CortesPage() {
     }
   };
 
-  // Open nomina config step
-  const openNominaConfig = () => {
-    // Pre-load current salaries
-    const initialEdits: Record<string, number> = {};
-    resumenInstaladores.forEach(inst => {
-      initialEdits[inst.id] = inst.salarioSemanal;
-    });
-    setSalarioEdits(initialEdits);
-    setShowNominaConfig(true);
-  };
-
-  // Confirm nomina and proceed to close
-  const confirmNominaAndClose = async () => {
+  // Handle inline salary save (on blur)
+  const handleSaveSalario = async (instaladorId: string) => {
+    const newSalario = salarioEdits[instaladorId];
+    if (newSalario === undefined) return;
+    
+    const inst = resumenInstaladores.find(i => i.id === instaladorId);
+    if (!inst || newSalario === inst.salarioSemanal) return;
+    
     try {
-      setSavingSalarios(true);
+      setSavingSalarioId(instaladorId);
       
-      // Update salaries in instaladores table if they changed
-      for (const inst of resumenInstaladores) {
-        const editedSalario = salarioEdits[inst.id];
-        if (editedSalario !== undefined && editedSalario !== inst.salarioSemanal) {
-          const { error } = await supabase
-            .from('instaladores')
-            .update({ salario_semanal: editedSalario })
-            .eq('id', inst.id);
-          
-          if (error) throw error;
-        }
-      }
-      // Count how many salaries were updated
-      const updatedCount = resumenInstaladores.filter(inst => {
-        const editedSalario = salarioEdits[inst.id];
-        return editedSalario !== undefined && editedSalario !== inst.salarioSemanal;
-      }).length;
+      const { error } = await supabase
+        .from('instaladores')
+        .update({ salario_semanal: newSalario })
+        .eq('id', instaladorId);
       
-      if (updatedCount > 0) {
-        toast({
-          title: 'Salarios actualizados',
-          description: `Se actualizaron ${updatedCount} salario${updatedCount !== 1 ? 's' : ''}`,
-        });
-      }
+      if (error) throw error;
       
-      // Update local state with new salaries
+      // Recalculate and update local state
       setResumenInstaladores(prev => 
-        prev.map(inst => {
-          const newSalario = salarioEdits[inst.id] ?? inst.salarioSemanal;
-          const basePago = inst.destajoAcumulado - newSalario + inst.saldoAnterior;
+        prev.map(i => {
+          if (i.id !== instaladorId) return i;
+          
+          const basePago = i.destajoAcumulado - newSalario + i.saldoAnterior;
           
           if (basePago >= 0) {
             return {
-              ...inst,
+              ...i,
               salarioSemanal: newSalario,
               destajoADepositar: basePago,
               aDepositar: Math.floor(basePago / 50) * 50,
               saldoGenerado: 0,
+              total: Math.floor(basePago / 50) * 50,
             };
           } else {
+            const saldo = Math.max(0, newSalario - i.destajoAcumulado);
             return {
-              ...inst,
+              ...i,
               salarioSemanal: newSalario,
               destajoADepositar: 0,
               aDepositar: 0,
-              saldoGenerado: Math.max(0, newSalario - inst.destajoAcumulado),
+              saldoGenerado: saldo,
+              total: 0,
             };
           }
         })
       );
       
-      // Close config and open confirmation
-      setShowNominaConfig(false);
-      setConfirmClose(true);
+      toast({
+        title: 'Salario actualizado',
+        description: `${inst.nombre}: ${formatCurrency(newSalario)}`,
+      });
     } catch (error) {
-      console.error('Error updating salaries:', error);
+      console.error('Error updating salary:', error);
       toast({
         title: 'Error',
-        description: 'No se pudieron actualizar los salarios',
+        description: 'No se pudo actualizar el salario',
         variant: 'destructive',
       });
     } finally {
-      setSavingSalarios(false);
+      setSavingSalarioId(null);
     }
   };
 
@@ -1712,39 +1730,73 @@ export default function CortesPage() {
                       <div className="text-right">Saldo Ant.</div>
                       <div className="text-right">A Depositar</div>
                     </div>
-                    {resumenInstaladores.map((inst) => (
-                      <div 
-                        key={inst.id} 
-                        className={`grid grid-cols-6 gap-2 px-3 py-2 rounded-lg ${
-                          inst.destajoAcumulado > 0 || inst.saldoGenerado > 0 
-                            ? 'bg-muted/50' 
-                            : 'bg-muted/20 opacity-60'
-                        }`}
-                      >
-                        <div className="col-span-2">
-                          <span className="font-medium text-sm">{inst.nombre}</span>
-                          {inst.saldoGenerado > 0 && (
-                            <Badge variant="outline" className="ml-2 text-xs text-amber-600 border-amber-300">
-                              +{formatCurrency(inst.saldoGenerado)} saldo
-                            </Badge>
-                          )}
+                    {resumenInstaladores.map((inst) => {
+                      const displaySalario = salarioEdits[inst.id] ?? inst.salarioSemanal;
+                      const basePago = inst.destajoAcumulado - displaySalario + inst.saldoAnterior;
+                      const displayADepositar = basePago >= 0 ? Math.floor(basePago / 50) * 50 : 0;
+                      const displaySaldoGenerado = basePago < 0 ? Math.max(0, displaySalario - inst.destajoAcumulado) : 0;
+                      
+                      return (
+                        <div 
+                          key={inst.id} 
+                          className={`grid grid-cols-6 gap-2 px-3 py-2 rounded-lg items-center ${
+                            inst.destajoAcumulado > 0 || inst.saldoGenerado > 0 
+                              ? 'bg-muted/50' 
+                              : 'bg-muted/20 opacity-60'
+                          }`}
+                        >
+                          <div className="col-span-2">
+                            <span className="font-medium text-sm">{inst.nombre}</span>
+                            {displaySaldoGenerado > 0 && (
+                              <Badge variant="outline" className="ml-2 text-xs text-amber-600 border-amber-300">
+                                +{formatCurrency(displaySaldoGenerado)} saldo
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="text-right text-sm">{formatCurrency(inst.destajoAcumulado)}</div>
+                          <div className="text-right">
+                            {viewingCorte?.estado === 'abierto' ? (
+                              <div className="flex items-center justify-end gap-1">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="100"
+                                  value={salarioEdits[inst.id] ?? inst.salarioSemanal}
+                                  onChange={(e) => {
+                                    const value = parseFloat(e.target.value) || 0;
+                                    setSalarioEdits(prev => ({ ...prev, [inst.id]: value }));
+                                  }}
+                                  onBlur={() => handleSaveSalario(inst.id)}
+                                  className="w-24 h-7 text-right text-sm"
+                                  disabled={savingSalarioId === inst.id}
+                                />
+                                {savingSalarioId === inst.id && (
+                                  <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">{formatCurrency(inst.salarioSemanal)}</span>
+                            )}
+                          </div>
+                          <div className="text-right text-sm text-muted-foreground">
+                            {inst.saldoAnterior > 0 ? formatCurrency(inst.saldoAnterior) : '-'}
+                          </div>
+                          <div className="text-right font-semibold text-primary">{formatCurrency(displayADepositar)}</div>
                         </div>
-                        <div className="text-right text-sm">{formatCurrency(inst.destajoAcumulado)}</div>
-                        <div className="text-right text-sm text-muted-foreground">{formatCurrency(inst.salarioSemanal)}</div>
-                        <div className="text-right text-sm text-muted-foreground">
-                          {inst.saldoAnterior > 0 ? formatCurrency(inst.saldoAnterior) : '-'}
-                        </div>
-                        <div className="text-right font-semibold text-primary">{formatCurrency(inst.aDepositar)}</div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {/* Totals row */}
                     <div className="grid grid-cols-6 gap-2 px-3 py-3 bg-primary/10 rounded-lg border border-primary/20 font-semibold">
                       <div className="col-span-2">Total del Corte</div>
                       <div className="text-right">{formatCurrency(resumenInstaladores.reduce((sum, i) => sum + i.destajoAcumulado, 0))}</div>
-                      <div className="text-right">{formatCurrency(resumenInstaladores.reduce((sum, i) => sum + i.salarioSemanal, 0))}</div>
+                      <div className="text-right">{formatCurrency(resumenInstaladores.reduce((sum, i) => sum + (salarioEdits[i.id] ?? i.salarioSemanal), 0))}</div>
                       <div className="text-right">{formatCurrency(resumenInstaladores.reduce((sum, i) => sum + i.saldoAnterior, 0))}</div>
                       <div className="text-right text-primary text-lg">
-                        {formatCurrency(resumenInstaladores.reduce((sum, i) => sum + i.aDepositar, 0))}
+                        {formatCurrency(resumenInstaladores.reduce((sum, inst) => {
+                          const sal = salarioEdits[inst.id] ?? inst.salarioSemanal;
+                          const base = inst.destajoAcumulado - sal + inst.saldoAnterior;
+                          return sum + (base >= 0 ? Math.floor(base / 50) * 50 : 0);
+                        }, 0))}
                       </div>
                     </div>
                   </div>
@@ -1935,7 +1987,7 @@ export default function CortesPage() {
               </Button>
             )}
             {viewingCorte?.estado === 'abierto' && corteSolicitudes.length > 0 && (
-              <Button onClick={openNominaConfig}>
+              <Button onClick={() => setConfirmClose(true)}>
                 <Lock className="w-4 h-4 mr-2" />
                 Cerrar Corte y Generar Pagos
               </Button>
@@ -1953,141 +2005,6 @@ export default function CortesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Nomina Configuration Step */}
-      <Dialog open={showNominaConfig} onOpenChange={setShowNominaConfig}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Users className="w-5 h-5" />
-              Configurar Nómina - {viewingCorte?.nombre}
-            </DialogTitle>
-          </DialogHeader>
-          
-          <div className="space-y-4 py-4">
-            <p className="text-muted-foreground text-sm">
-              Revisa y ajusta los salarios semanales antes de cerrar el corte. Los cambios se guardarán automáticamente.
-            </p>
-            
-            {/* Editable salary table */}
-            <div className="border rounded-lg overflow-hidden">
-              <div className="grid grid-cols-6 gap-2 px-4 py-3 bg-muted text-xs font-semibold text-muted-foreground">
-                <div className="col-span-2">Instalador</div>
-                <div className="text-right">Destajo</div>
-                <div className="text-right">Salario Semanal</div>
-                <div className="text-right">Saldo Ant.</div>
-                <div className="text-right">A Depositar</div>
-              </div>
-              
-              <div className="divide-y max-h-80 overflow-y-auto">
-                {resumenInstaladores
-                  .filter(inst => inst.destajoAcumulado > 0 || inst.saldoAnterior !== 0)
-                  .map((inst) => {
-                    const calculated = getCalculatedValues(inst);
-                    return (
-                      <div 
-                        key={inst.id} 
-                        className="grid grid-cols-6 gap-2 px-4 py-3 items-center hover:bg-muted/50"
-                      >
-                        <div className="col-span-2">
-                          <p className="font-medium text-sm">{inst.nombre}</p>
-                          {inst.banco && (
-                            <p className="text-xs text-muted-foreground">{inst.banco}</p>
-                          )}
-                        </div>
-                        <div className="text-right font-medium text-sm">
-                          {formatCurrency(inst.destajoAcumulado)}
-                        </div>
-                        <div className="text-right">
-                          <Input
-                            type="number"
-                            min="0"
-                            step="100"
-                            value={salarioEdits[inst.id] ?? inst.salarioSemanal}
-                            onChange={(e) => {
-                              const value = parseFloat(e.target.value) || 0;
-                              setSalarioEdits(prev => ({ ...prev, [inst.id]: value }));
-                            }}
-                            className="w-28 h-8 text-right text-sm ml-auto"
-                          />
-                        </div>
-                        <div className="text-right text-sm">
-                          {inst.saldoAnterior > 0 ? (
-                            <span className="text-green-600">+{formatCurrency(inst.saldoAnterior)}</span>
-                          ) : inst.saldoAnterior < 0 ? (
-                            <span className="text-red-600">{formatCurrency(inst.saldoAnterior)}</span>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </div>
-                        <div className="text-right">
-                          {calculated.aDepositar > 0 ? (
-                            <span className="font-bold text-primary">{formatCurrency(calculated.aDepositar)}</span>
-                          ) : calculated.saldoGenerado > 0 ? (
-                            <span className="text-amber-600 text-sm">Saldo +{formatCurrency(calculated.saldoGenerado)}</span>
-                          ) : (
-                            <span className="text-muted-foreground">$0</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-            
-            {/* Summary */}
-            <div className="flex justify-between items-center p-4 bg-muted rounded-lg">
-              <div>
-                <p className="text-sm text-muted-foreground">Total a depositar</p>
-                <p className="text-2xl font-bold text-primary">
-                  {formatCurrency(
-                    resumenInstaladores
-                      .filter(inst => inst.destajoAcumulado > 0 || inst.saldoAnterior !== 0)
-                      .reduce((sum, inst) => sum + getCalculatedValues(inst).aDepositar, 0)
-                  )}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-sm text-muted-foreground">Saldos generados</p>
-                <p className="text-lg font-medium text-amber-600">
-                  {formatCurrency(
-                    resumenInstaladores
-                      .filter(inst => inst.destajoAcumulado > 0 || inst.saldoAnterior !== 0)
-                      .reduce((sum, inst) => sum + getCalculatedValues(inst).saldoGenerado, 0)
-                  )}
-                </p>
-              </div>
-            </div>
-            
-            {/* Payment method */}
-            <div className="space-y-2">
-              <Label>Método de pago</Label>
-              <Select value={metodoPago} onValueChange={(v) => setMetodoPago(v as any)}>
-                <SelectTrigger className="w-full sm:w-[200px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="transferencia">Transferencia</SelectItem>
-                  <SelectItem value="efectivo">Efectivo</SelectItem>
-                  <SelectItem value="cheque">Cheque</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowNominaConfig(false)}>
-              Cancelar
-            </Button>
-            <Button 
-              onClick={confirmNominaAndClose}
-              disabled={savingSalarios}
-            >
-              {savingSalarios ? 'Guardando...' : 'Confirmar y Cerrar Corte'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Confirm Close Corte Dialog */}
       <AlertDialog open={confirmClose} onOpenChange={setConfirmClose}>
         <AlertDialogContent>
@@ -2099,26 +2016,47 @@ export default function CortesPage() {
                 <p className="font-medium mb-2">Resumen de pagos a generar:</p>
                 <ul className="text-sm space-y-1">
                   {resumenInstaladores
-                    .filter(inst => inst.aDepositar > 0)
-                    .map((inst) => (
-                    <li key={inst.id} className="flex justify-between">
-                      <span>{inst.nombre}</span>
-                      <span className="font-medium">{formatCurrency(inst.aDepositar)}</span>
-                    </li>
-                  ))}
+                    .filter(inst => {
+                      const sal = salarioEdits[inst.id] ?? inst.salarioSemanal;
+                      const base = inst.destajoAcumulado - sal + inst.saldoAnterior;
+                      return base >= 0 && Math.floor(base / 50) * 50 > 0;
+                    })
+                    .map((inst) => {
+                      const sal = salarioEdits[inst.id] ?? inst.salarioSemanal;
+                      const base = inst.destajoAcumulado - sal + inst.saldoAnterior;
+                      const aDepositar = Math.floor(base / 50) * 50;
+                      return (
+                        <li key={inst.id} className="flex justify-between">
+                          <span>{inst.nombre}</span>
+                          <span className="font-medium">{formatCurrency(aDepositar)}</span>
+                        </li>
+                      );
+                    })}
                 </ul>
-                {resumenInstaladores.some(inst => inst.saldoGenerado > 0) && (
+                {resumenInstaladores.some(inst => {
+                  const sal = salarioEdits[inst.id] ?? inst.salarioSemanal;
+                  const base = inst.destajoAcumulado - sal + inst.saldoAnterior;
+                  return base < 0 && sal - inst.destajoAcumulado > 0;
+                }) && (
                   <div className="mt-3 pt-2 border-t">
                     <p className="text-xs text-muted-foreground mb-1">Saldos a favor generados:</p>
                     <ul className="text-sm space-y-1">
                       {resumenInstaladores
-                        .filter(inst => inst.saldoGenerado > 0)
-                        .map((inst) => (
-                        <li key={inst.id} className="flex justify-between text-amber-600">
-                          <span>{inst.nombre}</span>
-                          <span>+{formatCurrency(inst.saldoGenerado)}</span>
-                        </li>
-                      ))}
+                        .filter(inst => {
+                          const sal = salarioEdits[inst.id] ?? inst.salarioSemanal;
+                          const base = inst.destajoAcumulado - sal + inst.saldoAnterior;
+                          return base < 0 && sal - inst.destajoAcumulado > 0;
+                        })
+                        .map((inst) => {
+                          const sal = salarioEdits[inst.id] ?? inst.salarioSemanal;
+                          const saldoGenerado = sal - inst.destajoAcumulado;
+                          return (
+                            <li key={inst.id} className="flex justify-between text-amber-600">
+                              <span>{inst.nombre}</span>
+                              <span>+{formatCurrency(saldoGenerado)}</span>
+                            </li>
+                          );
+                        })}
                     </ul>
                   </div>
                 )}
