@@ -535,12 +535,14 @@ export type Database = {
       }
       obras: {
         Row: {
+          cerrado_manualmente: boolean
           cliente: string | null
           created_at: string | null
           created_by: string | null
           descuento: number
           estado: Database["public"]["Enums"]["obra_status"] | null
           id: string
+          motivo_cierre: string | null
           nombre: string
           precio_closet: number
           precio_cocina: number
@@ -551,12 +553,14 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          cerrado_manualmente?: boolean
           cliente?: string | null
           created_at?: string | null
           created_by?: string | null
           descuento?: number
           estado?: Database["public"]["Enums"]["obra_status"] | null
           id?: string
+          motivo_cierre?: string | null
           nombre: string
           precio_closet?: number
           precio_cocina?: number
@@ -567,12 +571,14 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          cerrado_manualmente?: boolean
           cliente?: string | null
           created_at?: string | null
           created_by?: string | null
           descuento?: number
           estado?: Database["public"]["Enums"]["obra_status"] | null
           id?: string
+          motivo_cierre?: string | null
           nombre?: string
           precio_closet?: number
           precio_cocina?: number

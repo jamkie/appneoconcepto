@@ -84,6 +84,8 @@ interface ObraWithItems extends Obra {
   pagos: PagoInfo[];
   anticipos: AnticipoInfo[];
   created_by?: string;
+  cerrado_manualmente?: boolean;
+  motivo_cierre?: string | null;
 }
 
 interface ProfileInfo {
@@ -123,6 +125,10 @@ export default function ObrasPage() {
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [detailObra, setDetailObra] = useState<ObraWithItems | null>(null);
   const [activeTab, setActiveTab] = useState<string>('activas');
+  const [concludeDialogOpen, setConcludeDialogOpen] = useState(false);
+  const [concludeObra, setConcludeObra] = useState<ObraWithItems | null>(null);
+  const [motivoCierre, setMotivoCierre] = useState('');
+  const [concluding, setConcluding] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -454,6 +460,66 @@ export default function ObrasPage() {
       toast({
         title: 'No se puede eliminar',
         description: mensaje,
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleConcludeObra = async () => {
+    if (!concludeObra) return;
+
+    try {
+      setConcluding(true);
+      const { error } = await supabase
+        .from('obras')
+        .update({
+          estado: 'cerrada',
+          cerrado_manualmente: true,
+          motivo_cierre: motivoCierre.trim() || null,
+        })
+        .eq('id', concludeObra.id);
+
+      if (error) throw error;
+
+      toast({ title: 'Éxito', description: 'Obra concluida correctamente' });
+      setConcludeDialogOpen(false);
+      setConcludeObra(null);
+      setMotivoCierre('');
+      setDetailDialogOpen(false);
+      fetchObras();
+    } catch (error: any) {
+      console.error('Error concluding obra:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo concluir la obra',
+        variant: 'destructive',
+      });
+    } finally {
+      setConcluding(false);
+    }
+  };
+
+  const handleReopenObra = async (obra: ObraWithItems) => {
+    try {
+      const { error } = await supabase
+        .from('obras')
+        .update({
+          estado: 'activa',
+          cerrado_manualmente: false,
+          motivo_cierre: null,
+        })
+        .eq('id', obra.id);
+
+      if (error) throw error;
+
+      toast({ title: 'Éxito', description: 'Obra reabierta correctamente' });
+      setDetailDialogOpen(false);
+      fetchObras();
+    } catch (error: any) {
+      console.error('Error reopening obra:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo reabrir la obra',
         variant: 'destructive',
       });
     }
@@ -1356,6 +1422,53 @@ export default function ObrasPage() {
                 </div>
               </div>
             )}
+
+            {/* Conclude obra button for active obras */}
+            {detailObra?.estado === 'activa' && (
+              <div className="w-full">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (detailObra) {
+                      setConcludeObra(detailObra);
+                      setConcludeDialogOpen(true);
+                    }
+                  }}
+                  className="gap-2 w-full border-amber-500/50 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  Concluir Obra (Cerrar Manualmente)
+                </Button>
+              </div>
+            )}
+
+            {/* Reopen obra button for manually closed obras */}
+            {detailObra?.estado === 'cerrada' && (detailObra as any).cerrado_manualmente && (
+              <div className="w-full">
+                <div className="flex items-center gap-2 mb-2">
+                  <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-xs">
+                    Cerrada manualmente
+                  </Badge>
+                  {(detailObra as any).motivo_cierre && (
+                    <span className="text-xs text-muted-foreground truncate">
+                      {(detailObra as any).motivo_cierre}
+                    </span>
+                  )}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (detailObra) handleReopenObra(detailObra);
+                  }}
+                  className="gap-2 w-full"
+                >
+                  <Clock className="w-4 h-4" />
+                  Reabrir Obra
+                </Button>
+              </div>
+            )}
             
             {/* Management actions */}
             <div className="flex flex-wrap gap-2 w-full justify-between items-center">
@@ -1465,6 +1578,53 @@ export default function ObrasPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Conclude Obra Dialog */}
+      <AlertDialog open={concludeDialogOpen} onOpenChange={setConcludeDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Concluir esta obra?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <p>
+                Estás a punto de concluir <strong>{concludeObra?.nombre}</strong> aunque no esté completamente instalada o pagada.
+              </p>
+              <p className="text-amber-600">
+                Esta acción moverá la obra a "Concluidas" y no se reabrirá automáticamente aunque queden piezas o pagos pendientes.
+              </p>
+              <div className="pt-2">
+                <Label htmlFor="motivo" className="text-foreground">Motivo del cierre (opcional)</Label>
+                <Input
+                  id="motivo"
+                  placeholder="Ej: Cliente canceló piezas restantes"
+                  value={motivoCierre}
+                  onChange={(e) => setMotivoCierre(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setMotivoCierre('');
+              setConcludeObra(null);
+            }}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConcludeObra}
+              disabled={concluding}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              {concluding ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCircle className="w-4 h-4 mr-2" />
+              )}
+              Concluir Obra
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
