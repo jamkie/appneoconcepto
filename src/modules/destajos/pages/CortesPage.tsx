@@ -1350,14 +1350,7 @@ export default function CortesPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {/* Pending approval banner */}
             <button
-              onClick={() => {
-                const corteAbierto = cortes.find(c => c.estado === 'abierto');
-                if (corteAbierto) {
-                  handleViewCorte(corteAbierto);
-                } else {
-                  openNewCorteModal();
-                }
-              }}
+              onClick={() => navigate('/destajos/solicitudes')}
               className="flex items-center justify-between p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-950/40 transition-colors cursor-pointer text-left w-full"
             >
               <div className="flex items-center gap-2">
