@@ -257,10 +257,15 @@ export default function CortesPage() {
         (cortesData || []).map(async (corte) => {
           const { count, data: solicitudesData } = await supabase
             .from('solicitudes_pago')
-            .select('total_solicitado', { count: 'exact' })
+            .select('total_solicitado, tipo', { count: 'exact' })
             .eq('corte_id', corte.id);
           
-          const total = (solicitudesData || []).reduce((sum, s) => sum + Number(s.total_solicitado), 0);
+          // Calculate total: 'saldo' type requests are DEDUCTIONS (credit in favor of company)
+          const total = (solicitudesData || []).reduce((sum, s) => {
+            const monto = Number(s.total_solicitado);
+            // Saldo requests subtract from total (they are deductions)
+            return s.tipo === 'saldo' ? sum - monto : sum + monto;
+          }, 0);
           
           return {
             ...corte,
