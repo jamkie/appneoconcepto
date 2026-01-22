@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Plus, Lock, Search, Users, Unlock, Download, FileText, Trash2, CheckCircle, Minus, DollarSign } from 'lucide-react';
+import { Calendar, Plus, Lock, Search, Users, Unlock, Download, FileText, Trash2, CheckCircle, Minus, DollarSign, Wallet } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/integrations/supabase/client';
@@ -872,6 +872,11 @@ export default function CortesPage() {
       // Refresh data
       fetchSaldosInstaladores();
       fetchCortes();
+      
+      // If currently viewing an open corte, refresh its detail
+      if (viewingCorte && viewingCorte.estado === 'abierto') {
+        handleViewCorte(viewingCorte);
+      }
       
     } catch (error) {
       console.error('Error applying saldo to corte:', error);
@@ -2661,6 +2666,52 @@ export default function CortesPage() {
                             onClick={() => handleAddSolicitudToCorte(sol.id)}
                           >
                             Agregar
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Saldos a favor pendientes (para aplicar como descuento) */}
+              {viewingCorte?.estado === 'abierto' && saldosInstaladores.length > 0 && (
+                <div>
+                  {/* Summary banner */}
+                  <div className="flex items-center justify-between p-3 mb-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Wallet className="w-4 h-4 text-amber-600" />
+                      <span className="font-medium text-amber-800 dark:text-amber-200 text-sm">
+                        {saldosInstaladores.length} saldo{saldosInstaladores.length !== 1 ? 's' : ''} a favor pendiente{saldosInstaladores.length !== 1 ? 's' : ''} de descontar
+                      </span>
+                    </div>
+                    <span className="font-bold text-amber-700 dark:text-amber-300">
+                      {formatCurrency(saldosInstaladores.reduce((sum, s) => sum + s.saldo_acumulado, 0))}
+                    </span>
+                  </div>
+                  
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Estos saldos son a favor de la empresa. Al aplicarlos, se descontarán del pago del instalador.
+                  </p>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {saldosInstaladores.map((saldo) => (
+                      <div key={saldo.id} className="flex justify-between items-center p-2 border border-amber-300 bg-amber-50/50 dark:bg-amber-950/20 rounded-lg">
+                        <div className="flex-1">
+                          <div className="font-medium text-sm">{saldo.instalador_nombre}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {saldo.ultimo_corte_nombre ? `Desde: ${saldo.ultimo_corte_nombre}` : 'Saldo pendiente'}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-amber-700">-{formatCurrency(saldo.saldo_acumulado)}</span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleApplySaldoToCorte(saldo)}
+                            disabled={applyingSaldoId === saldo.id}
+                            className="border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-950/50"
+                          >
+                            {applyingSaldoId === saldo.id ? 'Aplicando...' : 'Descontar'}
                           </Button>
                         </div>
                       </div>
