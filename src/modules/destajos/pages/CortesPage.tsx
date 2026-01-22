@@ -1482,23 +1482,45 @@ export default function CortesPage() {
       
       if (solicitudesError) throw solicitudesError;
       
-      // Revert saldos - restore saldo_anterior values
-      for (const ci of (ciData || [])) {
-        const { error: saldoError } = await supabase
+      // Identify 'saldo' type solicitudes - these need to be restored to saldos_instaladores
+      const saldoSolicitudes = (solicitudesData || []).filter(s => s.tipo === 'saldo');
+      
+      // First, restore saldos from 'saldo' type solicitudes (they were deducted when applied)
+      for (const sol of saldoSolicitudes) {
+        // Get current saldo for this instalador
+        const { data: currentSaldo } = await supabase
+          .from('saldos_instaladores')
+          .select('saldo_acumulado')
+          .eq('instalador_id', sol.instalador_id)
+          .maybeSingle();
+        
+        const currentAmount = Number(currentSaldo?.saldo_acumulado) || 0;
+        const restoredAmount = currentAmount + Number(sol.total_solicitado);
+        
+        // Restore the saldo amount
+        const { error: restoreError } = await supabase
           .from('saldos_instaladores')
           .upsert({
-            instalador_id: ci.instalador_id,
-            saldo_acumulado: ci.saldo_anterior,
-            ultimo_corte_id: null,
+            instalador_id: sol.instalador_id,
+            saldo_acumulado: restoredAmount,
             updated_at: new Date().toISOString(),
           }, {
             onConflict: 'instalador_id'
           });
         
-        if (saldoError) throw saldoError;
+        if (restoreError) throw restoreError;
+        
+        // Delete the 'saldo' solicitud
+        const { error: deleteSolError } = await supabase
+          .from('solicitudes_pago')
+          .delete()
+          .eq('id', sol.id);
+        
+        if (deleteSolError) throw deleteSolError;
       }
       
-      // Delete corte_instaladores records
+      // Delete corte_instaladores records (no longer need to revert saldos from here 
+      // since the snapshot saldo_anterior was the state BEFORE applying saldo deductions)
       const { error: deleteCiError } = await supabase
         .from('corte_instaladores')
         .delete()
@@ -1516,7 +1538,7 @@ export default function CortesPage() {
         if (deleteError) throw deleteError;
       }
       
-      // NOTE: Do NOT revert solicitudes to 'pendiente' here.
+      // NOTE: Do NOT revert other solicitudes to 'pendiente' here.
       // Solicitudes keep their 'aprobada' status when reopening a corte.
       // They only revert to 'pendiente' when manually removed from the corte.
       // Anticipos and extras also stay approved - they were created at approval time.
@@ -1534,15 +1556,17 @@ export default function CortesPage() {
       
       if (corteError) throw corteError;
       
+      const saldosRestaurados = saldoSolicitudes.length;
       toast({
         title: 'Corte reabierto',
-        description: `Se eliminaron ${pagosData?.length || 0} pagos y se revirtieron los saldos`,
+        description: `Se eliminaron ${pagosData?.length || 0} pagos${saldosRestaurados > 0 ? ` y se restauraron ${saldosRestaurados} saldo${saldosRestaurados !== 1 ? 's' : ''} pendiente${saldosRestaurados !== 1 ? 's' : ''}` : ''}`,
       });
       
       setConfirmReopen(false);
       setViewingCorte(null);
       setSelectedForRemoval(new Set());
       fetchCortes();
+      fetchSaldosInstaladores(); // Refresh saldos list
     } catch (error) {
       console.error('Error reopening corte:', error);
       toast({
