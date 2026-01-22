@@ -35,7 +35,8 @@ export const useExportCorteExcel = () => {
         .select(`
           total_solicitado,
           instalador_id,
-          solicitado_por
+          solicitado_por,
+          tipo
         `)
         .eq('corte_id', corte.id);
 
@@ -102,9 +103,14 @@ export const useExportCorteExcel = () => {
       });
       
       // Add solicitudes data
+      // IMPORTANT: Anticipos are NOT included in destajoAcumulado because they represent
+      // money already given in advance, not work to be paid.
       (solicitudes || []).forEach((sol: any) => {
         if (instaladorMap[sol.instalador_id]) {
-          instaladorMap[sol.instalador_id].destajoAcumulado += Number(sol.total_solicitado) || 0;
+          // Only add non-anticipo solicitudes to destajo calculation
+          if (sol.tipo !== 'anticipo') {
+            instaladorMap[sol.instalador_id].destajoAcumulado += Number(sol.total_solicitado) || 0;
+          }
           
           // Add the person who registered this solicitud as "jefe directo"
           if (sol.solicitado_por && profileNames[sol.solicitado_por]) {
