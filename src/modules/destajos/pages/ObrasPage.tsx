@@ -245,11 +245,25 @@ export default function ObrasPage() {
           // Filter: exclude pagos from anticipos that haven't been applied
           .filter((p) => !p.esDeAnticipo || p.anticipoAplicado);
 
-        // Calculate total pagado (from all pagos, including anticipo ones)
-        const allPagos = (pagosData || [])
+        // Total Pagado (Obras): contar pagos normales + anticipos aprobados.
+        // Importante: si existe un pago que coincide con un anticipo, lo excluimos del total de pagos
+        // para evitar duplicar (se contará por el anticipo).
+        const totalAnticiposOtorgados = obraAnticiposRaw
+          .reduce((sum, a) => sum + Number(a.monto_original), 0);
+
+        const totalPagosSinAnticipos = (pagosData || [])
           .filter((p) => p.obra_id === obra.id)
+          .filter((p) => {
+            const matched = obraAnticiposRaw.some((a) =>
+              a.instalador_id === p.instalador_id &&
+              Math.abs(Number(a.monto_original) - Number(p.monto)) < 0.01 &&
+              new Date(a.created_at).toDateString() === new Date(p.created_at).toDateString()
+            );
+            return !matched;
+          })
           .reduce((sum, p) => sum + Number(p.monto), 0);
-        const totalPagado = allPagos;
+
+        const totalPagado = totalPagosSinAnticipos + totalAnticiposOtorgados;
 
         // Get extras for this obra with rejected status from solicitudes
         const rejectedExtraIds = (solicitudesRechazadas || [])
