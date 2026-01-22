@@ -96,6 +96,8 @@ export default function SolicitudesPage() {
   });
   const [savingAnticipo, setSavingAnticipo] = useState(false);
   
+  // View anticipos modal
+  const [showAnticiposModal, setShowAnticiposModal] = useState(false);
 
 
   useEffect(() => {
@@ -797,17 +799,23 @@ export default function SolicitudesPage() {
         }
       />
 
-      {/* Anticipos Summary */}
+      {/* Anticipos Summary - Clickable */}
       {totalAnticiposDisponibles > 0 && (
-        <div className="mb-6 p-4 rounded-lg border bg-amber-50 border-amber-200">
-          <div className="flex items-center gap-2">
-            <Banknote className="w-5 h-5 text-amber-600" />
-            <span className="font-medium text-amber-800">
-              Anticipos disponibles: {formatCurrency(totalAnticiposDisponibles)}
-            </span>
-            <span className="text-sm text-amber-600">
-              ({anticipos.length} anticipo{anticipos.length !== 1 ? 's' : ''})
-            </span>
+        <div 
+          className="mb-6 p-4 rounded-lg border bg-amber-50 border-amber-200 cursor-pointer hover:bg-amber-100 transition-colors"
+          onClick={() => setShowAnticiposModal(true)}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Banknote className="w-5 h-5 text-amber-600" />
+              <span className="font-medium text-amber-800">
+                Anticipos disponibles: {formatCurrency(totalAnticiposDisponibles)}
+              </span>
+              <span className="text-sm text-amber-600">
+                ({anticipos.length} anticipo{anticipos.length !== 1 ? 's' : ''})
+              </span>
+            </div>
+            <Eye className="w-4 h-4 text-amber-600" />
           </div>
         </div>
       )}
@@ -1306,6 +1314,63 @@ export default function SolicitudesPage() {
               disabled={processing || Object.values(anticiposSeleccionados).reduce((sum, val) => sum + val, 0) === 0}
             >
               {processing ? 'Procesando...' : 'Aprobar con anticipo'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Anticipos Available Modal */}
+      <Dialog open={showAnticiposModal} onOpenChange={setShowAnticiposModal}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Banknote className="w-5 h-5 text-amber-600" />
+              Anticipos Disponibles
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            {anticipos.length === 0 ? (
+              <p className="text-muted-foreground text-center py-4">No hay anticipos disponibles</p>
+            ) : (
+              <>
+                {anticipos.map((anticipo) => (
+                  <div 
+                    key={anticipo.id} 
+                    className="p-4 border rounded-lg bg-card hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div className="space-y-1">
+                        <p className="font-medium">{anticipo.obras?.nombre || 'Obra sin nombre'}</p>
+                        <p className="text-sm text-muted-foreground">{anticipo.instaladores?.nombre || 'Sin instalador'}</p>
+                        {anticipo.observaciones && (
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{anticipo.observaciones}</p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          {format(new Date(anticipo.created_at), 'dd MMM yyyy', { locale: es })}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-amber-700">{formatCurrency(anticipo.monto_disponible)}</p>
+                        {anticipo.monto_disponible < anticipo.monto_original && (
+                          <p className="text-xs text-muted-foreground">
+                            de {formatCurrency(anticipo.monto_original)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {/* Total */}
+                <div className="flex justify-between items-center pt-3 border-t font-semibold">
+                  <span>Total disponible</span>
+                  <span className="text-amber-700 text-lg">{formatCurrency(totalAnticiposDisponibles)}</span>
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAnticiposModal(false)}>
+              Cerrar
             </Button>
           </DialogFooter>
         </DialogContent>
