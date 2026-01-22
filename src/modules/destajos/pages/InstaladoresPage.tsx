@@ -149,65 +149,6 @@ export default function InstaladoresPage() {
 
   const handleToggleActivo = async (instalador: Instalador) => {
     try {
-      // If trying to deactivate, check for pending destajo
-      if (instalador.activo) {
-        // Check for pending solicitudes
-        const { data: pendingSolicitudes, error: solError } = await supabase
-          .from('solicitudes_pago')
-          .select('id')
-          .eq('instalador_id', instalador.id)
-          .eq('estado', 'pendiente')
-          .limit(1);
-        
-        if (solError) throw solError;
-        
-        if (pendingSolicitudes && pendingSolicitudes.length > 0) {
-          toast({
-            title: 'No se puede desactivar',
-            description: 'El instalador tiene solicitudes de pago pendientes',
-            variant: 'destructive',
-          });
-          return;
-        }
-        
-        // Check for solicitudes in an open corte
-        const { data: openCorteSolicitudes, error: openCorteError } = await supabase
-          .from('solicitudes_pago')
-          .select('id, cortes_semanales!inner(estado)')
-          .eq('instalador_id', instalador.id)
-          .eq('cortes_semanales.estado', 'abierto')
-          .limit(1);
-        
-        if (openCorteError) throw openCorteError;
-        
-        if (openCorteSolicitudes && openCorteSolicitudes.length > 0) {
-          toast({
-            title: 'No se puede desactivar',
-            description: 'El instalador tiene solicitudes en un corte abierto',
-            variant: 'destructive',
-          });
-          return;
-        }
-        
-        // Check for pending saldo a favor (debt to company)
-        const { data: saldoData, error: saldoError } = await supabase
-          .from('saldos_instaladores')
-          .select('saldo_acumulado')
-          .eq('instalador_id', instalador.id)
-          .maybeSingle();
-        
-        if (saldoError) throw saldoError;
-        
-        if (saldoData && saldoData.saldo_acumulado > 0) {
-          toast({
-            title: 'No se puede desactivar',
-            description: `El instalador tiene un saldo pendiente de ${new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(saldoData.saldo_acumulado)}`,
-            variant: 'destructive',
-          });
-          return;
-        }
-      }
-      
       const { error } = await supabase
         .from('instaladores')
         .update({ activo: !instalador.activo })
