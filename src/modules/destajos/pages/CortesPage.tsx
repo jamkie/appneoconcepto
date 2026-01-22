@@ -1114,7 +1114,7 @@ export default function CortesPage() {
       key: 'estado',
       header: 'Estado',
       cell: (corte: CorteWithDetails) => (
-        <StatusBadge status={corte.estado === 'abierto' ? 'pendiente' : 'pagado'} />
+        <StatusBadge status={corte.estado} />
       ),
     },
     {
