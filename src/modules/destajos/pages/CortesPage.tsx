@@ -265,6 +265,17 @@ export default function CortesPage() {
   const handleCancelSolicitudAprobada = async (solicitud: SolicitudForCorte) => {
     try {
       setCancelingId(solicitud.id);
+
+      // Si era anticipo, asegúrate de no dejarlo como “disponible” si aún no se pagó.
+      // (Si no existe, no pasa nada.)
+      if (solicitud.tipo === 'anticipo') {
+        const { error: delAnticipoError } = await supabase
+          .from('anticipos')
+          .delete()
+          .eq('solicitud_pago_id', solicitud.id);
+
+        if (delAnticipoError) throw delAnticipoError;
+      }
       
       // Revert solicitud to pendiente
       const { data, error } = await supabase
