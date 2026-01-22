@@ -1631,17 +1631,25 @@ export default function CortesPage() {
               {/* Solicitudes pendientes (para aprobar y agregar) */}
               {viewingCorte?.estado === 'abierto' && solicitudesPendientes.length > 0 && (
                 <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <h3 className="text-lg font-semibold text-amber-600">
-                        Solicitudes Pendientes de Aprobación
-                      </h3>
-                      <p className="text-sm text-muted-foreground">
-                        Aprueba y agrega al corte en un solo paso
-                      </p>
+                  {/* Summary banner */}
+                  <div className="flex items-center justify-between p-3 mb-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-amber-600" />
+                      <span className="font-medium text-amber-800 dark:text-amber-200 text-sm">
+                        {solicitudesPendientes.length} solicitud{solicitudesPendientes.length !== 1 ? 'es' : ''} pendiente{solicitudesPendientes.length !== 1 ? 's' : ''} de aprobación
+                      </span>
                     </div>
+                    <span className="font-bold text-amber-700 dark:text-amber-300">
+                      {formatCurrency(solicitudesPendientes.reduce((sum, s) => sum + Number(s.total_solicitado), 0))}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm text-muted-foreground">
+                      Aprueba y agrega al corte en un solo paso
+                    </p>
                     <Select value={filterInstaladorId} onValueChange={setFilterInstaladorId}>
-                      <SelectTrigger className="w-[200px]">
+                      <SelectTrigger className="w-[180px] h-8">
                         <SelectValue placeholder="Filtrar por instalador" />
                       </SelectTrigger>
                       <SelectContent>
