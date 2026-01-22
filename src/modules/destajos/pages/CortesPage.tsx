@@ -2324,6 +2324,7 @@ export default function CortesPage() {
                           {showCheckbox && hasActivity && (
                             <Checkbox
                               checked={!isExcluded}
+                              disabled={inst.destajoAcumulado > 0}
                               onCheckedChange={(checked) => {
                                 setExcludedInstaladores(prev => {
                                   const next = new Set(prev);
