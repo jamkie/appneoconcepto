@@ -106,6 +106,18 @@ export default function ExtrasPage() {
     }
   }, [searchParams, extras, loadingData]);
 
+  // Handle obra param from URL (coming from Obras detail to create new extra)
+  useEffect(() => {
+    const obraId = searchParams.get('obra');
+    if (obraId && obras.length > 0 && !loadingData && canCreate) {
+      // Open modal with pre-selected obra
+      setFormData(prev => ({ ...prev, obra_id: obraId }));
+      setIsModalOpen(true);
+      // Clear the search param
+      setSearchParams({});
+    }
+  }, [searchParams, obras, loadingData, canCreate]);
+
   const fetchData = async () => {
     try {
       setLoadingData(true);

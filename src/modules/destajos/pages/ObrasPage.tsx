@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, Plus, Search, Pencil, Trash2, X, FileText, Download, CheckCircle, Clock, Eye, Loader2, FileSpreadsheet } from 'lucide-react';
+import { Building2, Plus, Search, Pencil, Trash2, X, FileText, Download, CheckCircle, Clock, Eye, Loader2, FileSpreadsheet, ClipboardList } from 'lucide-react';
 import { useGenerateEstadoCuentaPDF } from '../hooks/useGenerateEstadoCuentaPDF';
 import { useExportObrasExcel, type ExportFilter } from '../hooks/useExportObrasExcel';
 import { useAuth } from '@/contexts/AuthContext';
@@ -1196,52 +1196,88 @@ export default function ObrasPage() {
           )}
 
           <DialogFooter className="flex-col sm:flex-row gap-2 pt-4 border-t">
-            <Button
-              variant="outline"
-              onClick={() => {
-                if (detailObra) handleDownloadEstadoCuenta(detailObra);
-              }}
-              disabled={generatingPDF}
-              className="w-full sm:w-auto"
-            >
-              {generatingPDF ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Download className="w-4 h-4 mr-2" />
-              )}
-              Estado de Cuenta
-            </Button>
-            {canUpdate && (
+            {/* Quick action buttons for adding avances/extras */}
+            {detailObra?.estado === 'activa' && (
+              <div className="flex gap-2 w-full sm:w-auto">
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => {
+                    if (detailObra) {
+                      setDetailDialogOpen(false);
+                      navigate(`/destajos/avances?obra=${detailObra.id}`);
+                    }
+                  }}
+                  className="flex-1 sm:flex-none"
+                >
+                  <ClipboardList className="w-4 h-4 mr-2" />
+                  Agregar Avance
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    if (detailObra) {
+                      setDetailDialogOpen(false);
+                      navigate(`/destajos/extras?obra=${detailObra.id}`);
+                    }
+                  }}
+                  className="flex-1 sm:flex-none"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Agregar Extra
+                </Button>
+              </div>
+            )}
+            
+            <div className="flex gap-2 w-full sm:w-auto sm:ml-auto">
               <Button
                 variant="outline"
                 onClick={() => {
+                  if (detailObra) handleDownloadEstadoCuenta(detailObra);
+                }}
+                disabled={generatingPDF}
+                className="flex-1 sm:flex-none"
+              >
+                {generatingPDF ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4 mr-2" />
+                )}
+                Estado de Cuenta
+              </Button>
+              {canUpdate && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (detailObra) {
+                      setDetailDialogOpen(false);
+                      handleOpenModal(detailObra);
+                    }
+                  }}
+                  className="flex-1 sm:flex-none"
+                >
+                  <Pencil className="w-4 h-4 mr-2" />
+                  Editar
+                </Button>
+              )}
+              <Button
+                variant="destructive"
+                onClick={() => {
                   if (detailObra) {
                     setDetailDialogOpen(false);
-                    handleOpenModal(detailObra);
+                    setSelectedObra(detailObra);
+                    setIsDeleteDialogOpen(true);
                   }
                 }}
-                className="w-full sm:w-auto"
+                disabled={!detailObra || obraTieneAvances(detailObra)}
+                className="flex-1 sm:flex-none"
+                title={detailObra && obraTieneAvances(detailObra) ? 'No se puede eliminar una obra con avances' : ''}
               >
-                <Pencil className="w-4 h-4 mr-2" />
-                Editar
+                <Trash2 className="w-4 h-4 mr-2" />
+                Eliminar
               </Button>
-            )}
-            <Button
-              variant="destructive"
-              onClick={() => {
-                if (detailObra) {
-                  setDetailDialogOpen(false);
-                  setSelectedObra(detailObra);
-                  setIsDeleteDialogOpen(true);
-                }
-              }}
-              disabled={!detailObra || obraTieneAvances(detailObra)}
-              className="w-full sm:w-auto"
-              title={detailObra && obraTieneAvances(detailObra) ? 'No se puede eliminar una obra con avances' : ''}
-            >
-              <Trash2 className="w-4 h-4 mr-2" />
-              Eliminar
-            </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

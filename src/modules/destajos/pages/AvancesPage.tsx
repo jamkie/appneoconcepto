@@ -145,6 +145,18 @@ export default function AvancesPage() {
     }
   }, [searchParams, avances, loadingData]);
 
+  // Handle obra param from URL (coming from Obras detail to create new avance)
+  useEffect(() => {
+    const obraId = searchParams.get('obra');
+    if (obraId && obras.length > 0 && !loadingData && canCreate) {
+      // Open modal with pre-selected obra
+      setSelectedObraId(obraId);
+      setIsModalOpen(true);
+      // Clear the search param
+      setSearchParams({});
+    }
+  }, [searchParams, obras, loadingData, canCreate]);
+
   // Fetch obra items when obra is selected (also in edit mode when changing obra)
   useEffect(() => {
     if (selectedObraId) {
