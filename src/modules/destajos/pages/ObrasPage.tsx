@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, Plus, Search, Pencil, Trash2, X, FileText, Download, CheckCircle, Clock, Eye, Loader2 } from 'lucide-react';
+import { Building2, Plus, Search, Pencil, Trash2, X, FileText, Download, CheckCircle, Clock, Eye, Loader2, FileSpreadsheet } from 'lucide-react';
 import { useGenerateEstadoCuentaPDF } from '../hooks/useGenerateEstadoCuentaPDF';
+import { useExportObrasExcel } from '../hooks/useExportObrasExcel';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -86,6 +87,7 @@ export default function ObrasPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { generatePDF: generateEstadoCuentaPDF } = useGenerateEstadoCuentaPDF();
+  const { exportObrasToExcel } = useExportObrasExcel();
   const [obras, setObras] = useState<ObraWithItems[]>([]);
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -96,6 +98,7 @@ export default function ObrasPage() {
   const [selectedObra, setSelectedObra] = useState<ObraWithItems | null>(null);
   const [saving, setSaving] = useState(false);
   const [generatingPDF, setGeneratingPDF] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
   const [formData, setFormData] = useState({
     nombre: '',
     cliente: '',
@@ -644,12 +647,43 @@ export default function ObrasPage() {
         description="Gestión de obras y proyectos"
         icon={Building2}
         actions={
-          canCreate && (
-            <Button onClick={() => handleOpenModal()}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nueva Obra
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={async () => {
+                try {
+                  setExportingExcel(true);
+                  await exportObrasToExcel();
+                  toast({
+                    title: 'Excel generado',
+                    description: 'El archivo de obras se descargó correctamente',
+                  });
+                } catch (error) {
+                  toast({
+                    title: 'Error',
+                    description: 'No se pudo generar el archivo Excel',
+                    variant: 'destructive',
+                  });
+                } finally {
+                  setExportingExcel(false);
+                }
+              }}
+              disabled={exportingExcel}
+            >
+              {exportingExcel ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="w-4 h-4 mr-2" />
+              )}
+              Exportar Excel
             </Button>
-          )
+            {canCreate && (
+              <Button onClick={() => handleOpenModal()}>
+                <Plus className="w-4 h-4 mr-2" />
+                Nueva Obra
+              </Button>
+            )}
+          </div>
         }
       />
 
