@@ -636,18 +636,28 @@ export default function CortesPage() {
       
       // If it's an anticipo type, create the anticipo record
       if (solicitud.tipo === 'anticipo') {
-        const { error: anticipoError } = await supabase
+        // Check if anticipo already exists for this solicitud
+        const { data: existingAnticipo } = await supabase
           .from('anticipos')
-          .insert({
-            obra_id: solicitud.obra_id,
-            instalador_id: solicitud.instalador_id,
-            monto_original: solicitud.total_solicitado,
-            monto_disponible: solicitud.total_solicitado,
-            registrado_por: user.id,
-            observaciones: solicitud.observaciones || 'Anticipo aprobado desde corte'
-          });
+          .select('id')
+          .eq('solicitud_pago_id', solicitud.id)
+          .maybeSingle();
         
-        if (anticipoError) throw anticipoError;
+        if (!existingAnticipo) {
+          const { error: anticipoError } = await supabase
+            .from('anticipos')
+            .insert({
+              obra_id: solicitud.obra_id,
+              instalador_id: solicitud.instalador_id,
+              monto_original: solicitud.total_solicitado,
+              monto_disponible: solicitud.total_solicitado,
+              registrado_por: user.id,
+              solicitud_pago_id: solicitud.id,
+              observaciones: solicitud.observaciones || 'Anticipo aprobado desde corte'
+            });
+          
+          if (anticipoError) throw anticipoError;
+        }
       }
       
       toast({
