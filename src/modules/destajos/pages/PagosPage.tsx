@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DollarSign, Search, FileText, Download } from 'lucide-react';
+import { DollarSign, Search, FileText, Download, Filter } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -14,6 +14,13 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type { PagoDestajo, PaymentMethod } from '../types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -46,9 +53,20 @@ export default function PagosPage() {
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [generatingPDF, setGeneratingPDF] = useState(false);
+  const [filterInstalador, setFilterInstalador] = useState<string>('todos');
+  const [filterObra, setFilterObra] = useState<string>('todas');
   
   // View payment detail state
   const [selectedPago, setSelectedPago] = useState<PagoWithDetails | null>(null);
+  
+  // Get unique instaladores and obras for filters
+  const uniqueInstaladores = Array.from(
+    new Map(pagos.map(p => [p.instalador_id, { id: p.instalador_id, nombre: p.instaladores?.nombre || 'N/A' }])).values()
+  ).sort((a, b) => a.nombre.localeCompare(b.nombre));
+  
+  const uniqueObras = Array.from(
+    new Map(pagos.map(p => [p.obra_id, { id: p.obra_id, nombre: p.obras?.nombre || 'N/A' }])).values()
+  ).sort((a, b) => a.nombre.localeCompare(b.nombre));
 
   useEffect(() => {
     if (!loading && !user) {
@@ -121,10 +139,14 @@ export default function PagosPage() {
     }
   };
 
-  const filteredPagos = pagos.filter((pago) =>
-    pago.obras?.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    pago.instaladores?.nombre.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredPagos = pagos.filter((pago) => {
+    const matchesSearch = 
+      pago.obras?.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      pago.instaladores?.nombre.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesInstalador = filterInstalador === 'todos' || pago.instalador_id === filterInstalador;
+    const matchesObra = filterObra === 'todas' || pago.obra_id === filterObra;
+    return matchesSearch && matchesInstalador && matchesObra;
+  });
 
   const columns = [
     {
@@ -176,9 +198,9 @@ export default function PagosPage() {
         icon={DollarSign}
       />
 
-      {/* Search */}
-      <div className="mb-6">
-        <div className="relative max-w-sm">
+      {/* Filters */}
+      <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Buscar pagos..."
@@ -187,6 +209,34 @@ export default function PagosPage() {
             className="pl-10"
           />
         </div>
+        
+        <Select value={filterInstalador} onValueChange={setFilterInstalador}>
+          <SelectTrigger>
+            <SelectValue placeholder="Filtrar por instalador" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos los instaladores</SelectItem>
+            {uniqueInstaladores.map((inst) => (
+              <SelectItem key={inst.id} value={inst.id}>
+                {inst.nombre}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        
+        <Select value={filterObra} onValueChange={setFilterObra}>
+          <SelectTrigger>
+            <SelectValue placeholder="Filtrar por obra" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todas">Todas las obras</SelectItem>
+            {uniqueObras.map((obra) => (
+              <SelectItem key={obra.id} value={obra.id}>
+                {obra.nombre}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Table */}
