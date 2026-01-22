@@ -109,6 +109,9 @@ export default function AvancesPage() {
   const [deleting, setDeleting] = useState(false);
   const [creatingSolicitud, setCreatingSolicitud] = useState<string | null>(null);
   
+  // View detail state
+  const [viewingAvance, setViewingAvance] = useState<AvanceRecord | null>(null);
+  
   // Form state
   const [selectedObraId, setSelectedObraId] = useState('');
   const [selectedInstaladores, setSelectedInstaladores] = useState<AvanceInstaladorInput[]>([]);
@@ -987,13 +990,15 @@ export default function AvancesPage() {
                 <TableHead className="text-right">Monto</TableHead>
                 <TableHead className="hidden lg:table-cell">Estado</TableHead>
                 <TableHead className="hidden xl:table-cell">Registrado por</TableHead>
-                <TableHead className="hidden xl:table-cell">Observaciones</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredAvances.map((avance) => (
-                <TableRow key={avance.id}>
+                <TableRow 
+                  key={avance.id} 
+                  className="cursor-pointer hover:bg-muted/50"
+                  onClick={() => setViewingAvance(avance)}
+                >
                   <TableCell>
                     <div className="flex items-center gap-2 text-sm">
                       <Calendar className="w-4 h-4 text-muted-foreground" />
@@ -1137,40 +1142,210 @@ export default function AvancesPage() {
                   <TableCell className="hidden xl:table-cell text-sm text-muted-foreground">
                     {avance.profiles?.full_name || avance.profiles?.email || '-'}
                   </TableCell>
-                  <TableCell className="hidden xl:table-cell text-muted-foreground">
-                    {avance.observaciones || '-'}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      {canEditAvance(avance) && canUpdate && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleOpenEdit(avance)}
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                      )}
-                      {canDeleteAvance(avance) && canDelete && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            setAvanceToDelete(avance);
-                            setIsDeleteOpen(true);
-                          }}
-                        >
-                          <Trash2 className="w-4 h-4 text-destructive" />
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </div>
       )}
+
+      {/* View Avance Detail Modal */}
+      <Dialog open={!!viewingAvance} onOpenChange={(open) => !open && setViewingAvance(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardList className="w-5 h-5" />
+              Detalle del Avance
+            </DialogTitle>
+          </DialogHeader>
+          {viewingAvance && (
+            <div className="space-y-4">
+              {/* Basic info */}
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Fecha:</span>
+                  <p className="font-medium">{format(new Date(viewingAvance.fecha), 'dd/MM/yyyy', { locale: es })}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Obra:</span>
+                  <p className="font-medium">{viewingAvance.obras?.nombre || 'N/A'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Instalador:</span>
+                  <p className="font-medium">
+                    {viewingAvance.avance_instaladores && viewingAvance.avance_instaladores.length > 1 
+                      ? `Varios (${viewingAvance.avance_instaladores.length})`
+                      : viewingAvance.instaladores?.nombre || 'N/A'
+                    }
+                  </p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Registrado por:</span>
+                  <p className="font-medium">{viewingAvance.profiles?.full_name || viewingAvance.profiles?.email || '-'}</p>
+                </div>
+              </div>
+
+              {/* Multi-installer breakdown */}
+              {viewingAvance.avance_instaladores && viewingAvance.avance_instaladores.length > 1 && (
+                <div className="border rounded-lg p-3 space-y-2 bg-muted/30">
+                  <h4 className="font-semibold text-sm">Distribución por Instalador</h4>
+                  <div className="space-y-1">
+                    {viewingAvance.avance_instaladores.map((ai) => (
+                      <div key={ai.id} className="flex justify-between text-sm">
+                        <span>{ai.instaladores?.nombre || 'N/A'}</span>
+                        <span className="font-medium">{ai.porcentaje}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Items breakdown */}
+              <div className="border rounded-lg p-3 space-y-2">
+                <h4 className="font-semibold text-sm">Piezas Completadas</h4>
+                <div className="space-y-1">
+                  {viewingAvance.avance_items.map((item) => (
+                    <div key={item.id} className="flex justify-between text-sm">
+                      <span className="flex items-center gap-2">
+                        <Box className="w-3 h-3 text-muted-foreground" />
+                        {item.obra_items?.descripcion || 'Item'} x{item.cantidad_completada}
+                      </span>
+                      <span className="font-medium">
+                        {new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(
+                          item.cantidad_completada * (item.obra_items?.precio_unitario || 0)
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Monto total */}
+              <div className="flex justify-between items-center p-3 bg-primary/10 rounded-lg">
+                <span className="font-semibold">Total</span>
+                <span className="text-lg font-bold text-primary">
+                  {(() => {
+                    const solicitudes = viewingAvance.solicitudes_pago || [];
+                    if (solicitudes.length > 0) {
+                      const totalMonto = solicitudes.reduce((acc, sol) => acc + sol.total_solicitado, 0);
+                      return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(totalMonto);
+                    }
+                    const subtotal = viewingAvance.avance_items.reduce((acc, item) => {
+                      return acc + (item.cantidad_completada * (item.obra_items?.precio_unitario || 0));
+                    }, 0);
+                    const descuento = viewingAvance.obras?.descuento || 0;
+                    const total = subtotal * (1 - descuento / 100);
+                    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(total);
+                  })()}
+                </span>
+              </div>
+
+              {/* Estado */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Estado:</span>
+                {(() => {
+                  const solicitud = viewingAvance.solicitudes_pago?.[0];
+                  const estado = solicitud?.estado || 'sin_solicitud';
+                  const hasPago = solicitud?.pagos_destajos?.length > 0;
+                  const corteCerrado = solicitud?.cortes_semanales?.estado === 'cerrado';
+                  
+                  if (hasPago || corteCerrado) {
+                    return (
+                      <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                        ✓ Pagado
+                      </Badge>
+                    );
+                  } else if (estado === 'aprobada') {
+                    return (
+                      <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                        Aprobada
+                      </Badge>
+                    );
+                  } else if (estado === 'rechazada') {
+                    return (
+                      <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+                        Rechazada
+                      </Badge>
+                    );
+                  } else if (estado === 'pendiente') {
+                    return (
+                      <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                        Pendiente
+                      </Badge>
+                    );
+                  } else {
+                    return (
+                      <Badge variant="outline" className="bg-muted text-muted-foreground">
+                        Sin solicitud
+                      </Badge>
+                    );
+                  }
+                })()}
+              </div>
+
+              {/* Observaciones */}
+              {viewingAvance.observaciones && (
+                <div className="text-sm">
+                  <span className="text-muted-foreground">Observaciones:</span>
+                  <p className="mt-1 p-2 bg-muted/50 rounded">{viewingAvance.observaciones}</p>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            {/* Actions for editable/deletable avances */}
+            {viewingAvance && (
+              <div className="flex gap-2 mr-auto">
+                {/* Nueva solicitud button for rejected */}
+                {viewingAvance.solicitudes_pago?.[0]?.estado === 'rechazada' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      handleCrearNuevaSolicitud(viewingAvance);
+                    }}
+                    disabled={creatingSolicitud === viewingAvance.id}
+                  >
+                    <RefreshCw className={`w-4 h-4 mr-1 ${creatingSolicitud === viewingAvance.id ? 'animate-spin' : ''}`} />
+                    Nueva solicitud
+                  </Button>
+                )}
+                {canEditAvance(viewingAvance) && canUpdate && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setViewingAvance(null);
+                      handleOpenEdit(viewingAvance);
+                    }}
+                  >
+                    <Pencil className="w-4 h-4 mr-1" />
+                    Editar
+                  </Button>
+                )}
+                {canDeleteAvance(viewingAvance) && canDelete && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                    onClick={() => {
+                      setViewingAvance(null);
+                      setAvanceToDelete(viewingAvance);
+                      setIsDeleteOpen(true);
+                    }}
+                  >
+                    <Trash2 className="w-4 h-4 mr-1" />
+                    Eliminar
+                  </Button>
+                )}
+              </div>
+            )}
+            <Button variant="outline" onClick={() => setViewingAvance(null)}>
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create/Edit Modal */}
       <Dialog open={isModalOpen} onOpenChange={(open) => {
