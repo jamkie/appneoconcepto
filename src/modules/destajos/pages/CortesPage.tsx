@@ -526,15 +526,6 @@ export default function CortesPage() {
         setSolicitudesPendientes([]);
       }
       
-      // Fetch ALL active instaladores
-      const { data: allInstaladores, error: instError } = await supabase
-        .from('instaladores')
-        .select('id, nombre, nombre_banco, numero_cuenta, salario_semanal')
-        .eq('activo', true)
-        .order('nombre');
-      
-      if (instError) throw instError;
-      
       // Fetch saldos from previous cortes
       const { data: saldosData } = await supabase
         .from('saldos_instaladores')
@@ -545,20 +536,59 @@ export default function CortesPage() {
         saldosMap[s.instalador_id] = Number(s.saldo_acumulado) || 0;
       });
       
-      // If corte is closed, fetch corte_instaladores for historical data
+      // If corte is closed, fetch corte_instaladores for historical snapshot data
       let corteInstaladoresMap: Record<string, any> = {};
+      let corteInstaladorIds: string[] = [];
       if (corte.estado === 'cerrado') {
-        const { data: ciData } = await supabase
+        const { data: ciData, error: ciError } = await supabase
           .from('corte_instaladores')
           .select('*')
           .eq('corte_id', corte.id);
-        
+
+        if (ciError) throw ciError;
+
+        corteInstaladorIds = (ciData || []).map((ci: any) => ci.instalador_id).filter(Boolean);
         (ciData || []).forEach((ci: any) => {
           corteInstaladoresMap[ci.instalador_id] = ci;
         });
       }
+
+      // Fetch instaladores
+      // - Open corte: show all active installers (so the user can include/exclude)
+      // - Closed corte: show ONLY installers that participated in the corte snapshot / assigned solicitudes
+      const solicitudInstaladorIds = Array.from(
+        new Set((asignadas || []).map((s: any) => s.instalador_id).filter(Boolean))
+      );
+      const involvedInstaladorIds = Array.from(
+        new Set([...corteInstaladorIds, ...solicitudInstaladorIds])
+      );
+
+      let allInstaladores: any[] = [];
+      if (corte.estado === 'abierto') {
+        const { data, error: instError } = await supabase
+          .from('instaladores')
+          .select('id, nombre, nombre_banco, numero_cuenta, salario_semanal')
+          .eq('activo', true)
+          .order('nombre');
+
+        if (instError) throw instError;
+        allInstaladores = data || [];
+      } else {
+        if (involvedInstaladorIds.length > 0) {
+          const { data, error: instError } = await supabase
+            .from('instaladores')
+            .select('id, nombre, nombre_banco, numero_cuenta, salario_semanal')
+            .in('id', involvedInstaladorIds)
+            .order('nombre');
+
+          if (instError) throw instError;
+          allInstaladores = data || [];
+        } else {
+          allInstaladores = [];
+        }
+      }
       
-      // Build resumen for ALL active instaladores
+      // Build resumen for the selected installer set
       const resumenMap: Record<string, InstaladorResumen> = {};
       
       // First, initialize all active instaladores
