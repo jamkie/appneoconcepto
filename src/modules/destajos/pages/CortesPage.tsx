@@ -954,54 +954,10 @@ export default function CortesPage() {
         if (deleteError) throw deleteError;
       }
       
-      // Revert all solicitudes to pendiente (keep corte_id so they stay assigned)
-      if (solicitudesData && solicitudesData.length > 0) {
-        const solicitudIds = solicitudesData.map(s => s.id);
-        
-        const { error: updateSolError } = await supabase
-          .from('solicitudes_pago')
-          .update({
-            estado: 'pendiente',
-            aprobado_por: null,
-            fecha_aprobacion: null,
-          })
-          .in('id', solicitudIds);
-        
-        if (updateSolError) throw updateSolError;
-        
-        // Revert all extras linked to these solicitudes
-        const allExtrasIds = solicitudesData
-          .flatMap(s => s.extras_ids || [])
-          .filter(Boolean);
-        
-        if (allExtrasIds.length > 0) {
-          const { error: extrasError } = await supabase
-            .from('extras')
-            .update({
-              estado: 'pendiente',
-              aprobado_por: null,
-              fecha_aprobacion: null,
-            })
-            .in('id', allExtrasIds);
-          
-          if (extrasError) throw extrasError;
-        }
-        
-        // Delete anticipos generated from these solicitudes
-        const anticipoSolicitudes = solicitudesData.filter(s => s.tipo === 'anticipo');
-        for (const sol of anticipoSolicitudes) {
-          const { error: anticipoDeleteError } = await supabase
-            .from('anticipos')
-            .delete()
-            .eq('obra_id', sol.obra_id)
-            .eq('instalador_id', sol.instalador_id)
-            .eq('monto_original', sol.total_solicitado);
-          
-          if (anticipoDeleteError) {
-            console.error('Error deleting anticipo:', anticipoDeleteError);
-          }
-        }
-      }
+      // NOTE: Do NOT revert solicitudes to 'pendiente' here.
+      // Solicitudes keep their 'aprobada' status when reopening a corte.
+      // They only revert to 'pendiente' when manually removed from the corte.
+      // Anticipos and extras also stay approved - they were created at approval time.
       
       // Update corte back to abierto
       const { error: corteError } = await supabase
