@@ -66,6 +66,15 @@ interface PagoInfo {
   metodo_pago: string;
 }
 
+interface AnticipoInfo {
+  id: string;
+  monto_original: number;
+  monto_disponible: number;
+  instalador_nombre: string;
+  created_at: string;
+  observaciones: string | null;
+}
+
 interface ObraWithItems extends Obra {
   items: ObraItem[];
   avances: { [itemId: string]: number };
@@ -73,6 +82,7 @@ interface ObraWithItems extends Obra {
   totalExtras: number;
   extras: ExtraInfo[];
   pagos: PagoInfo[];
+  anticipos: AnticipoInfo[];
   created_by?: string;
 }
 
@@ -177,6 +187,11 @@ export default function ObrasPage() {
         .eq('tipo', 'extra')
         .eq('estado', 'rechazada');
 
+      // Fetch all anticipos
+      const { data: anticiposData } = await supabase
+        .from('anticipos')
+        .select('id, obra_id, instalador_id, monto_original, monto_disponible, observaciones, created_at');
+
       // Build the enriched obras
       const enrichedObras: ObraWithItems[] = (obrasData as any[] || []).map((obra) => {
         const items = (itemsData || []).filter((item) => item.obra_id === obra.id).map((item) => ({
@@ -235,6 +250,21 @@ export default function ObrasPage() {
           .filter((e) => e.estado !== 'rechazado')
           .reduce((sum, e) => sum + e.montoNeto, 0);
 
+        // Get anticipos for this obra
+        const obraAnticipos = (anticiposData || [])
+          .filter((a) => a.obra_id === obra.id)
+          .map((a) => {
+            const instalador = (instaladoresData || []).find((i) => i.id === a.instalador_id);
+            return {
+              id: a.id,
+              monto_original: Number(a.monto_original),
+              monto_disponible: Number(a.monto_disponible),
+              instalador_nombre: instalador?.nombre || 'Desconocido',
+              created_at: a.created_at,
+              observaciones: a.observaciones,
+            };
+          });
+
         return {
           ...obra,
           items,
@@ -243,6 +273,7 @@ export default function ObrasPage() {
           totalExtras,
           extras: obraExtras,
           pagos: obraPagos,
+          anticipos: obraAnticipos,
           created_by: obra.created_by || undefined,
         } as ObraWithItems;
       });
@@ -1149,6 +1180,43 @@ export default function ObrasPage() {
                           </span>
                         </div>
                         <span className="font-medium">{formatCurrency(pago.monto)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Anticipos */}
+              {detailObra.anticipos.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-2 flex items-center gap-2">
+                    <Banknote className="w-4 h-4" />
+                    Anticipos ({detailObra.anticipos.length})
+                  </h4>
+                  <div className="space-y-2 border rounded-lg p-3 bg-muted/30 max-h-[150px] overflow-y-auto">
+                    {detailObra.anticipos.map((anticipo) => (
+                      <div key={anticipo.id} className="flex justify-between items-center text-sm">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span>{anticipo.instalador_nombre}</span>
+                            <span className="text-muted-foreground text-xs">
+                              {format(new Date(anticipo.created_at), 'dd/MM/yyyy', { locale: es })}
+                            </span>
+                          </div>
+                          {anticipo.observaciones && (
+                            <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                              {anticipo.observaciones}
+                            </p>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <p className="font-medium">{formatCurrency(anticipo.monto_original)}</p>
+                          {anticipo.monto_disponible < anticipo.monto_original && (
+                            <p className="text-xs text-muted-foreground">
+                              Disponible: {formatCurrency(anticipo.monto_disponible)}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
