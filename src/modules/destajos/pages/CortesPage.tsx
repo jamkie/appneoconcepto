@@ -1688,8 +1688,21 @@ export default function CortesPage() {
               {/* Solicitudes disponibles (ya aprobadas, solo agregar) */}
               {viewingCorte?.estado === 'abierto' && solicitudesDisponibles.length > 0 && (
                 <div>
-                  <h3 className="text-lg font-semibold mb-3 text-green-600">
-                    Solicitudes Aprobadas Disponibles
+                  {/* Summary banner */}
+                  <div className="flex items-center justify-between p-3 mb-3 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4 text-green-600" />
+                      <span className="font-medium text-green-800 dark:text-green-200 text-sm">
+                        {solicitudesDisponibles.length} solicitud{solicitudesDisponibles.length !== 1 ? 'es' : ''} aprobada{solicitudesDisponibles.length !== 1 ? 's' : ''} sin asignar
+                      </span>
+                    </div>
+                    <span className="font-bold text-green-700 dark:text-green-300">
+                      {formatCurrency(solicitudesDisponibles.reduce((sum, s) => sum + Number(s.total_solicitado), 0))}
+                    </span>
+                  </div>
+                  
+                  <h3 className="text-sm font-semibold mb-2 text-muted-foreground">
+                    Agregar al corte:
                   </h3>
                   <div className="space-y-2 max-h-60 overflow-y-auto">
                     {solicitudesDisponibles.map((sol) => (
