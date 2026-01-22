@@ -673,6 +673,40 @@ export default function CortesPage() {
     if (!viewingCorte) return;
     
     try {
+      // Get solicitud details first to check type and extras
+      const { data: solicitud, error: fetchError } = await supabase
+        .from('solicitudes_pago')
+        .select('tipo, extras_ids')
+        .eq('id', solicitudId)
+        .single();
+      
+      if (fetchError) throw fetchError;
+      
+      // If it's an anticipo, delete the associated anticipo record
+      if (solicitud?.tipo === 'anticipo') {
+        const { error: deleteAnticipoError } = await supabase
+          .from('anticipos')
+          .delete()
+          .eq('solicitud_pago_id', solicitudId);
+        
+        if (deleteAnticipoError) throw deleteAnticipoError;
+      }
+      
+      // If it has extras, revert them to pendiente
+      if (solicitud?.extras_ids && solicitud.extras_ids.length > 0) {
+        const { error: extrasError } = await supabase
+          .from('extras')
+          .update({
+            estado: 'pendiente',
+            aprobado_por: null,
+            fecha_aprobacion: null,
+          })
+          .in('id', solicitud.extras_ids);
+        
+        if (extrasError) throw extrasError;
+      }
+      
+      // Revert solicitud to pendiente
       const { error } = await supabase
         .from('solicitudes_pago')
         .update({ 
@@ -1045,6 +1079,60 @@ export default function CortesPage() {
     try {
       setDeletingCorte(true);
       
+      // Get all solicitudes linked to this corte before deletion
+      const { data: solicitudesData, error: solicitudesError } = await supabase
+        .from('solicitudes_pago')
+        .select('id, tipo, extras_ids')
+        .eq('corte_id', viewingCorte.id);
+      
+      if (solicitudesError) throw solicitudesError;
+      
+      // Delete anticipos created from anticipo-type solicitudes in this corte
+      if (solicitudesData && solicitudesData.length > 0) {
+        const anticipoSolicitudes = solicitudesData.filter(s => s.tipo === 'anticipo');
+        if (anticipoSolicitudes.length > 0) {
+          const anticipoSolIds = anticipoSolicitudes.map(s => s.id);
+          const { error: deleteAnticiposError } = await supabase
+            .from('anticipos')
+            .delete()
+            .in('solicitud_pago_id', anticipoSolIds);
+          
+          if (deleteAnticiposError) throw deleteAnticiposError;
+        }
+        
+        // Revert extras to pendiente
+        const allExtrasIds = solicitudesData
+          .flatMap(s => s.extras_ids || [])
+          .filter(Boolean);
+        
+        if (allExtrasIds.length > 0) {
+          const { error: extrasError } = await supabase
+            .from('extras')
+            .update({
+              estado: 'pendiente',
+              aprobado_por: null,
+              fecha_aprobacion: null,
+            })
+            .in('id', allExtrasIds);
+          
+          if (extrasError) throw extrasError;
+        }
+        
+        // Revert all solicitudes to pendiente
+        const { error: revertError } = await supabase
+          .from('solicitudes_pago')
+          .update({
+            corte_id: null,
+            estado: 'pendiente',
+            aprobado_por: null,
+            fecha_aprobacion: null,
+          })
+          .eq('corte_id', viewingCorte.id);
+        
+        if (revertError) throw revertError;
+      }
+      
+      // Now delete the corte
       const { error } = await supabase
         .from('cortes_semanales')
         .delete()
@@ -1054,7 +1142,7 @@ export default function CortesPage() {
       
       toast({
         title: 'Éxito',
-        description: 'Corte eliminado correctamente',
+        description: 'Corte eliminado y solicitudes revertidas a pendiente',
       });
       
       setConfirmDelete(false);
