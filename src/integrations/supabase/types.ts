@@ -63,6 +63,7 @@ export type Database = {
           obra_id: string
           observaciones: string | null
           registrado_por: string
+          solicitud_pago_id: string | null
         }
         Insert: {
           created_at?: string
@@ -73,6 +74,7 @@ export type Database = {
           obra_id: string
           observaciones?: string | null
           registrado_por: string
+          solicitud_pago_id?: string | null
         }
         Update: {
           created_at?: string
@@ -83,6 +85,7 @@ export type Database = {
           obra_id?: string
           observaciones?: string | null
           registrado_por?: string
+          solicitud_pago_id?: string | null
         }
         Relationships: [
           {
@@ -97,6 +100,13 @@ export type Database = {
             columns: ["obra_id"]
             isOneToOne: false
             referencedRelation: "obras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "anticipos_solicitud_pago_id_fkey"
+            columns: ["solicitud_pago_id"]
+            isOneToOne: true
+            referencedRelation: "solicitudes_pago"
             referencedColumns: ["id"]
           },
         ]
