@@ -168,7 +168,7 @@ export default function ObrasPage() {
       // Fetch all pagos_destajos with instalador info
       const { data: pagosData } = await supabase
         .from('pagos_destajos')
-        .select('id, obra_id, monto, fecha, metodo_pago, instalador_id');
+        .select('id, obra_id, monto, fecha, metodo_pago, instalador_id, created_at');
 
       // Fetch instaladores for pagos
       const { data: instaladoresData } = await supabase
@@ -209,22 +209,41 @@ export default function ObrasPage() {
           avances[item.id] = itemAvances;
         });
 
+        // Get anticipos for this obra (need this first to filter pagos)
+        const obraAnticiposRaw = (anticiposData || [])
+          .filter((a) => a.obra_id === obra.id);
+
         // Get pagos for this obra with instalador info
+        // Filter out payments that correspond to anticipos that haven't been applied yet
         const obraPagos = (pagosData || [])
           .filter((p) => p.obra_id === obra.id)
           .map((p) => {
             const instalador = (instaladoresData || []).find((i) => i.id === p.instalador_id);
+            // Check if this pago corresponds to an anticipo (same instalador, monto, and same date)
+            const matchingAnticipo = obraAnticiposRaw.find((a) => 
+              a.instalador_id === p.instalador_id && 
+              Math.abs(Number(a.monto_original) - Number(p.monto)) < 0.01 &&
+              new Date(a.created_at).toDateString() === new Date(p.created_at).toDateString()
+            );
             return {
               id: p.id,
               fecha: p.fecha,
               monto: Number(p.monto),
               instalador_nombre: instalador?.nombre || 'Desconocido',
               metodo_pago: p.metodo_pago,
+              // Mark if this pago is from an anticipo and if it's been applied
+              esDeAnticipo: !!matchingAnticipo,
+              anticipoAplicado: matchingAnticipo ? Number(matchingAnticipo.monto_disponible) < Number(matchingAnticipo.monto_original) : false,
             };
-          });
+          })
+          // Filter: exclude pagos from anticipos that haven't been applied
+          .filter((p) => !p.esDeAnticipo || p.anticipoAplicado);
 
-        // Calculate total pagado
-        const totalPagado = obraPagos.reduce((sum, p) => sum + p.monto, 0);
+        // Calculate total pagado (from all pagos, including anticipo ones)
+        const allPagos = (pagosData || [])
+          .filter((p) => p.obra_id === obra.id)
+          .reduce((sum, p) => sum + Number(p.monto), 0);
+        const totalPagado = allPagos;
 
         // Get extras for this obra with rejected status from solicitudes
         const rejectedExtraIds = (solicitudesRechazadas || [])
@@ -250,20 +269,18 @@ export default function ObrasPage() {
           .filter((e) => e.estado !== 'rechazado')
           .reduce((sum, e) => sum + e.montoNeto, 0);
 
-        // Get anticipos for this obra
-        const obraAnticipos = (anticiposData || [])
-          .filter((a) => a.obra_id === obra.id)
-          .map((a) => {
-            const instalador = (instaladoresData || []).find((i) => i.id === a.instalador_id);
-            return {
-              id: a.id,
-              monto_original: Number(a.monto_original),
-              monto_disponible: Number(a.monto_disponible),
-              instalador_nombre: instalador?.nombre || 'Desconocido',
-              created_at: a.created_at,
-              observaciones: a.observaciones,
-            };
-          });
+        // Build anticipos with instalador info (using already fetched raw data)
+        const obraAnticipos = obraAnticiposRaw.map((a) => {
+          const instalador = (instaladoresData || []).find((i) => i.id === a.instalador_id);
+          return {
+            id: a.id,
+            monto_original: Number(a.monto_original),
+            monto_disponible: Number(a.monto_disponible),
+            instalador_nombre: instalador?.nombre || 'Desconocido',
+            created_at: a.created_at,
+            observaciones: a.observaciones,
+          };
+        });
 
         return {
           ...obra,
@@ -1196,31 +1213,53 @@ export default function ObrasPage() {
                     Anticipos ({detailObra.anticipos.length})
                   </h4>
                   <div className="space-y-2 border rounded-lg p-3 bg-muted/30 max-h-[150px] overflow-y-auto">
-                    {detailObra.anticipos.map((anticipo) => (
-                      <div key={anticipo.id} className="flex justify-between items-center text-sm">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <span>{anticipo.instalador_nombre}</span>
+                    {detailObra.anticipos.map((anticipo) => {
+                      const estaAplicado = anticipo.monto_disponible < anticipo.monto_original;
+                      const estaDisponible = anticipo.monto_disponible === anticipo.monto_original;
+                      const parcialmenteAplicado = anticipo.monto_disponible > 0 && anticipo.monto_disponible < anticipo.monto_original;
+                      
+                      return (
+                        <div key={anticipo.id} className="flex justify-between items-center text-sm">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span>{anticipo.instalador_nombre}</span>
+                              <Badge
+                                variant="outline"
+                                className={
+                                  anticipo.monto_disponible === 0
+                                    ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-xs'
+                                    : parcialmenteAplicado
+                                    ? 'bg-blue-500/10 text-blue-600 border-blue-500/20 text-xs'
+                                    : 'bg-amber-500/10 text-amber-600 border-amber-500/20 text-xs'
+                                }
+                              >
+                                {anticipo.monto_disponible === 0 
+                                  ? 'Aplicado' 
+                                  : parcialmenteAplicado 
+                                  ? 'Parcial' 
+                                  : 'Disponible'}
+                              </Badge>
+                            </div>
                             <span className="text-muted-foreground text-xs">
                               {format(new Date(anticipo.created_at), 'dd/MM/yyyy', { locale: es })}
                             </span>
+                            {anticipo.observaciones && (
+                              <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                                {anticipo.observaciones}
+                              </p>
+                            )}
                           </div>
-                          {anticipo.observaciones && (
-                            <p className="text-xs text-muted-foreground truncate max-w-[200px]">
-                              {anticipo.observaciones}
-                            </p>
-                          )}
+                          <div className="text-right">
+                            <p className="font-medium">{formatCurrency(anticipo.monto_original)}</p>
+                            {parcialmenteAplicado && (
+                              <p className="text-xs text-muted-foreground">
+                                Disponible: {formatCurrency(anticipo.monto_disponible)}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className="font-medium">{formatCurrency(anticipo.monto_original)}</p>
-                          {anticipo.monto_disponible < anticipo.monto_original && (
-                            <p className="text-xs text-muted-foreground">
-                              Disponible: {formatCurrency(anticipo.monto_disponible)}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
