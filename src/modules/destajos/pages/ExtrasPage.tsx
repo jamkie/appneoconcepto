@@ -122,7 +122,7 @@ export default function ExtrasPage() {
         supabase.from('instaladores').select('*').eq('activo', true),
         supabase
           .from('solicitudes_pago')
-          .select('extras_ids, estado, pagos_destajos(id)')
+          .select('extras_ids, estado, corte_id, cortes_semanales(estado), pagos_destajos(id)')
           .eq('tipo', 'extra'),
       ]);
 
@@ -136,10 +136,11 @@ export default function ExtrasPage() {
           s => s.extras_ids && s.extras_ids.includes(extra.id)
         );
         const hasPago = solicitud?.pagos_destajos && solicitud.pagos_destajos.length > 0;
+        const corteCerrado = (solicitud as any)?.cortes_semanales?.estado === 'cerrado';
         return {
           ...extra,
           solicitudRechazada: solicitud?.estado === 'rechazada',
-          solicitudPagada: hasPago,
+          solicitudPagada: hasPago || corteCerrado,
         } as ExtraWithDetails;
       });
 
@@ -415,7 +416,7 @@ export default function ExtrasPage() {
       );
     } else if (extra.estado === 'aprobado') {
       return (
-        <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
           Aprobado
         </Badge>
       );
