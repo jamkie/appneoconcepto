@@ -1114,7 +1114,7 @@ export default function CortesPage() {
       key: 'estado',
       header: 'Estado',
       cell: (corte: CorteWithDetails) => (
-        <StatusBadge status={corte.estado === 'abierto' ? 'pendiente' : 'aprobado'} />
+        <StatusBadge status={corte.estado === 'abierto' ? 'pendiente' : 'pagado'} />
       ),
     },
     {
@@ -1475,15 +1475,20 @@ export default function CortesPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="font-medium">{formatCurrency(Number(sol.total_solicitado))}</span>
-                          {viewingCorte?.estado === 'abierto' && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleRemoveSolicitudFromCorte(sol.id)}
-                              className="text-destructive hover:text-destructive"
-                            >
-                              Quitar
-                            </Button>
+                          {viewingCorte?.estado === 'cerrado' ? (
+                            <StatusBadge status="pagado" />
+                          ) : (
+                            <>
+                              <StatusBadge status="aprobado" />
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleRemoveSolicitudFromCorte(sol.id)}
+                                className="text-destructive hover:text-destructive"
+                              >
+                                Quitar
+                              </Button>
+                            </>
                           )}
                         </div>
                       </div>
