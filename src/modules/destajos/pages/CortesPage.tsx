@@ -795,6 +795,68 @@ export default function CortesPage() {
         }
       }
       
+      // CRITICAL: Update all solicitudes in this corte to 'aprobada' status
+      const solicitudIds = corteSolicitudes.map(s => s.id);
+      if (solicitudIds.length > 0) {
+        const { error: updateSolError } = await supabase
+          .from('solicitudes_pago')
+          .update({
+            estado: 'aprobada',
+            aprobado_por: user.id,
+            fecha_aprobacion: new Date().toISOString(),
+          })
+          .in('id', solicitudIds);
+        
+        if (updateSolError) throw updateSolError;
+        
+        // Also update related extras to 'aprobado'
+        const allExtrasIds = corteSolicitudes
+          .flatMap(s => s.extras_ids || [])
+          .filter(Boolean);
+        
+        if (allExtrasIds.length > 0) {
+          const { error: extrasError } = await supabase
+            .from('extras')
+            .update({
+              estado: 'aprobado',
+              aprobado_por: user.id,
+              fecha_aprobacion: new Date().toISOString(),
+            })
+            .in('id', allExtrasIds);
+          
+          if (extrasError) throw extrasError;
+        }
+        
+        // Create anticipos for anticipo-type solicitudes that don't have one yet
+        const anticipoSolicitudes = corteSolicitudes.filter(s => s.tipo === 'anticipo');
+        for (const sol of anticipoSolicitudes) {
+          // Check if anticipo already exists for this solicitud
+          const { data: existingAnticipo } = await supabase
+            .from('anticipos')
+            .select('id')
+            .eq('solicitud_pago_id', sol.id)
+            .maybeSingle();
+          
+          if (!existingAnticipo) {
+            const { error: anticipoError } = await supabase
+              .from('anticipos')
+              .insert({
+                instalador_id: sol.instalador_id,
+                obra_id: sol.obra_id,
+                monto_original: sol.total_solicitado,
+                monto_disponible: sol.total_solicitado,
+                registrado_por: user.id,
+                solicitud_pago_id: sol.id,
+                observaciones: `Anticipo generado al cerrar corte: ${viewingCorte.nombre}`,
+              });
+            
+            if (anticipoError) {
+              console.error('Error creating anticipo:', anticipoError);
+            }
+          }
+        }
+      }
+      
       // Update corte status
       const { error: corteError } = await supabase
         .from('cortes_semanales')
