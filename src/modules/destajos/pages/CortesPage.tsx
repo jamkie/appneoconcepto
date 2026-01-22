@@ -2702,52 +2702,46 @@ export default function CortesPage() {
               Se generarán pagos consolidados por instalador. Esta acción no se puede deshacer.
               <div className="mt-4 p-3 bg-muted rounded-lg max-h-60 overflow-y-auto">
                 <p className="font-medium mb-2">Resumen de pagos a generar:</p>
-                <ul className="text-sm space-y-1">
-                  {resumenInstaladores
-                    .filter(inst => {
-                      const sal = salarioEdits[inst.id] ?? inst.salarioSemanal;
-                      const base = inst.destajoAcumulado - sal + inst.saldoAnterior;
-                      return base >= 0 && Math.floor(base / 50) * 50 > 0;
-                    })
-                    .map((inst) => {
-                      const sal = salarioEdits[inst.id] ?? inst.salarioSemanal;
-                      const base = inst.destajoAcumulado - sal + inst.saldoAnterior;
-                      const aDepositar = Math.floor(base / 50) * 50;
-                      return (
-                        <li key={inst.id} className="flex justify-between">
-                          <span>{inst.nombre}</span>
-                          <span className="font-medium">{formatCurrency(aDepositar)}</span>
-                        </li>
-                      );
-                    })}
-                </ul>
-                {resumenInstaladores.some(inst => {
-                  const sal = salarioEdits[inst.id] ?? inst.salarioSemanal;
-                  const base = inst.destajoAcumulado - sal + inst.saldoAnterior;
-                  return base < 0 && sal - inst.destajoAcumulado > 0;
-                }) && (
-                  <div className="mt-3 pt-2 border-t">
-                    <p className="text-xs text-muted-foreground mb-1">Saldos a favor generados:</p>
-                    <ul className="text-sm space-y-1">
-                      {resumenInstaladores
-                        .filter(inst => {
-                          const sal = salarioEdits[inst.id] ?? inst.salarioSemanal;
-                          const base = inst.destajoAcumulado - sal + inst.saldoAnterior;
-                          return base < 0 && sal - inst.destajoAcumulado > 0;
-                        })
-                        .map((inst) => {
-                          const sal = salarioEdits[inst.id] ?? inst.salarioSemanal;
-                          const saldoGenerado = sal - inst.destajoAcumulado;
-                          return (
-                            <li key={inst.id} className="flex justify-between text-amber-600">
-                              <span>{inst.nombre}</span>
-                              <span>+{formatCurrency(saldoGenerado)}</span>
-                            </li>
-                          );
-                        })}
-                    </ul>
-                  </div>
-                )}
+                {(() => {
+                  // Important: excluded installers should NOT appear in this close-corte preview
+                  const included = resumenInstaladores.filter(
+                    (inst) => !excludedInstaladores.has(inst.id)
+                  );
+
+                  const calculated = included.map((inst) => ({
+                    inst,
+                    calc: getCalculatedValues(inst),
+                  }));
+
+                  const pagos = calculated.filter((x) => x.calc.aDepositar > 0);
+                  const saldosGenerados = calculated.filter((x) => x.calc.saldoGenerado > 0);
+
+                  return (
+                    <>
+                      <ul className="text-sm space-y-1">
+                        {pagos.map(({ inst, calc }) => (
+                          <li key={inst.id} className="flex justify-between">
+                            <span>{inst.nombre}</span>
+                            <span className="font-medium">{formatCurrency(calc.aDepositar)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      {saldosGenerados.length > 0 && (
+                        <div className="mt-3 pt-2 border-t">
+                          <p className="text-xs text-muted-foreground mb-1">Saldos a favor generados:</p>
+                          <ul className="text-sm space-y-1">
+                            {saldosGenerados.map(({ inst, calc }) => (
+                              <li key={inst.id} className="flex justify-between text-amber-600">
+                                <span>{inst.nombre}</span>
+                                <span>+{formatCurrency(calc.saldoGenerado)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
               <div className="mt-4">
                 <Label className="mb-2 block">Método de pago</Label>
