@@ -775,27 +775,61 @@ export default function CortesPage() {
         
         if (saldoError) throw saldoError;
         
-        // Create pago if there's something to deposit
+        // Create pagos distributed across obras based on solicitudes
+        // Each obra gets a payment proportional to its share of the installer's destajo
         if (inst.aDepositar > 0) {
-          // Find the most common obra for this instalador in this corte
-          const instSolicitudes = corteSolicitudes.filter(s => s.instalador_id === inst.id);
-          const obraId = instSolicitudes.length > 0 ? instSolicitudes[0].obra_id : null;
+          const instSolicitudes = corteSolicitudes.filter(
+            s => s.instalador_id === inst.id && s.tipo !== 'anticipo'
+          );
           
-          if (obraId) {
-            const { error: pagoError } = await supabase
-              .from('pagos_destajos')
-              .insert({
-                obra_id: obraId,
-                instalador_id: inst.id,
-                monto: inst.aDepositar,
-                metodo_pago: metodoPago,
-                corte_id: viewingCorte.id,
-                registrado_por: user.id,
-                observaciones: `Pago de corte: ${viewingCorte.nombre}`,
-              });
+          if (instSolicitudes.length > 0) {
+            // Group solicitudes by obra and calculate totals
+            const obraMontos: Record<string, number> = {};
+            instSolicitudes.forEach(sol => {
+              if (!obraMontos[sol.obra_id]) {
+                obraMontos[sol.obra_id] = 0;
+              }
+              obraMontos[sol.obra_id] += Number(sol.total_solicitado);
+            });
             
-            if (pagoError) throw pagoError;
-            pagosGenerados++;
+            // Calculate proportion for each obra
+            const totalDestajo = Object.values(obraMontos).reduce((sum, m) => sum + m, 0);
+            let montoRestante = inst.aDepositar;
+            const obraIds = Object.keys(obraMontos);
+            
+            for (let i = 0; i < obraIds.length; i++) {
+              const obraId = obraIds[i];
+              const obraDestajo = obraMontos[obraId];
+              
+              // For the last obra, use remaining amount to avoid rounding issues
+              let montoPago: number;
+              if (i === obraIds.length - 1) {
+                montoPago = montoRestante;
+              } else {
+                // Proportional payment rounded to nearest 50
+                const proporcion = obraDestajo / totalDestajo;
+                montoPago = Math.floor((inst.aDepositar * proporcion) / 50) * 50;
+              }
+              
+              if (montoPago > 0) {
+                montoRestante -= montoPago;
+                
+                const { error: pagoError } = await supabase
+                  .from('pagos_destajos')
+                  .insert({
+                    obra_id: obraId,
+                    instalador_id: inst.id,
+                    monto: montoPago,
+                    metodo_pago: metodoPago,
+                    corte_id: viewingCorte.id,
+                    registrado_por: user.id,
+                    observaciones: `Pago de corte: ${viewingCorte.nombre}`,
+                  });
+                
+                if (pagoError) throw pagoError;
+                pagosGenerados++;
+              }
+            }
           }
         }
       }
