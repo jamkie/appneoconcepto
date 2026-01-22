@@ -137,6 +137,7 @@ export default function CortesPage() {
   }
   const [saldosInstaladores, setSaldosInstaladores] = useState<SaldoInstaladorView[]>([]);
   const [loadingSaldos, setLoadingSaldos] = useState(false);
+  const [applyingSaldoId, setApplyingSaldoId] = useState<string | null>(null);
   const [solicitudesPendientesGlobal, setSolicitudesPendientesGlobal] = useState<SolicitudForCorte[]>([]);
   const [loadingDisponibles, setLoadingDisponibles] = useState(false);
   const [searchDisponibles, setSearchDisponibles] = useState('');
@@ -557,6 +558,7 @@ export default function CortesPage() {
       const resumenMap: Record<string, InstaladorResumen> = {};
       
       // First, initialize all active instaladores
+      // Note: saldoAnterior is NOT applied automatically anymore - it's applied via manual "saldo" solicitudes
       (allInstaladores || []).forEach((inst: any) => {
         resumenMap[inst.id] = {
           id: inst.id,
@@ -566,7 +568,7 @@ export default function CortesPage() {
           salarioSemanal: Number(inst.salario_semanal) || 0,
           destajoAcumulado: 0,
           anticiposEnCorte: 0,
-          saldoAnterior: saldosMap[inst.id] || 0,
+          saldoAnterior: 0, // No longer auto-loaded, applied manually via solicitudes tipo 'saldo'
           destajoADepositar: 0,
           aDepositar: 0,
           saldoGenerado: 0,
@@ -576,15 +578,19 @@ export default function CortesPage() {
       });
       
       // Add solicitudes to their instaladores
-      // Anticipos are included as part of the destajo to be paid in this cut
+      // Anticipos and Saldos are included as part of the destajo to be paid in this cut
       (asignadas || []).forEach((sol: any) => {
         const instaladorId = sol.instalador_id;
         if (resumenMap[instaladorId]) {
-          // All solicitudes (including anticipos) add to the destajo acumulado
+          // All solicitudes (including anticipos and saldos) add to the destajo acumulado
           resumenMap[instaladorId].destajoAcumulado += Number(sol.total_solicitado);
           // Track anticipos separately for display purposes
           if (sol.tipo === 'anticipo') {
             resumenMap[instaladorId].anticiposEnCorte += Number(sol.total_solicitado);
+          }
+          // Track saldos aplicados as saldoAnterior for display purposes
+          if (sol.tipo === 'saldo') {
+            resumenMap[instaladorId].saldoAnterior += Number(sol.total_solicitado);
           }
           resumenMap[instaladorId].solicitudes.push(sol);
         }
@@ -603,8 +609,9 @@ export default function CortesPage() {
           inst.saldoGenerado = Number(ci.saldo_generado);
         } else {
           // Calculate in real-time for open cortes
-          // Anticipos are already included in destajoAcumulado
-          const basePago = inst.destajoAcumulado - inst.salarioSemanal + inst.saldoAnterior;
+          // Anticipos and Saldos are already included in destajoAcumulado via solicitudes
+          // saldoAnterior here represents saldos applied via solicitudes tipo 'saldo'
+          const basePago = inst.destajoAcumulado - inst.salarioSemanal;
           
           if (basePago >= 0) {
             inst.destajoADepositar = basePago;
@@ -744,12 +751,111 @@ export default function CortesPage() {
     }
   };
 
+  // Apply saldo a favor as a solicitud to the open corte
+  const handleApplySaldoToCorte = async (saldo: SaldoInstaladorView) => {
+    // Find open corte
+    const corteAbierto = cortes.find(c => c.estado === 'abierto');
+    if (!corteAbierto) {
+      toast({
+        title: 'Error',
+        description: 'No hay un corte abierto para aplicar el saldo. Crea uno primero.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!user) return;
+
+    try {
+      setApplyingSaldoId(saldo.id);
+
+      // Get first obra for the instalador (we need an obra_id for the solicitud)
+      const { data: obraData, error: obraError } = await supabase
+        .from('obra_instaladores')
+        .select('obra_id')
+        .eq('instalador_id', saldo.instalador_id)
+        .limit(1)
+        .single();
+
+      let obraId = obraData?.obra_id;
+
+      // If no obra found, get any active obra
+      if (!obraId) {
+        const { data: anyObra } = await supabase
+          .from('obras')
+          .select('id')
+          .eq('estado', 'activa')
+          .limit(1)
+          .single();
+        obraId = anyObra?.id;
+      }
+
+      if (!obraId) {
+        toast({
+          title: 'Error',
+          description: 'No se encontró una obra activa para registrar el saldo',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Create a solicitud tipo 'saldo' and assign to corte
+      const { error: insertError } = await supabase
+        .from('solicitudes_pago')
+        .insert({
+          tipo: 'saldo',
+          instalador_id: saldo.instalador_id,
+          obra_id: obraId,
+          total_solicitado: saldo.saldo_acumulado,
+          estado: 'aprobada',
+          solicitado_por: user.id,
+          aprobado_por: user.id,
+          fecha_aprobacion: new Date().toISOString(),
+          corte_id: corteAbierto.id,
+          observaciones: `Saldo a favor aplicado del corte: ${saldo.ultimo_corte_nombre || 'anterior'}`
+        });
+
+      if (insertError) throw insertError;
+
+      // Clear the saldo from saldos_instaladores
+      const { error: updateSaldoError } = await supabase
+        .from('saldos_instaladores')
+        .update({ 
+          saldo_acumulado: 0,
+          ultimo_corte_id: corteAbierto.id,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', saldo.id);
+
+      if (updateSaldoError) throw updateSaldoError;
+
+      toast({
+        title: 'Éxito',
+        description: `Saldo de ${formatCurrency(saldo.saldo_acumulado)} aplicado al corte "${corteAbierto.nombre}"`,
+      });
+
+      // Refresh data
+      fetchSaldosInstaladores();
+      fetchCortes();
+      
+    } catch (error) {
+      console.error('Error applying saldo to corte:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo aplicar el saldo al corte',
+        variant: 'destructive',
+      });
+    } finally {
+      setApplyingSaldoId(null);
+    }
+  };
+
   const removeSolicitudFromCorteInternal = async (solicitudId: string): Promise<boolean> => {
     try {
       // Get solicitud details first to check type and extras
       const { data: solicitud, error: fetchError } = await supabase
         .from('solicitudes_pago')
-        .select('tipo, extras_ids')
+        .select('tipo, extras_ids, instalador_id, total_solicitado')
         .eq('id', solicitudId)
         .single();
       
@@ -763,6 +869,44 @@ export default function CortesPage() {
           .eq('solicitud_pago_id', solicitudId);
         
         if (deleteAnticipoError) throw deleteAnticipoError;
+      }
+      
+      // If it's a saldo type, restore the saldo to the instalador
+      if (solicitud?.tipo === 'saldo') {
+        // Check if saldo record exists
+        const { data: existingSaldo } = await supabase
+          .from('saldos_instaladores')
+          .select('id, saldo_acumulado')
+          .eq('instalador_id', solicitud.instalador_id)
+          .maybeSingle();
+        
+        if (existingSaldo) {
+          // Update existing saldo
+          await supabase
+            .from('saldos_instaladores')
+            .update({ 
+              saldo_acumulado: Number(existingSaldo.saldo_acumulado) + Number(solicitud.total_solicitado),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', existingSaldo.id);
+        } else {
+          // Create new saldo record
+          await supabase
+            .from('saldos_instaladores')
+            .insert({
+              instalador_id: solicitud.instalador_id,
+              saldo_acumulado: solicitud.total_solicitado
+            });
+        }
+        
+        // Delete the saldo solicitud instead of reverting to pendiente
+        const { error: deleteError } = await supabase
+          .from('solicitudes_pago')
+          .delete()
+          .eq('id', solicitudId);
+        
+        if (deleteError) throw deleteError;
+        return true;
       }
       
       // If it has extras, revert them to pendiente
@@ -836,8 +980,9 @@ export default function CortesPage() {
         description: 'Solicitud removida del corte',
       });
       
-      // Refresh detail
+      // Refresh detail and saldos (in case a saldo was restored)
       handleViewCorte(viewingCorte);
+      fetchSaldosInstaladores();
     } catch (error) {
       console.error('Error removing solicitud from corte:', error);
       toast({
@@ -894,6 +1039,7 @@ export default function CortesPage() {
       
       setSelectedForRemoval(new Set());
       handleViewCorte(viewingCorte);
+      fetchSaldosInstaladores(); // Refresh saldos in case any were restored
     } catch (error) {
       console.error('Error in bulk removal:', error);
       toast({
@@ -930,10 +1076,11 @@ export default function CortesPage() {
     if (!viewingCorte || !user) return;
     
     // Calculate values with edited salaries for each instalador
-    // Anticipos are already included in destajoAcumulado
+    // Anticipos and Saldos are already included in destajoAcumulado via solicitudes
     const instaladoresCalculados = resumenInstaladores.map(inst => {
       const salario = salarioEdits[inst.id] ?? inst.salarioSemanal;
-      const basePago = inst.destajoAcumulado - salario + inst.saldoAnterior;
+      // saldoAnterior here represents saldos applied via solicitudes tipo 'saldo', already in destajoAcumulado
+      const basePago = inst.destajoAcumulado - salario;
       
       if (basePago >= 0) {
         return {
@@ -1413,12 +1560,13 @@ export default function CortesPage() {
       
       if (error) throw error;
       
-      // Recalculate and update local state (anticipos are already in destajoAcumulado)
+      // Recalculate and update local state
+      // Anticipos and Saldos are already in destajoAcumulado via solicitudes
       setResumenInstaladores(prev => 
         prev.map(i => {
           if (i.id !== instaladorId) return i;
           
-          const basePago = i.destajoAcumulado - newSalario + i.saldoAnterior;
+          const basePago = i.destajoAcumulado - newSalario;
           
           if (basePago >= 0) {
             return {
@@ -1831,7 +1979,7 @@ export default function CortesPage() {
                       {saldosInstaladores.length} instalador{saldosInstaladores.length !== 1 ? 'es' : ''} con saldo a favor
                     </p>
                     <p className="text-sm text-amber-600 dark:text-amber-400">
-                      Estos saldos se descontarán automáticamente en el próximo corte de cada instalador
+                      Usa el botón "Aplicar" para agregar estos saldos al corte abierto
                     </p>
                   </div>
                 </div>
@@ -1842,6 +1990,21 @@ export default function CortesPage() {
                   </p>
                 </div>
               </div>
+
+              {/* Info about open corte */}
+              {cortes.find(c => c.estado === 'abierto') ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 p-3 rounded-lg">
+                  <CheckCircle className="w-4 h-4 text-green-600" />
+                  <span>
+                    Corte abierto: <strong>{cortes.find(c => c.estado === 'abierto')?.nombre}</strong>
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 dark:bg-amber-950/20 p-3 rounded-lg">
+                  <Calendar className="w-4 h-4" />
+                  <span>No hay corte abierto. Crea uno para poder aplicar saldos.</span>
+                </div>
+              )}
 
               {/* Saldos list */}
               {saldosInstaladores.length === 0 ? (
@@ -1868,11 +2031,22 @@ export default function CortesPage() {
                           )}
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-lg text-amber-600">
-                          {formatCurrency(saldo.saldo_acumulado)}
-                        </p>
-                        <span className="text-xs text-muted-foreground">Saldo a favor</span>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="font-semibold text-lg text-amber-600">
+                            {formatCurrency(saldo.saldo_acumulado)}
+                          </p>
+                          <span className="text-xs text-muted-foreground">Saldo a favor</span>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleApplySaldoToCorte(saldo)}
+                          disabled={applyingSaldoId === saldo.id || !cortes.find(c => c.estado === 'abierto')}
+                          className="border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-950/50"
+                        >
+                          {applyingSaldoId === saldo.id ? 'Aplicando...' : 'Aplicar Saldo'}
+                        </Button>
                       </div>
                     </div>
                   ))}
