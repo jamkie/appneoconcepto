@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { FileText, Plus, Search, Pencil, Trash2, RotateCcw, Calendar } from 'lucide-react';
+import { FileText, Plus, Search, Pencil, Trash2, RotateCcw, Calendar, User, MapPin, DollarSign } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -72,6 +72,7 @@ export default function ExtrasPage() {
   const [editingExtra, setEditingExtra] = useState<ExtraWithDetails | null>(null);
   const [deleteExtra, setDeleteExtra] = useState<ExtraWithDetails | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [viewingExtra, setViewingExtra] = useState<ExtraWithDetails | null>(null);
   const [formData, setFormData] = useState({
     obra_id: '',
     instalador_id: '',
@@ -503,13 +504,16 @@ export default function ExtrasPage() {
                 <TableHead className="hidden md:table-cell">Instalador</TableHead>
                 <TableHead>Descripción</TableHead>
                 <TableHead>Monto</TableHead>
-                <TableHead className="hidden lg:table-cell">Estado</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
+                <TableHead>Estado</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredExtras.map((extra) => (
-                <TableRow key={extra.id}>
+                <TableRow 
+                  key={extra.id}
+                  className="cursor-pointer hover:bg-muted/50"
+                  onClick={() => setViewingExtra(extra)}
+                >
                   <TableCell>
                     <div className="flex items-center gap-2 text-sm">
                       <Calendar className="w-4 h-4 text-muted-foreground" />
@@ -522,7 +526,7 @@ export default function ExtrasPage() {
                   <TableCell className="hidden md:table-cell">
                     {extra.instaladores?.nombre || 'N/A'}
                   </TableCell>
-                  <TableCell className="font-medium">
+                  <TableCell className="font-medium max-w-[200px] truncate">
                     {extra.descripcion}
                   </TableCell>
                   <TableCell className="font-medium">
@@ -543,44 +547,8 @@ export default function ExtrasPage() {
                       );
                     })()}
                   </TableCell>
-                  <TableCell className="hidden lg:table-cell">
-                    <div className="flex items-center gap-2">
-                      {renderEstadoBadge(extra)}
-                      {extra.solicitudRechazada && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleNuevaSolicitud(extra)}
-                          disabled={creatingSolicitud}
-                          className="h-6 text-xs"
-                        >
-                          <RotateCcw className={`w-3 h-3 mr-1 ${creatingSolicitud ? 'animate-spin' : ''}`} />
-                          Nueva solicitud
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      {canEditOrDelete(extra) && canUpdate && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => openEditModal(extra)}
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                      )}
-                      {canEditOrDelete(extra) && canDelete && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setDeleteExtra(extra)}
-                        >
-                          <Trash2 className="w-4 h-4 text-destructive" />
-                        </Button>
-                      )}
-                    </div>
+                  <TableCell>
+                    {renderEstadoBadge(extra)}
                   </TableCell>
                 </TableRow>
               ))}
@@ -588,6 +556,140 @@ export default function ExtrasPage() {
           </Table>
         </div>
       )}
+
+      {/* Detail Modal */}
+      <Dialog open={!!viewingExtra} onOpenChange={(open) => !open && setViewingExtra(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5" />
+              Detalle del Extra
+            </DialogTitle>
+          </DialogHeader>
+          
+          {viewingExtra && (
+            <div className="space-y-4">
+              {/* Info principal */}
+              <div className="grid gap-4">
+                <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                  <MapPin className="w-5 h-5 text-muted-foreground mt-0.5" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">Obra</p>
+                    <p className="font-medium">{viewingExtra.obras?.nombre || 'N/A'}</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                  <User className="w-5 h-5 text-muted-foreground mt-0.5" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">Instalador</p>
+                    <p className="font-medium">{viewingExtra.instaladores?.nombre || 'N/A'}</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                  <Calendar className="w-5 h-5 text-muted-foreground mt-0.5" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">Fecha</p>
+                    <p className="font-medium">{format(new Date(viewingExtra.created_at), "dd 'de' MMMM yyyy", { locale: es })}</p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Descripción */}
+              <div className="p-3 rounded-lg border">
+                <p className="text-sm text-muted-foreground mb-1">Descripción</p>
+                <p className="font-medium">{viewingExtra.descripcion}</p>
+              </div>
+              
+              {/* Monto */}
+              <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
+                <div className="flex items-center gap-2 mb-2">
+                  <DollarSign className="w-5 h-5 text-primary" />
+                  <span className="font-medium">Monto</span>
+                </div>
+                {(() => {
+                  const descuento = Number((viewingExtra as any).descuento || 0);
+                  const montoNeto = Number(viewingExtra.monto) * (1 - descuento / 100);
+                  return (
+                    <div className="space-y-1">
+                      {descuento > 0 ? (
+                        <>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Bruto:</span>
+                            <span>{formatCurrency(Number(viewingExtra.monto))}</span>
+                          </div>
+                          <div className="flex justify-between text-sm text-destructive">
+                            <span>Descuento ({descuento}%):</span>
+                            <span>-{formatCurrency(Number(viewingExtra.monto) * descuento / 100)}</span>
+                          </div>
+                          <div className="flex justify-between font-semibold text-lg border-t pt-2 mt-2">
+                            <span>Neto:</span>
+                            <span className="text-primary">{formatCurrency(montoNeto)}</span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-2xl font-bold text-primary">
+                          {formatCurrency(montoNeto)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+              
+              {/* Estado */}
+              <div className="flex items-center justify-between p-3 rounded-lg border">
+                <span className="text-sm text-muted-foreground">Estado</span>
+                {renderEstadoBadge(viewingExtra)}
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            {viewingExtra && viewingExtra.solicitudRechazada && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  handleNuevaSolicitud(viewingExtra);
+                  setViewingExtra(null);
+                }}
+                disabled={creatingSolicitud}
+                className="w-full sm:w-auto"
+              >
+                <RotateCcw className={`w-4 h-4 mr-2 ${creatingSolicitud ? 'animate-spin' : ''}`} />
+                Nueva solicitud
+              </Button>
+            )}
+            {viewingExtra && canEditOrDelete(viewingExtra) && canUpdate && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  openEditModal(viewingExtra);
+                  setViewingExtra(null);
+                }}
+                className="w-full sm:w-auto"
+              >
+                <Pencil className="w-4 h-4 mr-2" />
+                Editar
+              </Button>
+            )}
+            {viewingExtra && canEditOrDelete(viewingExtra) && canDelete && (
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  setDeleteExtra(viewingExtra);
+                  setViewingExtra(null);
+                }}
+                className="w-full sm:w-auto"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Eliminar
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create/Edit Modal */}
       <Dialog open={isModalOpen} onOpenChange={(open) => {
