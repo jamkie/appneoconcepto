@@ -96,6 +96,7 @@ interface ProfileInfo {
 export default function ObrasPage() {
   const { user, loading } = useAuth();
   const { canCreate, canUpdate, canDelete } = useSubmodulePermissions('destajos', 'obras');
+  const { canCreate: canCreateAnticipo } = useSubmodulePermissions('destajos', 'anticipos');
   const navigate = useNavigate();
   const { toast } = useToast();
   const { generatePDF: generateEstadoCuentaPDF } = useGenerateEstadoCuentaPDF();
@@ -1413,18 +1414,20 @@ export default function ObrasPage() {
                   <Plus className="w-5 h-5 text-secondary-foreground" />
                   <span className="text-xs font-medium text-secondary-foreground">Extra</span>
                 </button>
-                <button
-                  onClick={() => {
-                    if (detailObra) {
-                      setDetailDialogOpen(false);
-                      navigate(`/destajos/solicitudes?anticipo_obra=${detailObra.id}`);
-                    }
-                  }}
-                  className="flex flex-col items-center gap-1 p-3 rounded-lg border border-dashed hover:bg-muted/50 transition-colors"
-                >
-                  <Banknote className="w-5 h-5 text-muted-foreground" />
-                  <span className="text-xs font-medium text-muted-foreground">Anticipo</span>
-                </button>
+                {canCreateAnticipo && (
+                  <button
+                    onClick={() => {
+                      if (detailObra) {
+                        setDetailDialogOpen(false);
+                        navigate(`/destajos/solicitudes?anticipo_obra=${detailObra.id}`);
+                      }
+                    }}
+                    className="flex flex-col items-center gap-1 p-3 rounded-lg border border-dashed hover:bg-muted/50 transition-colors"
+                  >
+                    <Banknote className="w-5 h-5 text-muted-foreground" />
+                    <span className="text-xs font-medium text-muted-foreground">Anticipo</span>
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     if (detailObra) {

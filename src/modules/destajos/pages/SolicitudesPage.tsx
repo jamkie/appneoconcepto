@@ -54,6 +54,7 @@ interface AnticipoWithDetails extends Anticipo {
 export default function SolicitudesPage() {
   const { user, loading } = useAuth();
   const { canCreate, canUpdate, canDelete } = useSubmodulePermissions('destajos', 'solicitudes');
+  const { canCreate: canCreateAnticipo } = useSubmodulePermissions('destajos', 'anticipos');
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
@@ -121,12 +122,12 @@ export default function SolicitudesPage() {
   // Handle deep link for creating anticipo from obras modal
   useEffect(() => {
     const obraId = searchParams.get('anticipo_obra');
-    if (obraId && obras.length > 0 && !loadingData && canCreate) {
+    if (obraId && obras.length > 0 && !loadingData && canCreateAnticipo) {
       setAnticipoForm(prev => ({ ...prev, obra_id: obraId }));
       setIsAnticipoModalOpen(true);
       setSearchParams({});
     }
-  }, [searchParams, obras, loadingData, canCreate, setSearchParams]);
+  }, [searchParams, obras, loadingData, canCreateAnticipo, setSearchParams]);
 
   const fetchData = async () => {
     try {
