@@ -755,31 +755,9 @@ export default function CortesPage() {
         if (extrasError) throw extrasError;
       }
       
-      // If it's an anticipo type, create the anticipo record
-      if (solicitud.tipo === 'anticipo') {
-        // Check if anticipo already exists for this solicitud
-        const { data: existingAnticipo } = await supabase
-          .from('anticipos')
-          .select('id')
-          .eq('solicitud_pago_id', solicitud.id)
-          .maybeSingle();
-        
-        if (!existingAnticipo) {
-          const { error: anticipoError } = await supabase
-            .from('anticipos')
-            .insert({
-              obra_id: solicitud.obra_id,
-              instalador_id: solicitud.instalador_id,
-              monto_original: solicitud.total_solicitado,
-              monto_disponible: solicitud.total_solicitado,
-              registrado_por: user.id,
-              solicitud_pago_id: solicitud.id,
-              observaciones: solicitud.observaciones || 'Anticipo aprobado desde corte'
-            });
-          
-          if (anticipoError) throw anticipoError;
-        }
-      }
+      // NOTE: For anticipo type solicitudes, we do NOT create the anticipo record here.
+      // The anticipo record is created ONLY when the corte is closed (handleCloseCorte).
+      // This ensures anticipos only become "available" after the corte is finalized.
       
       toast({
         title: 'Éxito',
@@ -1374,64 +1352,60 @@ export default function CortesPage() {
             }
           }
           
-          // CRITICAL: Apply available anticipos for this installer and register in anticipo_aplicaciones
-          // This ensures anticipos can be properly restored when the corte is reopened
-          if (createdPagos.length > 0) {
-            // Get all available anticipos for this installer
+          // CRITICAL: Apply available anticipos from PREVIOUS cortes for this installer
+          // IMPORTANT: Only apply up to the amount that won't make the deposit go below $0
+          // Anticipos from THIS corte are NOT applied here - they only become available after closure
+          
+          // Calculate max amount we can apply without going below $0
+          const maxAplicable = Math.max(0, inst.aDepositar);
+          
+          if (maxAplicable > 0 && createdPagos.length > 0) {
+            // Get available anticipos for this installer (excluding those from this corte)
             const { data: anticiposDisponibles } = await supabase
               .from('anticipos')
-              .select('id, obra_id, monto_disponible')
+              .select('id, obra_id, monto_disponible, solicitud_pago_id')
               .eq('instalador_id', inst.id)
               .gt('monto_disponible', 0);
             
             if (anticiposDisponibles && anticiposDisponibles.length > 0) {
-              // For each anticipo, apply to matching pagos (same obra or any pago if no match)
-              for (const anticipo of anticiposDisponibles) {
-                let montoRestante = Number(anticipo.monto_disponible);
+              // Filter out anticipos that belong to solicitudes in THIS corte (they're not available yet)
+              const solicitudIdsEnCorte = new Set(solicitudesIncluidas.map(s => s.id));
+              const anticiposFromPreviousCortes = anticiposDisponibles.filter(
+                a => !a.solicitud_pago_id || !solicitudIdsEnCorte.has(a.solicitud_pago_id)
+              );
+              
+              let totalAplicado = 0;
+              
+              for (const anticipo of anticiposFromPreviousCortes) {
+                if (totalAplicado >= maxAplicable) break; // Stop if we've reached the cap
                 
-                // First try to apply to pago from the same obra
-                const pagoMismaObra = createdPagos.find(p => p.obra_id === anticipo.obra_id);
+                const montoDisponible = Number(anticipo.monto_disponible);
+                // Only apply what we can without exceeding the cap
+                const montoAplicar = Math.min(montoDisponible, maxAplicable - totalAplicado);
                 
-                if (pagoMismaObra && montoRestante > 0) {
-                  const montoAplicar = montoRestante; // Apply full available amount
+                if (montoAplicar <= 0) continue;
+                
+                // Find a matching pago (prefer same obra, else first available)
+                const pagoTarget = createdPagos.find(p => p.obra_id === anticipo.obra_id) || createdPagos[0];
+                
+                // Create anticipo_aplicacion record
+                const { error: aplicacionError } = await supabase
+                  .from('anticipo_aplicaciones')
+                  .insert({
+                    anticipo_id: anticipo.id,
+                    pago_id: pagoTarget.id,
+                    monto_aplicado: montoAplicar,
+                  });
+                
+                if (!aplicacionError) {
+                  // Reduce the anticipo's monto_disponible
+                  const newMontoDisponible = montoDisponible - montoAplicar;
+                  await supabase
+                    .from('anticipos')
+                    .update({ monto_disponible: newMontoDisponible })
+                    .eq('id', anticipo.id);
                   
-                  // Create anticipo_aplicacion record
-                  const { error: aplicacionError } = await supabase
-                    .from('anticipo_aplicaciones')
-                    .insert({
-                      anticipo_id: anticipo.id,
-                      pago_id: pagoMismaObra.id,
-                      monto_aplicado: montoAplicar,
-                    });
-                  
-                  if (!aplicacionError) {
-                    // Reduce the anticipo's monto_disponible
-                    await supabase
-                      .from('anticipos')
-                      .update({ monto_disponible: 0 })
-                      .eq('id', anticipo.id);
-                    
-                    montoRestante = 0;
-                  }
-                } else if (montoRestante > 0) {
-                  // Apply to first available pago if no matching obra
-                  const firstPago = createdPagos[0];
-                  const montoAplicar = montoRestante;
-                  
-                  const { error: aplicacionError } = await supabase
-                    .from('anticipo_aplicaciones')
-                    .insert({
-                      anticipo_id: anticipo.id,
-                      pago_id: firstPago.id,
-                      monto_aplicado: montoAplicar,
-                    });
-                  
-                  if (!aplicacionError) {
-                    await supabase
-                      .from('anticipos')
-                      .update({ monto_disponible: 0 })
-                      .eq('id', anticipo.id);
-                  }
+                  totalAplicado += montoAplicar;
                 }
               }
             }
@@ -1701,10 +1675,26 @@ export default function CortesPage() {
         if (deleteError) throw deleteError;
       }
       
+      // CRITICAL: Delete anticipos that were GENERATED by solicitudes tipo 'anticipo' in this corte
+      // These anticipos were created at closure time and should be deleted when reopening
+      const anticipoSolicitudes = (solicitudesData || []).filter(s => s.tipo === 'anticipo');
+      if (anticipoSolicitudes.length > 0) {
+        const anticipoSolIds = anticipoSolicitudes.map(s => s.id);
+        const { error: deleteAnticiposError } = await supabase
+          .from('anticipos')
+          .delete()
+          .in('solicitud_pago_id', anticipoSolIds);
+        
+        if (deleteAnticiposError) {
+          console.error('Error deleting anticipos from corte:', deleteAnticiposError);
+          // Don't throw - continue with reopening even if this fails
+        }
+      }
+      
       // NOTE: Do NOT revert other solicitudes to 'pendiente' here.
       // Solicitudes keep their 'aprobada' status when reopening a corte.
       // They only revert to 'pendiente' when manually removed from the corte.
-      // Anticipos and extras also stay approved - they were created at approval time.
+      // Anticipos stay as approved requests, but the actual 'anticipo' credit record is deleted.
       
       // Update corte back to abierto
       const { error: corteError } = await supabase
