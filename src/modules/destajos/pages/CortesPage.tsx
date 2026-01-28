@@ -1606,17 +1606,21 @@ export default function CortesPage() {
       
       if (solicitudesError) throw solicitudesError;
       
-      // Delete anticipos created from anticipo-type solicitudes in this corte
+      // Only delete anticipos if the corte was closed (anticipos are only created on closure)
+      // For open cortes, just revert solicitudes to pending without deleting anticipos
       if (solicitudesData && solicitudesData.length > 0) {
-        const anticipoSolicitudes = solicitudesData.filter(s => s.tipo === 'anticipo');
-        if (anticipoSolicitudes.length > 0) {
-          const anticipoSolIds = anticipoSolicitudes.map(s => s.id);
-          const { error: deleteAnticiposError } = await supabase
-            .from('anticipos')
-            .delete()
-            .in('solicitud_pago_id', anticipoSolIds);
-          
-          if (deleteAnticiposError) throw deleteAnticiposError;
+        // Only delete anticipos if the corte was closed
+        if (viewingCorte.estado === 'cerrado') {
+          const anticipoSolicitudes = solicitudesData.filter(s => s.tipo === 'anticipo');
+          if (anticipoSolicitudes.length > 0) {
+            const anticipoSolIds = anticipoSolicitudes.map(s => s.id);
+            const { error: deleteAnticiposError } = await supabase
+              .from('anticipos')
+              .delete()
+              .in('solicitud_pago_id', anticipoSolIds);
+            
+            if (deleteAnticiposError) throw deleteAnticiposError;
+          }
         }
         
         // Revert extras to pendiente
