@@ -1134,10 +1134,16 @@ export default function CortesPage() {
       inst => !excludedInstaladores.has(inst.id)
     );
     
+    // CRITICAL FIX: Only include instaladores that have at least one solicitud in this corte
+    // This prevents creating incorrect saldos for installers with no work in this period
+    const instaladoresConSolicitudes = instaladoresIncluidos.filter(inst => 
+      inst.solicitudes.length > 0 || inst.destajoAcumulado > 0 || inst.anticiposEnCorte > 0 || inst.saldoAnterior > 0
+    );
+    
     // Calculate values with edited salaries for each instalador
     // Formula: basePago = Destajo - Salario - SaldoAnterior - Anticipos
     // (saldoAnterior = adeudo a favor de la empresa; anticipos = dinero ya entregado)
-    const instaladoresCalculados = instaladoresIncluidos.map(inst => {
+    const instaladoresCalculados = instaladoresConSolicitudes.map(inst => {
       const salario = salarioEdits[inst.id] ?? inst.salarioSemanal;
       const basePago = inst.destajoAcumulado - salario - inst.saldoAnterior - inst.anticiposEnCorte;
       
@@ -1163,12 +1169,11 @@ export default function CortesPage() {
       }
     });
     
-    // Check if there are any instaladores with aDepositar > 0 or saldoGenerado > 0
-    const instaladoresConPago = instaladoresCalculados.filter(i => i.aDepositar > 0 || i.saldoGenerado > 0);
-    if (instaladoresConPago.length === 0 && corteSolicitudes.length === 0) {
+    // Check if there are any instaladores with activity
+    if (instaladoresCalculados.length === 0 && corteSolicitudes.length === 0) {
       toast({
         title: 'Error',
-        description: 'No hay pagos ni saldos para procesar',
+        description: 'No hay solicitudes para procesar en este corte',
         variant: 'destructive',
       });
       return;
