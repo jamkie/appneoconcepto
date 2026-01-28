@@ -39,6 +39,7 @@ export const modulesWithSubmodules: ModuleWithSubmodules[] = [
       { id: 'instaladores', label: 'Instaladores' },
       { id: 'avances', label: 'Avances' },
       { id: 'extras', label: 'Extras' },
+      { id: 'anticipos', label: 'Anticipos' },
       { id: 'solicitudes', label: 'Solicitudes' },
       { id: 'cortes', label: 'Cortes' },
       { id: 'pagos', label: 'Pagos' },
