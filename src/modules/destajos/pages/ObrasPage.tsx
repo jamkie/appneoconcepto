@@ -39,6 +39,7 @@ import type { Obra, ObraStatus, ObraItem } from '../types';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useSubmodulePermissions } from '@/hooks/useSubmodulePermissions';
+import { RestrictedAction } from '@/components/RestrictedAction';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -1414,10 +1415,14 @@ export default function ObrasPage() {
                   <Plus className="w-5 h-5 text-secondary-foreground" />
                   <span className="text-xs font-medium text-secondary-foreground">Extra</span>
                 </button>
-                {canCreateAnticipo && (
+                <RestrictedAction
+                  permissions={{ canCreate: canCreateAnticipo }}
+                  requiredPermission="create"
+                  resourceName="anticipos"
+                >
                   <button
                     onClick={() => {
-                      if (detailObra) {
+                      if (detailObra && canCreateAnticipo) {
                         setDetailDialogOpen(false);
                         navigate(`/destajos/solicitudes?anticipo_obra=${detailObra.id}`);
                       }
@@ -1427,7 +1432,7 @@ export default function ObrasPage() {
                     <Banknote className="w-5 h-5 text-muted-foreground" />
                     <span className="text-xs font-medium text-muted-foreground">Anticipo</span>
                   </button>
-                )}
+                </RestrictedAction>
                 <button
                   onClick={() => {
                     if (detailObra) {
