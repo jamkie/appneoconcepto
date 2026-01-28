@@ -1583,8 +1583,39 @@ export default function CortesPage() {
         if (deleteSolError) throw deleteSolError;
       }
       
-      // Delete corte_instaladores records (no longer need to revert saldos from here 
-      // since the snapshot saldo_anterior was the state BEFORE applying saldo deductions)
+      // CRITICAL: Revert saldos_generados from corte_instaladores
+      // When a corte is closed, saldo_generado is added to saldos_instaladores
+      // We need to subtract that amount when reopening to restore the previous state
+      if (ciData && ciData.length > 0) {
+        for (const ci of ciData) {
+          if (ci.saldo_generado > 0) {
+            // Get current saldo for this instalador
+            const { data: currentSaldo } = await supabase
+              .from('saldos_instaladores')
+              .select('saldo_acumulado')
+              .eq('instalador_id', ci.instalador_id)
+              .maybeSingle();
+            
+            const currentAmount = Number(currentSaldo?.saldo_acumulado) || 0;
+            const revertedAmount = Math.max(0, currentAmount - ci.saldo_generado);
+            
+            // Update or upsert the saldo
+            const { error: revertError } = await supabase
+              .from('saldos_instaladores')
+              .upsert({
+                instalador_id: ci.instalador_id,
+                saldo_acumulado: revertedAmount,
+                updated_at: new Date().toISOString(),
+              }, {
+                onConflict: 'instalador_id'
+              });
+            
+            if (revertError) throw revertError;
+          }
+        }
+      }
+      
+      // Delete corte_instaladores records
       const { error: deleteCiError } = await supabase
         .from('corte_instaladores')
         .delete()
