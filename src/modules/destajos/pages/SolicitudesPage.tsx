@@ -1424,8 +1424,8 @@ export default function SolicitudesPage() {
           setAnticiposSeleccionados({});
         }
       }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        <DialogContent className="max-w-md max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <Banknote className="w-5 h-5 text-amber-600" />
               Aplicar Anticipos
@@ -1433,7 +1433,7 @@ export default function SolicitudesPage() {
           </DialogHeader>
           
           {solicitudParaAprobar && (
-            <div className="space-y-4">
+            <div className="space-y-4 overflow-y-auto flex-1 pr-1">
               <div className="p-3 bg-muted rounded-lg text-sm">
                 <div className="flex justify-between mb-1">
                   <span className="text-muted-foreground">Instalador:</span>
@@ -1518,9 +1518,10 @@ export default function SolicitudesPage() {
             </div>
           )}
 
-          <DialogFooter className="flex-col sm:flex-row gap-2">
+          <DialogFooter className="flex-shrink-0 flex-col gap-2 sm:flex-row sm:justify-end pt-4 border-t">
             <Button
               variant="outline"
+              className="w-full sm:w-auto"
               onClick={() => {
                 setShowAplicarAnticipoDialog(false);
                 setSolicitudParaAprobar(null);
@@ -1530,12 +1531,14 @@ export default function SolicitudesPage() {
             </Button>
             <Button
               variant="secondary"
+              className="w-full sm:w-auto"
               onClick={handleAprobarSinAnticipo}
               disabled={processing}
             >
               Aprobar sin anticipo
             </Button>
             <Button
+              className="w-full sm:w-auto"
               onClick={handleConfirmarAprobacion}
               disabled={processing || Object.values(anticiposSeleccionados).reduce((sum, val) => sum + val, 0) === 0}
             >
