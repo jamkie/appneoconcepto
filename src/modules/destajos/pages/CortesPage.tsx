@@ -624,13 +624,13 @@ export default function CortesPage() {
           if (sol.tipo === 'saldo') {
             // Track saldos aplicados as saldoAnterior (will be subtracted from basePago)
             resumenMap[instaladorId].saldoAnterior += Number(sol.total_solicitado);
+          } else if (sol.tipo === 'anticipo') {
+            // Anticipos are money already delivered, so they must be DEDUCTED from the net deposit.
+            // We track them separately and do NOT add them to destajoAcumulado (work value).
+            resumenMap[instaladorId].anticiposEnCorte += Number(sol.total_solicitado);
           } else {
-            // All other solicitudes (avance, extra, anticipo) add to destajo acumulado
+            // Work requests (avance/extra/etc) add to destajo acumulado
             resumenMap[instaladorId].destajoAcumulado += Number(sol.total_solicitado);
-            // Track anticipos separately for display purposes
-            if (sol.tipo === 'anticipo') {
-              resumenMap[instaladorId].anticiposEnCorte += Number(sol.total_solicitado);
-            }
           }
           resumenMap[instaladorId].solicitudes.push(sol);
         }
@@ -644,13 +644,19 @@ export default function CortesPage() {
           inst.destajoAcumulado = Number(ci.destajo_acumulado);
           inst.salarioSemanal = Number(ci.salario_semanal); // Use historical salary
           inst.saldoAnterior = Number(ci.saldo_anterior); // Saldo que se descontó
-          inst.destajoADepositar = Math.max(0, inst.destajoAcumulado - inst.salarioSemanal - inst.saldoAnterior);
+          // Anticipos are deducted from the net deposit
+          inst.destajoADepositar = Math.max(
+            0,
+            inst.destajoAcumulado - inst.salarioSemanal - inst.saldoAnterior - inst.anticiposEnCorte
+          );
           inst.aDepositar = Number(ci.monto_depositado);
           inst.saldoGenerado = Number(ci.saldo_generado);
         } else {
           // Calculate in real-time for open cortes
-          // Formula: basePago = Destajo - Salario - SaldoAnterior (saldo is a DEDUCTION)
-          const basePago = inst.destajoAcumulado - inst.salarioSemanal - inst.saldoAnterior;
+          // Formula: basePago = Destajo - Salario - SaldoAnterior - Anticipos
+          // (saldoAnterior = adeudo a favor de la empresa; anticipos = dinero ya entregado)
+          const basePago =
+            inst.destajoAcumulado - inst.salarioSemanal - inst.saldoAnterior - inst.anticiposEnCorte;
           
           if (basePago >= 0) {
             inst.destajoADepositar = basePago;
@@ -660,7 +666,10 @@ export default function CortesPage() {
             inst.destajoADepositar = 0;
             inst.aDepositar = 0;
             // Saldo generado = MAX(Salario - Destajo, 0) - el saldo anterior ya se aplicó
-            inst.saldoGenerado = Math.max(0, inst.salarioSemanal - inst.destajoAcumulado + inst.saldoAnterior);
+            inst.saldoGenerado = Math.max(
+              0,
+              inst.salarioSemanal - inst.destajoAcumulado + inst.saldoAnterior + inst.anticiposEnCorte
+            );
           }
         }
       });
@@ -1126,10 +1135,11 @@ export default function CortesPage() {
     );
     
     // Calculate values with edited salaries for each instalador
-    // Formula: basePago = Destajo - Salario - SaldoAnterior (saldo is a DEDUCTION)
+    // Formula: basePago = Destajo - Salario - SaldoAnterior - Anticipos
+    // (saldoAnterior = adeudo a favor de la empresa; anticipos = dinero ya entregado)
     const instaladoresCalculados = instaladoresIncluidos.map(inst => {
       const salario = salarioEdits[inst.id] ?? inst.salarioSemanal;
-      const basePago = inst.destajoAcumulado - salario - inst.saldoAnterior;
+      const basePago = inst.destajoAcumulado - salario - inst.saldoAnterior - inst.anticiposEnCorte;
       
       if (basePago >= 0) {
         return {
@@ -1145,7 +1155,10 @@ export default function CortesPage() {
           salarioSemanal: salario,
           destajoADepositar: 0,
           aDepositar: 0,
-          saldoGenerado: Math.max(0, salario - inst.destajoAcumulado + inst.saldoAnterior),
+          saldoGenerado: Math.max(
+            0,
+            salario - inst.destajoAcumulado + inst.saldoAnterior + inst.anticiposEnCorte
+          ),
         };
       }
     });
