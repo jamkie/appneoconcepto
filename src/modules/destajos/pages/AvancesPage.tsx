@@ -512,22 +512,19 @@ export default function AvancesPage() {
           await supabase.from('avance_instaladores').insert(avanceInstaladoresInsert);
         }
 
-        // Delete old pending solicitudes and create new ones
-        const pendingSolicitudes = editingAvance.solicitudes_pago?.filter(s => s.estado === 'pendiente') || [];
-        for (const sol of pendingSolicitudes) {
-          await supabase.from('solicitudes_pago').delete().eq('id', sol.id);
-        }
+        // Delete ALL old solicitudes for this avance and recreate
+        // This prevents duplicates when editing multiple times
+        await supabase.from('solicitudes_pago').delete().eq('avance_id', editingAvance.id);
 
         // Create new solicitudes for each instalador
-        for (const inst of selectedInstaladores) {
+        const solicitudesInsert = selectedInstaladores.map(inst => {
           const porcentajeFactor = inst.porcentaje / 100;
           const subtotalInst = subtotalPiezas * porcentajeFactor;
           const montoDescuento = subtotalInst * (descuento / 100);
           const totalConDescuento = subtotalInst - montoDescuento;
-
           const instaladorNombre = instaladores.find(i => i.id === inst.instalador_id)?.nombre || 'Instalador';
 
-          await supabase.from('solicitudes_pago').insert({
+          return {
             obra_id: selectedObraId,
             instalador_id: inst.instalador_id,
             solicitado_por: user?.id,
@@ -540,8 +537,10 @@ export default function AvancesPage() {
               ? `Avance ${format(new Date(fecha), 'dd/MM/yyyy')} - ${instaladorNombre} (${inst.porcentaje}%)${descuento > 0 ? ` - Descuento ${descuento}%` : ''}`
               : `Avance registrado el ${format(new Date(fecha), 'dd/MM/yyyy')}${descuento > 0 ? ` (Descuento ${descuento}%)` : ''}`,
             avance_id: editingAvance.id,
-          });
-        }
+          };
+        });
+
+        await supabase.from('solicitudes_pago').insert(solicitudesInsert);
 
         toast({ title: 'Éxito', description: 'Avance actualizado correctamente' });
       } else {
