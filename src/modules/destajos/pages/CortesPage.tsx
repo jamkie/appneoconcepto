@@ -1485,6 +1485,52 @@ export default function CortesPage() {
         .select('id, monto, obra_id, instalador_id')
         .eq('corte_id', viewingCorte.id);
       
+      // CRITICAL: Restore anticipos that were applied to pagos in this corte
+      // This prevents losing anticipo balances when reopening a closed corte
+      if (pagosData && pagosData.length > 0) {
+        const pagoIds = pagosData.map(p => p.id);
+        
+        // Get all anticipo applications for these pagos
+        const { data: aplicaciones, error: aplicacionesError } = await supabase
+          .from('anticipo_aplicaciones')
+          .select('anticipo_id, monto_aplicado')
+          .in('pago_id', pagoIds);
+        
+        if (aplicacionesError) throw aplicacionesError;
+        
+        // Restore monto_disponible for each anticipo
+        if (aplicaciones && aplicaciones.length > 0) {
+          // Group by anticipo_id and sum the amounts
+          const anticipoRestores: Record<string, number> = {};
+          for (const app of aplicaciones) {
+            anticipoRestores[app.anticipo_id] = (anticipoRestores[app.anticipo_id] || 0) + Number(app.monto_aplicado);
+          }
+          
+          // Restore each anticipo's monto_disponible
+          for (const [anticipoId, montoToRestore] of Object.entries(anticipoRestores)) {
+            const { data: anticipo } = await supabase
+              .from('anticipos')
+              .select('monto_disponible')
+              .eq('id', anticipoId)
+              .single();
+            
+            if (anticipo) {
+              const newMonto = Number(anticipo.monto_disponible) + montoToRestore;
+              await supabase
+                .from('anticipos')
+                .update({ monto_disponible: newMonto })
+                .eq('id', anticipoId);
+            }
+          }
+          
+          // Delete the anticipo_aplicaciones records
+          await supabase
+            .from('anticipo_aplicaciones')
+            .delete()
+            .in('pago_id', pagoIds);
+        }
+      }
+      
       if (pagosError) throw pagosError;
       
       // Get all solicitudes linked to this corte
@@ -1598,6 +1644,62 @@ export default function CortesPage() {
     try {
       setDeletingCorte(true);
       
+      // CRITICAL: If the corte was closed, restore any anticipos that were applied
+      // This must happen BEFORE deleting pagos (which would cascade delete anticipo_aplicaciones)
+      if (viewingCorte.estado === 'cerrado') {
+        // Get all pagos linked to this corte
+        const { data: pagosData } = await supabase
+          .from('pagos_destajos')
+          .select('id')
+          .eq('corte_id', viewingCorte.id);
+        
+        if (pagosData && pagosData.length > 0) {
+          const pagoIds = pagosData.map(p => p.id);
+          
+          // Get all anticipo applications for these pagos
+          const { data: aplicaciones } = await supabase
+            .from('anticipo_aplicaciones')
+            .select('anticipo_id, monto_aplicado')
+            .in('pago_id', pagoIds);
+          
+          // Restore monto_disponible for each anticipo
+          if (aplicaciones && aplicaciones.length > 0) {
+            const anticipoRestores: Record<string, number> = {};
+            for (const app of aplicaciones) {
+              anticipoRestores[app.anticipo_id] = (anticipoRestores[app.anticipo_id] || 0) + Number(app.monto_aplicado);
+            }
+            
+            for (const [anticipoId, montoToRestore] of Object.entries(anticipoRestores)) {
+              const { data: anticipo } = await supabase
+                .from('anticipos')
+                .select('monto_disponible')
+                .eq('id', anticipoId)
+                .single();
+              
+              if (anticipo) {
+                const newMonto = Number(anticipo.monto_disponible) + montoToRestore;
+                await supabase
+                  .from('anticipos')
+                  .update({ monto_disponible: newMonto })
+                  .eq('id', anticipoId);
+              }
+            }
+            
+            // Delete the anticipo_aplicaciones records
+            await supabase
+              .from('anticipo_aplicaciones')
+              .delete()
+              .in('pago_id', pagoIds);
+          }
+        }
+        
+        // Delete pagos linked to this corte
+        await supabase
+          .from('pagos_destajos')
+          .delete()
+          .eq('corte_id', viewingCorte.id);
+      }
+      
       // Get all solicitudes linked to this corte before deletion
       const { data: solicitudesData, error: solicitudesError } = await supabase
         .from('solicitudes_pago')
@@ -1606,10 +1708,8 @@ export default function CortesPage() {
       
       if (solicitudesError) throw solicitudesError;
       
-      // Only delete anticipos if the corte was closed (anticipos are only created on closure)
-      // For open cortes, just revert solicitudes to pending without deleting anticipos
+      // Only delete anticipos created FROM solicitudes if the corte was closed
       if (solicitudesData && solicitudesData.length > 0) {
-        // Only delete anticipos if the corte was closed
         if (viewingCorte.estado === 'cerrado') {
           const anticipoSolicitudes = solicitudesData.filter(s => s.tipo === 'anticipo');
           if (anticipoSolicitudes.length > 0) {
