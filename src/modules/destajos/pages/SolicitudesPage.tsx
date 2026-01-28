@@ -371,31 +371,11 @@ export default function SolicitudesPage() {
       // NO crear el registro en `anticipos` al aprobar.
       // Debe volverse disponible únicamente cuando el pago del anticipo se ejecute (al cerrar el corte).
       
-      // Apply anticipos if any were selected
-      if (totalAnticiposAplicados > 0) {
-        for (const [anticipoId, montoAplicar] of Object.entries(anticiposAAplicar)) {
-          if (montoAplicar > 0) {
-            // Get current anticipo monto_disponible
-            const { data: anticipoData, error: anticipoFetchError } = await supabase
-              .from('anticipos')
-              .select('monto_disponible')
-              .eq('id', anticipoId)
-              .single();
-            
-            if (anticipoFetchError) throw anticipoFetchError;
-            
-            const nuevoDisponible = Number(anticipoData.monto_disponible) - montoAplicar;
-            
-            // Update the anticipo to reduce monto_disponible
-            const { error: anticipoUpdateError } = await supabase
-              .from('anticipos')
-              .update({ monto_disponible: nuevoDisponible })
-              .eq('id', anticipoId);
-            
-            if (anticipoUpdateError) throw anticipoUpdateError;
-          }
-        }
-      }
+      // NOTE: Anticipos are NO LONGER applied here at approval time.
+      // They will be applied automatically when the corte is closed, 
+      // which allows proper tracking via anticipo_aplicaciones table
+      // and enables restoring them when a corte is reopened.
+      // The anticiposAAplicar parameter is now just for informational display.
       
       // If solicitud has associated extras, approve them automatically
       if (solicitud.extras_ids && solicitud.extras_ids.length > 0) {
@@ -813,44 +793,10 @@ export default function SolicitudesPage() {
         
         if (updateError) throw updateError;
         
-        // Apply anticipos for this installer if any were selected
-        if (!isAnticipo) {
-          for (const [anticipoId, montoAplicar] of Object.entries(anticiposAAplicar)) {
-            if (montoAplicar > 0) {
-              // Check if this anticipo belongs to the same installer
-              const anticipo = bulkAnticiposDisponibles.find(a => a.id === anticipoId);
-              if (anticipo && anticipo.instalador_id === solicitud.instalador_id) {
-                // Get current anticipo monto_disponible
-                const { data: anticipoData, error: anticipoFetchError } = await supabase
-                  .from('anticipos')
-                  .select('monto_disponible')
-                  .eq('id', anticipoId)
-                  .single();
-                
-                if (!anticipoFetchError && anticipoData && anticipoData.monto_disponible > 0) {
-                  const disponible = Number(anticipoData.monto_disponible);
-                  const aplicar = Math.min(montoAplicar, disponible);
-                  
-                  if (aplicar > 0) {
-                    const nuevoDisponible = disponible - aplicar;
-                    
-                    // Update the anticipo to reduce monto_disponible
-                    const { error: anticipoUpdateError } = await supabase
-                      .from('anticipos')
-                      .update({ monto_disponible: nuevoDisponible })
-                      .eq('id', anticipoId);
-                    
-                    if (!anticipoUpdateError) {
-                      totalAnticiposAplicados += aplicar;
-                      // Update local state to prevent double-applying
-                      anticiposAAplicar[anticipoId] = Math.max(0, montoAplicar - aplicar);
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
+        // NOTE: Anticipos are NO LONGER applied here at approval time.
+        // They will be applied automatically when the corte is closed,
+        // which allows proper tracking via anticipo_aplicaciones table
+        // and enables restoring them when a corte is reopened.
         
         // If has extras, approve them
         if (solicitud.extras_ids && solicitud.extras_ids.length > 0) {
