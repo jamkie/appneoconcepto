@@ -1348,11 +1348,13 @@ export default function CortesPage() {
           });
           
           // Create a payment record for each obra with the FULL destajo amount
+          const createdPagos: { id: string; obra_id: string; instalador_id: string; monto: number }[] = [];
+          
           for (const obraId of Object.keys(obraMontos)) {
             const montoPago = obraMontos[obraId];
             
             if (montoPago > 0) {
-              const { error: pagoError } = await supabase
+              const { data: pagoData, error: pagoError } = await supabase
                 .from('pagos_destajos')
                 .insert({
                   obra_id: obraId,
@@ -1362,10 +1364,76 @@ export default function CortesPage() {
                   corte_id: viewingCorte.id,
                   registrado_por: user.id,
                   observaciones: `Pago de corte: ${viewingCorte.nombre}`,
-                });
+                })
+                .select('id, obra_id, instalador_id, monto')
+                .single();
               
               if (pagoError) throw pagoError;
+              if (pagoData) createdPagos.push(pagoData);
               pagosGenerados++;
+            }
+          }
+          
+          // CRITICAL: Apply available anticipos for this installer and register in anticipo_aplicaciones
+          // This ensures anticipos can be properly restored when the corte is reopened
+          if (createdPagos.length > 0) {
+            // Get all available anticipos for this installer
+            const { data: anticiposDisponibles } = await supabase
+              .from('anticipos')
+              .select('id, obra_id, monto_disponible')
+              .eq('instalador_id', inst.id)
+              .gt('monto_disponible', 0);
+            
+            if (anticiposDisponibles && anticiposDisponibles.length > 0) {
+              // For each anticipo, apply to matching pagos (same obra or any pago if no match)
+              for (const anticipo of anticiposDisponibles) {
+                let montoRestante = Number(anticipo.monto_disponible);
+                
+                // First try to apply to pago from the same obra
+                const pagoMismaObra = createdPagos.find(p => p.obra_id === anticipo.obra_id);
+                
+                if (pagoMismaObra && montoRestante > 0) {
+                  const montoAplicar = montoRestante; // Apply full available amount
+                  
+                  // Create anticipo_aplicacion record
+                  const { error: aplicacionError } = await supabase
+                    .from('anticipo_aplicaciones')
+                    .insert({
+                      anticipo_id: anticipo.id,
+                      pago_id: pagoMismaObra.id,
+                      monto_aplicado: montoAplicar,
+                    });
+                  
+                  if (!aplicacionError) {
+                    // Reduce the anticipo's monto_disponible
+                    await supabase
+                      .from('anticipos')
+                      .update({ monto_disponible: 0 })
+                      .eq('id', anticipo.id);
+                    
+                    montoRestante = 0;
+                  }
+                } else if (montoRestante > 0) {
+                  // Apply to first available pago if no matching obra
+                  const firstPago = createdPagos[0];
+                  const montoAplicar = montoRestante;
+                  
+                  const { error: aplicacionError } = await supabase
+                    .from('anticipo_aplicaciones')
+                    .insert({
+                      anticipo_id: anticipo.id,
+                      pago_id: firstPago.id,
+                      monto_aplicado: montoAplicar,
+                    });
+                  
+                  if (!aplicacionError) {
+                    await supabase
+                      .from('anticipos')
+                      .update({ monto_disponible: 0 })
+                      .eq('id', anticipo.id);
+                  }
+                }
+              }
             }
           }
         }
