@@ -365,6 +365,32 @@ export default function SolicitudesPage() {
       // NO crear el registro en `anticipos` al aprobar.
       // Debe volverse disponible únicamente cuando el pago del anticipo se ejecute (al cerrar el corte).
       
+      // Apply anticipos if any were selected
+      if (totalAnticiposAplicados > 0) {
+        for (const [anticipoId, montoAplicar] of Object.entries(anticiposAAplicar)) {
+          if (montoAplicar > 0) {
+            // Get current anticipo monto_disponible
+            const { data: anticipoData, error: anticipoFetchError } = await supabase
+              .from('anticipos')
+              .select('monto_disponible')
+              .eq('id', anticipoId)
+              .single();
+            
+            if (anticipoFetchError) throw anticipoFetchError;
+            
+            const nuevoDisponible = Number(anticipoData.monto_disponible) - montoAplicar;
+            
+            // Update the anticipo to reduce monto_disponible
+            const { error: anticipoUpdateError } = await supabase
+              .from('anticipos')
+              .update({ monto_disponible: nuevoDisponible })
+              .eq('id', anticipoId);
+            
+            if (anticipoUpdateError) throw anticipoUpdateError;
+          }
+        }
+      }
+      
       // If solicitud has associated extras, approve them automatically
       if (solicitud.extras_ids && solicitud.extras_ids.length > 0) {
         await supabase
@@ -392,11 +418,15 @@ export default function SolicitudesPage() {
           .eq('estado', 'pendiente');
       }
       
+      const anticipoMsg = totalAnticiposAplicados > 0 
+        ? ` Se descontaron ${formatCurrency(totalAnticiposAplicados)} de anticipos.`
+        : '';
+      
       toast({
         title: 'Éxito',
         description: isAnticipo
           ? 'Anticipo aprobado - quedará disponible al pagarse en el corte'
-          : 'Solicitud aprobada - lista para asignar a un corte',
+          : `Solicitud aprobada - lista para asignar a un corte.${anticipoMsg}`,
       });
       
       // Reset dialog states
