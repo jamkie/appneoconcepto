@@ -972,6 +972,47 @@ export default function CortesPage() {
         return true;
       }
       
+      // CRITICAL: If it's an aplicacion_anticipo type, restore the anticipo monto_disponible
+      if (solicitud?.tipo === 'aplicacion_anticipo') {
+        // Find anticipos for this instalador/obra and restore the monto
+        const { data: anticipos } = await supabase
+          .from('anticipos')
+          .select('id, monto_disponible, monto_original, obra_id')
+          .eq('instalador_id', solicitud.instalador_id)
+          .order('created_at', { ascending: true }); // FIFO
+        
+        if (anticipos && anticipos.length > 0) {
+          let montoToRestore = Number(solicitud.total_solicitado);
+          
+          // Restore to anticipos, starting with oldest (FIFO restore)
+          for (const anticipo of anticipos) {
+            if (montoToRestore <= 0) break;
+            
+            const currentDisponible = Number(anticipo.monto_disponible);
+            const maxToRestore = Number(anticipo.monto_original) - currentDisponible;
+            const restoreAmount = Math.min(montoToRestore, maxToRestore);
+            
+            if (restoreAmount > 0) {
+              await supabase
+                .from('anticipos')
+                .update({ monto_disponible: currentDisponible + restoreAmount })
+                .eq('id', anticipo.id);
+              
+              montoToRestore -= restoreAmount;
+            }
+          }
+        }
+        
+        // Delete the aplicacion_anticipo solicitud instead of reverting to pendiente
+        const { error: deleteError } = await supabase
+          .from('solicitudes_pago')
+          .delete()
+          .eq('id', solicitudId);
+        
+        if (deleteError) throw deleteError;
+        return true;
+      }
+      
       // If it has extras, revert them to pendiente
       if (solicitud?.extras_ids && solicitud.extras_ids.length > 0) {
         const { error: extrasError } = await supabase
@@ -1599,6 +1640,49 @@ export default function CortesPage() {
         if (deleteSolError) throw deleteSolError;
       }
       
+      // CRITICAL: Restore anticipos from 'aplicacion_anticipo' solicitudes
+      // When manually applying anticipos, the monto_disponible was reduced
+      // We need to restore it when reopening the corte
+      const aplicacionAnticipoSolicitudes = (solicitudesData || []).filter(s => s.tipo === 'aplicacion_anticipo');
+      
+      for (const sol of aplicacionAnticipoSolicitudes) {
+        // Find the anticipo to restore based on instalador_id
+        // Since we might have multiple anticipos per instalador, we need to find ones with partial availability
+        const { data: anticipos } = await supabase
+          .from('anticipos')
+          .select('id, monto_disponible, monto_original')
+          .eq('instalador_id', sol.instalador_id)
+          .order('created_at', { ascending: true }); // FIFO
+        
+        if (anticipos && anticipos.length > 0) {
+          let montoToRestore = Number(sol.total_solicitado);
+          
+          // Restore to anticipos, starting with oldest (FIFO restore)
+          for (const anticipo of anticipos) {
+            if (montoToRestore <= 0) break;
+            
+            const currentDisponible = Number(anticipo.monto_disponible);
+            const maxToRestore = Number(anticipo.monto_original) - currentDisponible;
+            const restoreAmount = Math.min(montoToRestore, maxToRestore);
+            
+            if (restoreAmount > 0) {
+              await supabase
+                .from('anticipos')
+                .update({ monto_disponible: currentDisponible + restoreAmount })
+                .eq('id', anticipo.id);
+              
+              montoToRestore -= restoreAmount;
+            }
+          }
+        }
+        
+        // Delete the aplicacion_anticipo solicitud
+        await supabase
+          .from('solicitudes_pago')
+          .delete()
+          .eq('id', sol.id);
+      }
+      
       // CRITICAL: Revert saldos_generados from corte_instaladores
       // When a corte is closed, saldo_generado is added to saldos_instaladores
       // We need to subtract that amount when reopening to restore the previous state
@@ -1771,10 +1855,52 @@ export default function CortesPage() {
       // Get all solicitudes linked to this corte before deletion
       const { data: solicitudesData, error: solicitudesError } = await supabase
         .from('solicitudes_pago')
-        .select('id, tipo, extras_ids')
+        .select('id, tipo, extras_ids, instalador_id, total_solicitado')
         .eq('corte_id', viewingCorte.id);
       
       if (solicitudesError) throw solicitudesError;
+      
+      // CRITICAL: Restore anticipos from 'aplicacion_anticipo' solicitudes
+      // When manually applying anticipos, the monto_disponible was reduced
+      // We need to restore it when deleting the corte
+      const aplicacionAnticipoSolicitudes = (solicitudesData || []).filter(s => s.tipo === 'aplicacion_anticipo');
+      
+      for (const sol of aplicacionAnticipoSolicitudes) {
+        // Find the anticipo to restore based on instalador_id
+        const { data: anticipos } = await supabase
+          .from('anticipos')
+          .select('id, monto_disponible, monto_original')
+          .eq('instalador_id', sol.instalador_id)
+          .order('created_at', { ascending: true }); // FIFO
+        
+        if (anticipos && anticipos.length > 0) {
+          let montoToRestore = Number(sol.total_solicitado);
+          
+          // Restore to anticipos, starting with oldest (FIFO restore)
+          for (const anticipo of anticipos) {
+            if (montoToRestore <= 0) break;
+            
+            const currentDisponible = Number(anticipo.monto_disponible);
+            const maxToRestore = Number(anticipo.monto_original) - currentDisponible;
+            const restoreAmount = Math.min(montoToRestore, maxToRestore);
+            
+            if (restoreAmount > 0) {
+              await supabase
+                .from('anticipos')
+                .update({ monto_disponible: currentDisponible + restoreAmount })
+                .eq('id', anticipo.id);
+              
+              montoToRestore -= restoreAmount;
+            }
+          }
+        }
+        
+        // Delete the aplicacion_anticipo solicitud
+        await supabase
+          .from('solicitudes_pago')
+          .delete()
+          .eq('id', sol.id);
+      }
       
       // Only delete anticipos created FROM solicitudes if the corte was closed
       if (solicitudesData && solicitudesData.length > 0) {
