@@ -12,7 +12,8 @@ interface InstaladorPago {
   destajoAcumulado: number;
   nominaSemanal: number;
   saldoAnterior: number;
-  anticiposEnCorte: number;
+  anticiposEnCorte: number; // Anticipos OTORGADOS en este corte
+  anticiposAplicables: number; // Anticipos de cortes anteriores a DESCONTAR
   destajoADepositar: number;
   aDepositar: number;
   saldoAFavor: number;
@@ -95,6 +96,24 @@ export const useExportCorteExcel = () => {
         allInstaladores = instData || [];
       }
 
+      // Fetch anticipos disponibles (from previous cortes) for all instaladores
+      const solicitudIdsEnCorte = new Set((solicitudes || []).map((s: any) => s.id));
+      
+      const { data: anticiposData } = await supabase
+        .from('anticipos')
+        .select('id, instalador_id, monto_disponible, created_at, solicitud_pago_id')
+        .gt('monto_disponible', 0)
+        .order('created_at', { ascending: true }); // Oldest first (FIFO)
+      
+      // Build map of anticipos aplicables per instalador (excluding anticipos from THIS corte)
+      const anticiposAplicablesMap: Record<string, number> = {};
+      (anticiposData || []).forEach((a: any) => {
+        if (!a.solicitud_pago_id || !solicitudIdsEnCorte.has(a.solicitud_pago_id)) {
+          anticiposAplicablesMap[a.instalador_id] = 
+            (anticiposAplicablesMap[a.instalador_id] || 0) + Number(a.monto_disponible);
+        }
+      });
+
       // Build instalador map with ONLY involved instaladores
       const instaladorMap: Record<string, InstaladorPago & { jefes: Set<string> }> = {};
       
@@ -109,6 +128,7 @@ export const useExportCorteExcel = () => {
           nominaSemanal: inst.salario_semanal || 0,
           saldoAnterior: saldosMap[inst.id] || 0,
           anticiposEnCorte: 0,
+          anticiposAplicables: anticiposAplicablesMap[inst.id] || 0,
           destajoADepositar: 0,
           aDepositar: 0,
           saldoAFavor: 0,
@@ -117,14 +137,16 @@ export const useExportCorteExcel = () => {
       });
       
       // Add solicitudes data
-      // IMPORTANT: Anticipos are NOT included in destajoAcumulado because they represent
-      // money already given in advance, not work to be paid.
       (solicitudes || []).forEach((sol: any) => {
         if (instaladorMap[sol.instalador_id]) {
           if (sol.tipo === 'anticipo') {
+            // Anticipos OTORGADOS en este corte
             instaladorMap[sol.instalador_id].anticiposEnCorte += Number(sol.total_solicitado) || 0;
+          } else if (sol.tipo === 'saldo') {
+            // Saldos aplicados se suman al saldoAnterior
+            instaladorMap[sol.instalador_id].saldoAnterior += Number(sol.total_solicitado) || 0;
           } else {
-            // Only add non-anticipo solicitudes to destajo calculation
+            // Work requests add to destajo
             instaladorMap[sol.instalador_id].destajoAcumulado += Number(sol.total_solicitado) || 0;
           }
           
@@ -143,31 +165,29 @@ export const useExportCorteExcel = () => {
           // Use historical data (frozen at close time)
           const ci = corteInstaladoresMap[instId];
           inst.destajoAcumulado = Number(ci.destajo_acumulado);
-          inst.nominaSemanal = Number(ci.salario_semanal); // Use historical salary
+          inst.nominaSemanal = Number(ci.salario_semanal);
           inst.saldoAnterior = Number(ci.saldo_anterior);
           inst.aDepositar = Number(ci.monto_depositado);
           inst.saldoAFavor = Number(ci.saldo_generado);
-           // NOTE: saldoAnterior (adeudo) y anticipos (dinero ya entregado) se RESTAN del neto.
-           inst.destajoADepositar = Math.max(
-             0,
-             inst.destajoAcumulado - inst.nominaSemanal - inst.saldoAnterior - inst.anticiposEnCorte
-           );
+          // For closed cortes, anticiposAplicables is already calculated from the applied amounts
+          inst.destajoADepositar = Math.max(
+            0,
+            inst.destajoAcumulado - inst.nominaSemanal - inst.saldoAnterior - inst.anticiposAplicables
+          );
         } else {
           // Calculate in real-time
-           // "saldoAnterior" (saldos_instaladores.saldo_acumulado) es un saldo a favor de la empresa (adeudo del instalador)
-           // y por lo tanto se descuenta del pago neto.
-           const basePago =
-             inst.destajoAcumulado - inst.nominaSemanal - inst.saldoAnterior - inst.anticiposEnCorte;
+          // Formula: basePago = Destajo - Salario - SaldoAnterior - AnticiposAplicables
+          const basePago =
+            inst.destajoAcumulado - inst.nominaSemanal - inst.saldoAnterior - inst.anticiposAplicables;
           
           if (basePago >= 0) {
             inst.destajoADepositar = basePago;
             inst.aDepositar = Math.floor(basePago / 50) * 50;
-             inst.saldoAFavor = 0; // No queda adeudo cuando el neto cubre el descuento
+            inst.saldoAFavor = 0;
           } else {
-             // Neto negativo: no se deposita y el adeudo queda pendiente (a favor de la empresa)
             inst.destajoADepositar = 0;
             inst.aDepositar = 0;
-             inst.saldoAFavor = Math.abs(basePago);
+            inst.saldoAFavor = Math.abs(basePago);
           }
         }
       });
@@ -188,7 +208,7 @@ export const useExportCorteExcel = () => {
       const weekNum = corte.nombre.match(/Semana (\d+)/i)?.[1] || '01';
 
       // Add title row
-      sheet.mergeCells('A1:K1');
+      sheet.mergeCells('A1:L1');
       const titleCell = sheet.getCell('A1');
       titleCell.value = `PAGO SEMANAL INSTALADORES SEMANA ${weekNum} DEL ${fechaInicio} AL ${fechaFin}`;
       titleCell.font = { bold: true, size: 12 };
@@ -198,7 +218,7 @@ export const useExportCorteExcel = () => {
       // Empty row
       sheet.addRow([]);
 
-      // Define headers (includes ANTICIPOS)
+      // Define headers (includes both ANTICIPOS columns)
       const headers = [
         'NOMBRE DEL TRABAJADOR',
         'JEFES DIRECTOS',
@@ -207,7 +227,8 @@ export const useExportCorteExcel = () => {
         'DESTAJO ACUMULADO',
         'NOMINA SEMANAL',
         'SALDO ANTERIOR',
-        'ANTICIPOS',
+        '+ANTICIPOS', // Anticipos otorgados en este corte
+        '-APLICADOS', // Anticipos de cortes anteriores descontados
         'DESTAJO A DEPOSITAR',
         'A DEPOSITAR',
         'SALDO A FAVOR',
@@ -218,7 +239,7 @@ export const useExportCorteExcel = () => {
       headerRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       headerRow.height = 30;
 
-      // Set column widths (updated for 11 columns)
+      // Set column widths (updated for 12 columns)
       sheet.columns = [
         { width: 35 }, // A: Nombre
         { width: 15 }, // B: Jefes
@@ -227,10 +248,11 @@ export const useExportCorteExcel = () => {
         { width: 18 }, // E: Destajo Acumulado
         { width: 16 }, // F: Nomina Semanal
         { width: 16 }, // G: Saldo Anterior
-        { width: 14 }, // H: Anticipos
-        { width: 20 }, // I: Destajo a Depositar
-        { width: 14 }, // J: A Depositar
-        { width: 14 }, // K: Saldo a Favor
+        { width: 14 }, // H: +Anticipos (otorgados)
+        { width: 14 }, // I: -Aplicados (descuentos)
+        { width: 20 }, // J: Destajo a Depositar
+        { width: 14 }, // K: A Depositar
+        { width: 14 }, // L: Saldo a Favor
       ];
 
        // Add data rows with formulas
@@ -246,14 +268,16 @@ export const useExportCorteExcel = () => {
           inst.destajoAcumulado || 0,
           inst.nominaSemanal || 0,
           inst.saldoAnterior || 0,
-          inst.anticiposEnCorte || 0,
-           // I: Destajo a Depositar = MAX(E - F - G - H, 0)
-           //    (G es adeudo a favor de la empresa y H es anticipo ya entregado)
-           { formula: `MAX(E${rowNum}-F${rowNum}-G${rowNum}-H${rowNum},0)` },
-          // J: A Depositar = FLOOR(I, 50)
-          { formula: `FLOOR(I${rowNum},50)` },
-           // K: Saldo a Favor (empresa) = MAX(F + G + H - E, 0)
-           { formula: `MAX(F${rowNum}+G${rowNum}+H${rowNum}-E${rowNum},0)` },
+          inst.anticiposEnCorte || 0, // H: Anticipos otorgados
+          inst.anticiposAplicables || 0, // I: Anticipos aplicados (descuentos)
+           // J: Destajo a Depositar = MAX(E - F - G - I, 0)
+           //    (G es saldo/adeudo, I es anticipos aplicables - ambos son descuentos)
+           //    Note: H (+Anticipos) son pagos adicionales que salen, no se restan
+           { formula: `MAX(E${rowNum}-F${rowNum}-G${rowNum}-I${rowNum},0)` },
+          // K: A Depositar = FLOOR(J, 50)
+          { formula: `FLOOR(J${rowNum},50)` },
+           // L: Saldo a Favor (empresa) = MAX(F + G + I - E, 0)
+           { formula: `MAX(F${rowNum}+G${rowNum}+I${rowNum}-E${rowNum},0)` },
         ]);
         row.alignment = { vertical: 'middle' };
       });
@@ -262,7 +286,7 @@ export const useExportCorteExcel = () => {
       const dataEndRow = dataStartRow + instaladores.length - 1;
       const totalRowNum = dataEndRow + 1;
       
-      // Add total row with SUM formulas (updated for 10 columns)
+      // Add total row with SUM formulas (updated for 12 columns)
       const totalRow = sheet.addRow([
         '',
         '',
@@ -275,12 +299,13 @@ export const useExportCorteExcel = () => {
         { formula: `SUM(I${dataStartRow}:I${dataEndRow})` },
         { formula: `SUM(J${dataStartRow}:J${dataEndRow})` },
         { formula: `SUM(K${dataStartRow}:K${dataEndRow})` },
+        { formula: `SUM(L${dataStartRow}:L${dataEndRow})` },
       ]);
       totalRow.font = { bold: true };
       totalRow.alignment = { vertical: 'middle' };
 
-      // Format number columns (updated: E..K are now columns 5-11)
-      const numCols = [5, 6, 7, 8, 9, 10, 11]; // E, F, G, H, I, J, K
+      // Format number columns (updated: E..L are now columns 5-12)
+      const numCols = [5, 6, 7, 8, 9, 10, 11, 12]; // E, F, G, H, I, J, K, L
       numCols.forEach((colNum) => {
         sheet.getColumn(colNum).numFmt = '#,##0.00';
         sheet.getColumn(colNum).alignment = { horizontal: 'right', vertical: 'middle' };

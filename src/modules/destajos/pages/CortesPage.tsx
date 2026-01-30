@@ -58,7 +58,8 @@ interface InstaladorResumen {
   clabe: string;
   salarioSemanal: number;
   destajoAcumulado: number;
-  anticiposEnCorte: number; // Anticipos in this cut to be applied
+  anticiposEnCorte: number; // Anticipos OTORGADOS en este corte (dinero que sale)
+  anticiposAplicables: number; // Anticipos de cortes anteriores a DESCONTAR
   saldoAnterior: number;
   destajoADepositar: number;
   aDepositar: number;
@@ -593,6 +594,26 @@ export default function CortesPage() {
         }
       }
       
+      // Fetch anticipos disponibles (from previous cortes) for all instaladores
+      // These are anticipos with monto_disponible > 0 that were NOT created by solicitudes in THIS corte
+      const solicitudIdsEnCorte = new Set((asignadas || []).map((s: any) => s.id));
+      
+      const { data: anticiposData } = await supabase
+        .from('anticipos')
+        .select('id, instalador_id, monto_disponible, created_at, solicitud_pago_id')
+        .gt('monto_disponible', 0)
+        .order('created_at', { ascending: true }); // Oldest first (FIFO)
+      
+      // Build map of anticipos aplicables per instalador (excluding anticipos from THIS corte)
+      const anticiposAplicablesMap: Record<string, number> = {};
+      (anticiposData || []).forEach((a: any) => {
+        // Exclude anticipos that belong to solicitudes in THIS corte (they're not available yet)
+        if (!a.solicitud_pago_id || !solicitudIdsEnCorte.has(a.solicitud_pago_id)) {
+          anticiposAplicablesMap[a.instalador_id] = 
+            (anticiposAplicablesMap[a.instalador_id] || 0) + Number(a.monto_disponible);
+        }
+      });
+      
       // Build resumen for the selected installer set
       const resumenMap: Record<string, InstaladorResumen> = {};
       
@@ -607,6 +628,7 @@ export default function CortesPage() {
           salarioSemanal: Number(inst.salario_semanal) || 0,
           destajoAcumulado: 0,
           anticiposEnCorte: 0,
+          anticiposAplicables: anticiposAplicablesMap[inst.id] || 0, // Anticipos de cortes anteriores
           saldoAnterior: 0, // Will be populated from solicitudes tipo 'saldo' (descuento aplicado)
           destajoADepositar: 0,
           aDepositar: 0,
@@ -625,8 +647,8 @@ export default function CortesPage() {
             // Track saldos aplicados as saldoAnterior (will be subtracted from basePago)
             resumenMap[instaladorId].saldoAnterior += Number(sol.total_solicitado);
           } else if (sol.tipo === 'anticipo') {
-            // Anticipos are money already delivered, so they must be DEDUCTED from the net deposit.
-            // We track them separately and do NOT add them to destajoAcumulado (work value).
+            // Anticipos OTORGADOS en este corte - son dinero que sale hacia el instalador
+            // NO se restan del basePago porque son pagos adicionales, no descuentos
             resumenMap[instaladorId].anticiposEnCorte += Number(sol.total_solicitado);
           } else {
             // Work requests (avance/extra/etc) add to destajo acumulado
@@ -644,19 +666,21 @@ export default function CortesPage() {
           inst.destajoAcumulado = Number(ci.destajo_acumulado);
           inst.salarioSemanal = Number(ci.salario_semanal); // Use historical salary
           inst.saldoAnterior = Number(ci.saldo_anterior); // Saldo que se descontó
-          // Anticipos are deducted from the net deposit
+          // Note: anticiposAplicables is already loaded from the anticipos table above
+          // For closed cortes, we show what was the state at close time
           inst.destajoADepositar = Math.max(
             0,
-            inst.destajoAcumulado - inst.salarioSemanal - inst.saldoAnterior - inst.anticiposEnCorte
+            inst.destajoAcumulado - inst.salarioSemanal - inst.saldoAnterior - inst.anticiposAplicables
           );
           inst.aDepositar = Number(ci.monto_depositado);
           inst.saldoGenerado = Number(ci.saldo_generado);
         } else {
           // Calculate in real-time for open cortes
-          // Formula: basePago = Destajo - Salario - SaldoAnterior - Anticipos
-          // (saldoAnterior = adeudo a favor de la empresa; anticipos = dinero ya entregado)
+          // Formula: basePago = Destajo - Salario - SaldoAnterior - AnticiposAplicables
+          // (saldoAnterior = adeudo a favor de la empresa; anticiposAplicables = dinero ya entregado en cortes anteriores)
+          // Note: anticiposEnCorte (anticipos otorgados) NO se restan porque son pagos adicionales, no descuentos
           const basePago =
-            inst.destajoAcumulado - inst.salarioSemanal - inst.saldoAnterior - inst.anticiposEnCorte;
+            inst.destajoAcumulado - inst.salarioSemanal - inst.saldoAnterior - inst.anticiposAplicables;
           
           if (basePago >= 0) {
             inst.destajoADepositar = basePago;
@@ -665,11 +689,8 @@ export default function CortesPage() {
           } else {
             inst.destajoADepositar = 0;
             inst.aDepositar = 0;
-            // Saldo generado = MAX(Salario - Destajo, 0) - el saldo anterior ya se aplicó
-            inst.saldoGenerado = Math.max(
-              0,
-              inst.salarioSemanal - inst.destajoAcumulado + inst.saldoAnterior + inst.anticiposEnCorte
-            );
+            // Saldo generado = monto negativo que queda como deuda del instalador
+            inst.saldoGenerado = Math.abs(basePago);
           }
         }
       });
@@ -1115,15 +1136,16 @@ export default function CortesPage() {
     // CRITICAL FIX: Only include instaladores that have at least one solicitud in this corte
     // This prevents creating incorrect saldos for installers with no work in this period
     const instaladoresConSolicitudes = instaladoresIncluidos.filter(inst => 
-      inst.solicitudes.length > 0 || inst.destajoAcumulado > 0 || inst.anticiposEnCorte > 0 || inst.saldoAnterior > 0
+      inst.solicitudes.length > 0 || inst.destajoAcumulado > 0 || inst.anticiposEnCorte > 0 || inst.saldoAnterior > 0 || inst.anticiposAplicables > 0
     );
     
     // Calculate values with edited salaries for each instalador
-    // Formula: basePago = Destajo - Salario - SaldoAnterior - Anticipos
-    // (saldoAnterior = adeudo a favor de la empresa; anticipos = dinero ya entregado)
+    // Formula: basePago = Destajo - Salario - SaldoAnterior - AnticiposAplicables
+    // (saldoAnterior = adeudo a favor de la empresa; anticiposAplicables = dinero ya entregado en cortes anteriores)
+    // Note: anticiposEnCorte (anticipos otorgados) NO se restan porque son pagos adicionales, no descuentos
     const instaladoresCalculados = instaladoresConSolicitudes.map(inst => {
       const salario = salarioEdits[inst.id] ?? inst.salarioSemanal;
-      const basePago = inst.destajoAcumulado - salario - inst.saldoAnterior - inst.anticiposEnCorte;
+      const basePago = inst.destajoAcumulado - salario - inst.saldoAnterior - inst.anticiposAplicables;
       
       if (basePago >= 0) {
         return {
@@ -1139,10 +1161,7 @@ export default function CortesPage() {
           salarioSemanal: salario,
           destajoADepositar: 0,
           aDepositar: 0,
-          saldoGenerado: Math.max(
-            0,
-            salario - inst.destajoAcumulado + inst.saldoAnterior + inst.anticiposEnCorte
-          ),
+          saldoGenerado: Math.abs(basePago),
         };
       }
     });
@@ -2533,60 +2552,49 @@ export default function CortesPage() {
                   <div className="space-y-2">
                     {/* Table header */}
                     {(() => {
-                      const hasAnticipos = resumenInstaladores.some(i => i.anticiposEnCorte > 0);
+                      const hasAnticiposOtorgados = resumenInstaladores.some(i => i.anticiposEnCorte > 0);
+                      const hasAnticiposAplicables = resumenInstaladores.some(i => i.anticiposAplicables > 0);
                       const hasSaldos = resumenInstaladores.some(i => i.saldoAnterior > 0);
                       const showCheckbox = viewingCorte?.estado === 'abierto';
                       
-                      if (hasAnticipos) {
-                        return (
-                          <div className={`grid gap-2 px-3 py-2 bg-muted rounded-lg text-xs font-semibold text-muted-foreground`} style={{ gridTemplateColumns: showCheckbox ? `auto repeat(${hasSaldos ? 6 : 5}, 1fr)` : `repeat(${hasSaldos ? 7 : 6}, minmax(0, 1fr))` }}>
-                            {showCheckbox && <div></div>}
-                            <div className={showCheckbox ? '' : 'col-span-2'}>Instalador</div>
-                            <div className="text-right">Destajo</div>
-                            <div className="text-right">Anticipo</div>
-                            <div className="text-right">Salario</div>
-                            {hasSaldos && <div className="text-right">Descuento</div>}
-                            <div className="text-right">A Depositar</div>
-                          </div>
-                        );
-                      } else if (hasSaldos) {
-                        return (
-                          <div className={`grid gap-2 px-3 py-2 bg-muted rounded-lg text-xs font-semibold text-muted-foreground`} style={{ gridTemplateColumns: showCheckbox ? `auto repeat(5, 1fr)` : `repeat(6, minmax(0, 1fr))` }}>
-                            {showCheckbox && <div></div>}
-                            <div className={showCheckbox ? '' : 'col-span-2'}>Instalador</div>
-                            <div className="text-right">Destajo</div>
-                            <div className="text-right">Salario</div>
-                            <div className="text-right">Descuento</div>
-                            <div className="text-right">A Depositar</div>
-                          </div>
-                        );
-                      } else {
-                        return (
-                          <div className={`grid gap-2 px-3 py-2 bg-muted rounded-lg text-xs font-semibold text-muted-foreground`} style={{ gridTemplateColumns: showCheckbox ? `auto repeat(4, 1fr)` : `repeat(5, minmax(0, 1fr))` }}>
-                            {showCheckbox && <div></div>}
-                            <div className={showCheckbox ? '' : 'col-span-2'}>Instalador</div>
-                            <div className="text-right">Destajo</div>
-                            <div className="text-right">Salario</div>
-                            <div className="text-right">A Depositar</div>
-                          </div>
-                        );
-                      }
+                      // Calculate total columns: Instalador, Destajo, +Anticipo?, Salario, -Descuento?, -Aplicados?, A Depositar
+                      let colCount = 4; // Base: Instalador, Destajo, Salario, A Depositar
+                      if (hasAnticiposOtorgados) colCount++;
+                      if (hasSaldos) colCount++;
+                      if (hasAnticiposAplicables) colCount++;
+                      
+                      return (
+                        <div className={`grid gap-2 px-3 py-2 bg-muted rounded-lg text-xs font-semibold text-muted-foreground`} style={{ gridTemplateColumns: showCheckbox ? `auto repeat(${colCount}, 1fr)` : `repeat(${colCount + 1}, minmax(0, 1fr))` }}>
+                          {showCheckbox && <div></div>}
+                          <div className={showCheckbox ? '' : 'col-span-2'}>Instalador</div>
+                          <div className="text-right">Destajo</div>
+                          {hasAnticiposOtorgados && <div className="text-right">+Anticipo</div>}
+                          <div className="text-right">Salario</div>
+                          {hasSaldos && <div className="text-right">-Descuento</div>}
+                          {hasAnticiposAplicables && <div className="text-right">-Aplicados</div>}
+                          <div className="text-right">A Depositar</div>
+                        </div>
+                      );
                     })()}
                     {resumenInstaladores.map((inst) => {
                       const isExcluded = excludedInstaladores.has(inst.id);
                       const displaySalario = salarioEdits[inst.id] ?? inst.salarioSemanal;
-                      // Formula: basePago = Destajo - Salario - SaldoAnterior (saldo is a DEDUCTION)
-                      // Excluded installers don't generate saldo
-                      const basePago = inst.destajoAcumulado - displaySalario - inst.saldoAnterior;
+                      // Formula: basePago = Destajo - Salario - SaldoAnterior - AnticiposAplicables
+                      // (AnticiposAplicables = anticipos de cortes anteriores que se descontarán)
+                      const basePago = inst.destajoAcumulado - displaySalario - inst.saldoAnterior - inst.anticiposAplicables;
                       const displayADepositar = isExcluded ? 0 : (basePago >= 0 ? Math.floor(basePago / 50) * 50 : 0);
-                      const displaySaldoGenerado = isExcluded ? 0 : (basePago < 0 ? Math.max(0, displaySalario - inst.destajoAcumulado + inst.saldoAnterior) : 0);
-                      const hasAnticipos = resumenInstaladores.some(i => i.anticiposEnCorte > 0);
+                      const displaySaldoGenerado = isExcluded ? 0 : (basePago < 0 ? Math.abs(basePago) : 0);
+                      const hasAnticiposOtorgados = resumenInstaladores.some(i => i.anticiposEnCorte > 0);
+                      const hasAnticiposAplicables = resumenInstaladores.some(i => i.anticiposAplicables > 0);
                       const hasSaldos = resumenInstaladores.some(i => i.saldoAnterior > 0);
                       const showCheckbox = viewingCorte?.estado === 'abierto';
-                      const hasActivity = inst.destajoAcumulado > 0 || inst.saldoGenerado > 0 || inst.anticiposEnCorte > 0 || inst.saldoAnterior > 0;
+                      const hasActivity = inst.destajoAcumulado > 0 || inst.saldoGenerado > 0 || inst.anticiposEnCorte > 0 || inst.saldoAnterior > 0 || inst.anticiposAplicables > 0;
                       
-                      // Calculate column count for grid
-                      const baseColCount = hasAnticipos ? (hasSaldos ? 6 : 5) : (hasSaldos ? 5 : 4);
+                      // Calculate column count for grid (must match header)
+                      let colCount = 4; // Base: Instalador, Destajo, Salario, A Depositar
+                      if (hasAnticiposOtorgados) colCount++;
+                      if (hasSaldos) colCount++;
+                      if (hasAnticiposAplicables) colCount++;
                       
                       return (
                         <div 
@@ -2596,7 +2604,7 @@ export default function CortesPage() {
                               ? isExcluded ? 'bg-muted/30 opacity-50' : 'bg-muted/50' 
                               : 'bg-muted/20 opacity-60'
                           }`}
-                          style={{ gridTemplateColumns: showCheckbox ? `auto repeat(${baseColCount}, 1fr)` : `repeat(${baseColCount + 1}, minmax(0, 1fr))` }}
+                          style={{ gridTemplateColumns: showCheckbox ? `auto repeat(${colCount}, 1fr)` : `repeat(${colCount + 1}, minmax(0, 1fr))` }}
                         >
                           {showCheckbox && (
                             <Checkbox
@@ -2629,7 +2637,7 @@ export default function CortesPage() {
                             )}
                           </div>
                           <div className="text-right text-sm">{formatCurrency(inst.destajoAcumulado)}</div>
-                          {hasAnticipos && (
+                          {hasAnticiposOtorgados && (
                             <div className="text-right text-sm text-orange-600">
                               {inst.anticiposEnCorte > 0 ? `+${formatCurrency(inst.anticiposEnCorte)}` : '-'}
                             </div>
@@ -2663,6 +2671,11 @@ export default function CortesPage() {
                               {inst.saldoAnterior > 0 ? `-${formatCurrency(inst.saldoAnterior)}` : '-'}
                             </div>
                           )}
+                          {hasAnticiposAplicables && (
+                            <div className="text-right text-sm text-red-600">
+                              {inst.anticiposAplicables > 0 ? `-${formatCurrency(inst.anticiposAplicables)}` : '-'}
+                            </div>
+                          )}
                           <div className={`text-right font-semibold ${isExcluded ? 'text-muted-foreground' : 'text-primary'}`}>
                             {isExcluded ? '-' : formatCurrency(displayADepositar)}
                           </div>
@@ -2671,28 +2684,34 @@ export default function CortesPage() {
                     })}
                     {/* Totals row */}
                     {(() => {
-                      const hasAnticipos = resumenInstaladores.some(i => i.anticiposEnCorte > 0);
+                      const hasAnticiposOtorgados = resumenInstaladores.some(i => i.anticiposEnCorte > 0);
+                      const hasAnticiposAplicables = resumenInstaladores.some(i => i.anticiposAplicables > 0);
                       const hasSaldos = resumenInstaladores.some(i => i.saldoAnterior > 0);
                       const showCheckbox = viewingCorte?.estado === 'abierto';
                       
                       // Only count included instaladores for totals
                       const includedInstaladores = resumenInstaladores.filter(i => !excludedInstaladores.has(i.id));
-                      const totalAnticipos = includedInstaladores.reduce((sum, i) => sum + i.anticiposEnCorte, 0);
+                      const totalAnticiposOtorgados = includedInstaladores.reduce((sum, i) => sum + i.anticiposEnCorte, 0);
+                      const totalAnticiposAplicables = includedInstaladores.reduce((sum, i) => sum + i.anticiposAplicables, 0);
                       const totalSaldos = includedInstaladores.reduce((sum, i) => sum + i.saldoAnterior, 0);
                       const totalDestajo = includedInstaladores.reduce((sum, i) => sum + i.destajoAcumulado, 0);
                       const totalSalario = includedInstaladores.reduce((sum, i) => sum + (salarioEdits[i.id] ?? i.salarioSemanal), 0);
                       const totalDepositar = includedInstaladores.reduce((sum, inst) => {
                         const sal = salarioEdits[inst.id] ?? inst.salarioSemanal;
-                        const base = inst.destajoAcumulado - sal - inst.saldoAnterior;
+                        const base = inst.destajoAcumulado - sal - inst.saldoAnterior - inst.anticiposAplicables;
                         return sum + (base >= 0 ? Math.floor(base / 50) * 50 : 0);
                       }, 0);
                       
-                      const baseColCount = hasAnticipos ? (hasSaldos ? 6 : 5) : (hasSaldos ? 5 : 4);
+                      // Calculate column count (must match header)
+                      let colCount = 4;
+                      if (hasAnticiposOtorgados) colCount++;
+                      if (hasSaldos) colCount++;
+                      if (hasAnticiposAplicables) colCount++;
                       
                       return (
                         <div 
                           className={`grid gap-2 px-3 py-3 bg-primary/10 rounded-lg border border-primary/20 font-semibold`} 
-                          style={{ gridTemplateColumns: showCheckbox ? `auto repeat(${baseColCount}, 1fr)` : `repeat(${baseColCount + 1}, minmax(0, 1fr))` }}
+                          style={{ gridTemplateColumns: showCheckbox ? `auto repeat(${colCount}, 1fr)` : `repeat(${colCount + 1}, minmax(0, 1fr))` }}
                         >
                           {showCheckbox && <div></div>}
                           <div className={showCheckbox ? '' : 'col-span-2'}>
@@ -2704,12 +2723,15 @@ export default function CortesPage() {
                             )}
                           </div>
                           <div className="text-right">{formatCurrency(totalDestajo)}</div>
-                          {hasAnticipos && (
-                            <div className="text-right text-orange-600">+{formatCurrency(totalAnticipos)}</div>
+                          {hasAnticiposOtorgados && (
+                            <div className="text-right text-orange-600">+{formatCurrency(totalAnticiposOtorgados)}</div>
                           )}
                           <div className="text-right">{formatCurrency(totalSalario)}</div>
                           {hasSaldos && (
                             <div className="text-right text-amber-600">-{formatCurrency(totalSaldos)}</div>
+                          )}
+                          {hasAnticiposAplicables && (
+                            <div className="text-right text-red-600">-{formatCurrency(totalAnticiposAplicables)}</div>
                           )}
                           <div className="text-right text-primary text-lg">
                             {formatCurrency(totalDepositar)}
