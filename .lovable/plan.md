@@ -1,187 +1,138 @@
 
-# Plan: Aplicación Manual de Anticipos Disponibles
 
-## Resumen del Cambio
+# Plan: Corregir Restauración de Anticipos en Reapertura y Eliminación de Cortes
 
-Cambiar la lógica de anticipos de **automática** a **manual**:
+## Problema Identificado
 
-| Antes (automático) | Después (manual) |
-|---|---|
-| Al cerrar el corte, el sistema descontaba automáticamente todos los anticipos disponibles | El usuario decide cuándo y cuánto descontar mediante un botón "Aplicar Anticipo" |
-| Rafael Orozco: depósito reducido por $45,000 automáticamente | Rafael Orozco: recibe su anticipo de $20,000, el depósito solo se reduce por salario ($2,315.54), los $45,000 anteriores + $20,000 nuevos = $65,000 quedan disponibles para aplicar después |
+Cuando aplicas manualmente un anticipo en el modal:
+1. Se crea una solicitud tipo `aplicacion_anticipo` asignada al corte
+2. Se **reduce** el `monto_disponible` del anticipo correspondiente
 
-## Ejemplo: Rafael Orozco - Semana 5
+Pero cuando **reabres** o **eliminas** el corte:
+- El código **NO identifica** las solicitudes tipo `aplicacion_anticipo`
+- Por lo tanto, **NO restaura** el `monto_disponible` a los anticipos afectados
+- Resultado: Los anticipos "desaparecen" (su saldo se pierde)
 
-| Concepto | Valor |
-|---|---|
-| Anticipo nuevo (este corte) | $20,000 |
-| Salario semanal | $2,315.54 |
-| **A Depositar** | $20,000 - $2,315.54 = **$17,680** (redondeado) |
-| Anticipos disponibles después del cierre | $45,000 + $20,000 = **$65,000** |
+## Ejemplo del Bug
+
+| Acción | monto_disponible de Rafael |
+|--------|---------------------------|
+| Antes de aplicar | $45,000 |
+| Aplicas $20,000 manualmente | $25,000 (correcto) |
+| **Reabres el corte** | $25,000 ❌ (debería restaurar a $45,000) |
+
+## Solución
+
+Agregar lógica en `handleReopenCorte` y `handleDeleteCorte` para:
+1. Identificar solicitudes tipo `aplicacion_anticipo` del corte
+2. Para cada una, buscar el anticipo relacionado (por `obra_id` + `instalador_id`)
+3. Restaurar el `monto_disponible` sumando el `total_solicitado` de la solicitud
+4. Eliminar la solicitud `aplicacion_anticipo`
 
 ## Cambios a Implementar
 
-### Cambio 1: Remover aplicación automática de `handleCloseCorte`
+### Cambio 1: Agregar restauración de anticipos manuales en `handleReopenCorte`
 
-**Ubicación**: `src/modules/destajos/pages/CortesPage.tsx` (líneas 1374-1431)
-
-Eliminar el bloque que aplica automáticamente los anticipos disponibles al cerrar el corte. Los anticipos solo se crean para las solicitudes tipo 'anticipo' del corte, pero no se aplican automáticamente a las deducciones.
-
-### Cambio 2: Actualizar fórmula de cálculo
-
-**Ubicación**: `src/modules/destajos/pages/CortesPage.tsx` (líneas 677-695)
-
-Modificar la fórmula para que NO reste `anticiposAplicables` automáticamente:
+**Ubicación**: `src/modules/destajos/pages/CortesPage.tsx` (después de línea 1600, antes de eliminar corte_instaladores)
 
 ```typescript
-// ANTES:
-const basePago = inst.destajoAcumulado - inst.salarioSemanal - inst.saldoAnterior - inst.anticiposAplicables;
+// CRITICAL: Restore anticipos from 'aplicacion_anticipo' solicitudes
+// When manually applying anticipos, the monto_disponible was reduced
+// We need to restore it when reopening the corte
+const aplicacionAnticipoSolicitudes = (solicitudesData || []).filter(s => s.tipo === 'aplicacion_anticipo');
 
-// DESPUÉS:
-// anticiposAplicables solo muestra lo que HAY disponible, pero NO se resta automáticamente
-// Solo se resta si el usuario decide aplicarlo manualmente (creando una solicitud tipo 'aplicacion_anticipo')
-const basePago = inst.destajoAcumulado - inst.salarioSemanal - inst.saldoAnterior - inst.anticiposAplicadosManualmente;
-```
-
-### Cambio 3: Agregar nuevo campo `anticiposAplicadosManualmente`
-
-**Ubicación**: `src/modules/destajos/pages/CortesPage.tsx` (líneas 54-69)
-
-```typescript
-interface InstaladorResumen {
-  // ...
-  anticiposEnCorte: number;           // Anticipos OTORGADOS en este corte
-  anticiposDisponibles: number;       // Anticipos disponibles (solo informativo)
-  anticiposAplicadosManualmente: number; // Anticipos que el usuario decidió aplicar
-  // ...
+for (const sol of aplicacionAnticipoSolicitudes) {
+  // Find the anticipo to restore based on obra_id and instalador_id
+  // Since we might have multiple anticipos per instalador/obra, we need to find ones with partial availability
+  const { data: anticipos } = await supabase
+    .from('anticipos')
+    .select('id, monto_disponible, monto_original')
+    .eq('instalador_id', sol.instalador_id)
+    .eq('obra_id', sol.obra_id)
+    .order('created_at', { ascending: true }); // FIFO
+  
+  if (anticipos && anticipos.length > 0) {
+    let montoToRestore = Number(sol.total_solicitado);
+    
+    // Restore to anticipos, starting with oldest (FIFO restore)
+    for (const anticipo of anticipos) {
+      if (montoToRestore <= 0) break;
+      
+      const currentDisponible = Number(anticipo.monto_disponible);
+      const maxToRestore = Number(anticipo.monto_original) - currentDisponible;
+      const restoreAmount = Math.min(montoToRestore, maxToRestore);
+      
+      if (restoreAmount > 0) {
+        await supabase
+          .from('anticipos')
+          .update({ monto_disponible: currentDisponible + restoreAmount })
+          .eq('id', anticipo.id);
+        
+        montoToRestore -= restoreAmount;
+      }
+    }
+  }
+  
+  // Delete the aplicacion_anticipo solicitud
+  await supabase
+    .from('solicitudes_pago')
+    .delete()
+    .eq('id', sol.id);
 }
 ```
 
-### Cambio 4: Crear función `handleApplyAnticipoToCorte`
+### Cambio 2: Agregar restauración de anticipos manuales en `handleDeleteCorte`
 
-**Ubicación**: `src/modules/destajos/pages/CortesPage.tsx` (después de `handleApplySaldoToCorte`)
+**Ubicación**: `src/modules/destajos/pages/CortesPage.tsx` (después de línea 1777, antes de revertir extras)
 
-Similar a `handleApplySaldoToCorte`, esta función:
-1. Abre un modal para seleccionar el monto a descontar (de los anticipos disponibles)
-2. Crea una solicitud tipo `'aplicacion_anticipo'` asignada al corte abierto
-3. Reduce el `monto_disponible` del anticipo correspondiente
-4. Registra en `anticipo_aplicaciones` para trazabilidad
+Mismo patrón que arriba - identificar solicitudes `aplicacion_anticipo` y restaurar los anticipos.
 
-### Cambio 5: Agregar Modal de Aplicación de Anticipo
+### Cambio 3: También manejar en `handleRemoveSolicitudFromCorte`
 
-**Ubicación**: `src/modules/destajos/pages/CortesPage.tsx` (nuevo estado y modal)
+**Ubicación**: `src/modules/destajos/pages/CortesPage.tsx` (función `removeSolicitudFromCorteInternal`)
 
-Nuevo modal que muestra:
-- Lista de anticipos disponibles del instalador (con fecha y monto)
-- Campo para ingresar monto a aplicar (o checkbox por anticipo)
-- Botón "Aplicar" que ejecuta `handleApplyAnticipoToCorte`
+Cuando se remueve UNA solicitud del corte, si es tipo `aplicacion_anticipo`, restaurar el anticipo correspondiente.
 
-### Cambio 6: Agregar botón "Aplicar Anticipo" en UI del resumen
-
-**Ubicación**: `src/modules/destajos/pages/CortesPage.tsx` (líneas 2674-2678)
-
-Cambiar la columna de "-Aplicados" para que:
-- Muestre el monto disponible (informativo)
-- Incluya un botón "Aplicar" que abre el modal
-- Solo visible cuando el corte está abierto
-
-```
-| Instalador   | Destajo | +Anticipo | Salario | -Descuento | Disponibles     | A Depositar |
-|--------------|---------|-----------|---------|------------|-----------------|-------------|
-| Rafael Orozco| -       | $20,000   | $2,315  | -          | $45,000 [Aplicar] | $17,680   |
-```
-
-### Cambio 7: Actualizar lógica al cerrar el corte
-
-Cuando se cierre el corte:
-- Los anticipos disponibles que el usuario aplicó manualmente ya están registrados como solicitudes
-- Solo se generan los nuevos anticipos (de solicitudes tipo 'anticipo')
-- NO se aplican automáticamente los que no fueron seleccionados
-
-### Cambio 8: Actualizar Excel de exportación
-
-**Ubicación**: `src/modules/destajos/hooks/useExportCorteExcel.ts`
-
-- Columna `+ANTICIPOS`: Anticipos otorgados en este corte
-- Columna `-APLICADOS`: Solo lo que el usuario decidió aplicar manualmente
-- No mostrar el total disponible que no fue aplicado
-
-## Flujo Correcto con Aplicación Manual
+## Flujo Corregido
 
 ```text
-CORTE ABIERTO
+APLICAR ANTICIPO MANUALMENTE
     │
-    ├─► Instalador tiene anticipos disponibles de cortes anteriores
-    │     └─► Se muestra "$45,000 disponibles" con botón [Aplicar]
-    │
-    ├─► Usuario agrega solicitud tipo 'anticipo' de $20,000
-    │     └─► Se muestra en columna "+Anticipo"
-    │
-    └─► Usuario decide NO aplicar los $45,000 anteriores
-          └─► Columna "-Aplicados" queda en $0
+    ├─► Crea solicitud tipo 'aplicacion_anticipo' (monto: $20,000)
+    └─► Reduce anticipo.monto_disponible de $45,000 a $25,000
 
-CERRAR CORTE
+REABRIR/ELIMINAR CORTE
     │
-    ├─► Se calcula: $20,000 (anticipo nuevo) - $2,315.54 (salario) = $17,680
-    ├─► Se genera pago por $17,680 (o el anticipo completo según reglas)
-    ├─► Se crea registro en 'anticipos' para el nuevo anticipo de $20,000
+    ├─► Identifica solicitudes 'aplicacion_anticipo' del corte
+    ├─► Para cada una:
+    │     ├─► Busca anticipos del instalador/obra
+    │     ├─► Restaura monto_disponible (hasta monto_original)
+    │     └─► Elimina la solicitud 'aplicacion_anticipo'
     │
-    └─► Los $45,000 anteriores siguen disponibles (monto_disponible sin cambios)
-          └─► Total disponible después: $45,000 + $20,000 = $65,000
+    └─► anticipo.monto_disponible restaurado a $45,000 ✅
+
+REMOVER SOLICITUD INDIVIDUAL
+    │
+    └─► Si es 'aplicacion_anticipo':
+          ├─► Restaura monto_disponible del anticipo
+          └─► Elimina la solicitud
 ```
 
 ## Archivos a Modificar
 
 | Archivo | Cambios |
 |---------|---------|
-| `src/modules/destajos/pages/CortesPage.tsx` | Interfaz, estado, función `handleApplyAnticipoToCorte`, modal, UI, remover aplicación automática |
-| `src/modules/destajos/hooks/useExportCorteExcel.ts` | Actualizar columna "-APLICADOS" para reflejar solo aplicaciones manuales |
-
-## Detalles Técnicos
-
-### Nuevo tipo de solicitud: `aplicacion_anticipo`
-
-Similar a `saldo`, este tipo de solicitud representa una deducción manual de anticipos:
-
-```typescript
-{
-  tipo: 'aplicacion_anticipo',
-  instalador_id: '...',
-  obra_id: '...',                // Tomada del anticipo
-  total_solicitado: montoAAplicar,
-  estado: 'aprobada',
-  corte_id: corteAbierto.id,
-  observaciones: 'Aplicación manual de anticipo'
-}
-```
-
-### Registro de la aplicación
-
-Al aplicar manualmente, también se registra en `anticipo_aplicaciones`:
-- `anticipo_id`: ID del anticipo que se está aplicando
-- `pago_id`: Se genera al cerrar el corte (o null si se registra antes)
-- `monto_aplicado`: Monto que el usuario decidió aplicar
-
-### Restauración al reabrir/eliminar corte
-
-Si se reabre el corte, las solicitudes tipo `aplicacion_anticipo` se revierten:
-- Se restaura el `monto_disponible` del anticipo
-- Se elimina el registro de `anticipo_aplicaciones`
-- Se elimina la solicitud
+| `src/modules/destajos/pages/CortesPage.tsx` | `handleReopenCorte`, `handleDeleteCorte`, `removeSolicitudFromCorteInternal` |
 
 ## Resultado Esperado
 
-1. **Rafael Orozco - Semana 5**:
-   - Recibe anticipo de $20,000
-   - Se descuenta salario de $2,315.54
-   - **Depósito: $17,680**
-   - Anticipos pendientes por aplicar: $65,000
+1. **Reabrir corte**: Los anticipos que fueron aplicados manualmente se restauran
+2. **Eliminar corte**: Igual, los anticipos se restauran completamente
+3. **Remover solicitud individual**: Si remueves una solicitud `aplicacion_anticipo`, el anticipo se restaura
 
-2. **UI del Corte**:
-   - Columna "Disponibles" muestra $45,000 con botón [Aplicar]
-   - Columna "+Anticipo" muestra $20,000 (nuevo)
-   - Columna "-Aplicados" muestra $0 (nada aplicado manualmente)
+## Consideración Adicional
 
-3. **Flexibilidad**:
-   - El usuario puede decidir aplicar parcialmente ($10,000 de los $45,000)
-   - O no aplicar nada y dejar todo pendiente
+Dado que el modal de aplicación no guarda un `anticipo_id` directamente en la solicitud (solo guarda `obra_id` e `instalador_id`), la restauración busca anticipos por esos criterios. Esto debería funcionar correctamente para el caso de uso actual.
+
+En el futuro, podría ser útil agregar un campo `anticipo_id` a las solicitudes tipo `aplicacion_anticipo` para un mapeo más preciso. Pero por ahora, el método por `obra_id` + `instalador_id` con orden FIFO debería ser suficiente.
+
