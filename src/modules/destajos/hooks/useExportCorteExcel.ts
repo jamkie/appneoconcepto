@@ -13,7 +13,7 @@ interface InstaladorPago {
   nominaSemanal: number;
   saldoAnterior: number;
   anticiposEnCorte: number; // Anticipos OTORGADOS en este corte
-  anticiposAplicables: number; // Anticipos de cortes anteriores a DESCONTAR
+  anticiposAplicadosManualmente: number; // Anticipos aplicados manualmente (descuento)
   destajoADepositar: number;
   aDepositar: number;
   saldoAFavor: number;
@@ -98,21 +98,6 @@ export const useExportCorteExcel = () => {
 
       // Fetch anticipos disponibles (from previous cortes) for all instaladores
       const solicitudIdsEnCorte = new Set((solicitudes || []).map((s: any) => s.id));
-      
-      const { data: anticiposData } = await supabase
-        .from('anticipos')
-        .select('id, instalador_id, monto_disponible, created_at, solicitud_pago_id')
-        .gt('monto_disponible', 0)
-        .order('created_at', { ascending: true }); // Oldest first (FIFO)
-      
-      // Build map of anticipos aplicables per instalador (excluding anticipos from THIS corte)
-      const anticiposAplicablesMap: Record<string, number> = {};
-      (anticiposData || []).forEach((a: any) => {
-        if (!a.solicitud_pago_id || !solicitudIdsEnCorte.has(a.solicitud_pago_id)) {
-          anticiposAplicablesMap[a.instalador_id] = 
-            (anticiposAplicablesMap[a.instalador_id] || 0) + Number(a.monto_disponible);
-        }
-      });
 
       // Build instalador map with ONLY involved instaladores
       const instaladorMap: Record<string, InstaladorPago & { jefes: Set<string> }> = {};
@@ -128,7 +113,7 @@ export const useExportCorteExcel = () => {
           nominaSemanal: inst.salario_semanal || 0,
           saldoAnterior: saldosMap[inst.id] || 0,
           anticiposEnCorte: 0,
-          anticiposAplicables: anticiposAplicablesMap[inst.id] || 0,
+          anticiposAplicadosManualmente: 0, // Only manual applications
           destajoADepositar: 0,
           aDepositar: 0,
           saldoAFavor: 0,
@@ -145,6 +130,9 @@ export const useExportCorteExcel = () => {
           } else if (sol.tipo === 'saldo') {
             // Saldos aplicados se suman al saldoAnterior
             instaladorMap[sol.instalador_id].saldoAnterior += Number(sol.total_solicitado) || 0;
+          } else if (sol.tipo === 'aplicacion_anticipo') {
+            // Aplicaciones manuales de anticipos
+            instaladorMap[sol.instalador_id].anticiposAplicadosManualmente += Number(sol.total_solicitado) || 0;
           } else {
             // Work requests add to destajo
             instaladorMap[sol.instalador_id].destajoAcumulado += Number(sol.total_solicitado) || 0;
@@ -169,16 +157,15 @@ export const useExportCorteExcel = () => {
           inst.saldoAnterior = Number(ci.saldo_anterior);
           inst.aDepositar = Number(ci.monto_depositado);
           inst.saldoAFavor = Number(ci.saldo_generado);
-          // For closed cortes, anticiposAplicables is already calculated from the applied amounts
           inst.destajoADepositar = Math.max(
             0,
-            inst.destajoAcumulado - inst.nominaSemanal - inst.saldoAnterior - inst.anticiposAplicables
+            inst.destajoAcumulado - inst.nominaSemanal - inst.saldoAnterior - inst.anticiposAplicadosManualmente
           );
         } else {
           // Calculate in real-time
-          // Formula: basePago = Destajo - Salario - SaldoAnterior - AnticiposAplicables
+          // Formula: basePago = Destajo - Salario - SaldoAnterior - AnticiposAplicadosManualmente
           const basePago =
-            inst.destajoAcumulado - inst.nominaSemanal - inst.saldoAnterior - inst.anticiposAplicables;
+            inst.destajoAcumulado - inst.nominaSemanal - inst.saldoAnterior - inst.anticiposAplicadosManualmente;
           
           if (basePago >= 0) {
             inst.destajoADepositar = basePago;
@@ -269,10 +256,8 @@ export const useExportCorteExcel = () => {
           inst.nominaSemanal || 0,
           inst.saldoAnterior || 0,
           inst.anticiposEnCorte || 0, // H: Anticipos otorgados
-          inst.anticiposAplicables || 0, // I: Anticipos aplicados (descuentos)
+          inst.anticiposAplicadosManualmente || 0, // I: Anticipos aplicados manualmente (descuentos)
            // J: Destajo a Depositar = MAX(E - F - G - I, 0)
-           //    (G es saldo/adeudo, I es anticipos aplicables - ambos son descuentos)
-           //    Note: H (+Anticipos) son pagos adicionales que salen, no se restan
            { formula: `MAX(E${rowNum}-F${rowNum}-G${rowNum}-I${rowNum},0)` },
           // K: A Depositar = FLOOR(J, 50)
           { formula: `FLOOR(J${rowNum},50)` },
