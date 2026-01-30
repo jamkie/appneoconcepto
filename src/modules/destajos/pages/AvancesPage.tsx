@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ClipboardList, Plus, Search, Pencil, Trash2, Calendar, Box, RefreshCw, Users, X } from 'lucide-react';
+import { ClipboardList, Plus, Search, Pencil, Trash2, Calendar, Box, RefreshCw, Users, X, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -119,6 +119,10 @@ export default function AvancesPage() {
   const [observaciones, setObservaciones] = useState('');
   const [obraItems, setObraItems] = useState<AvanceItemDisplay[]>([]);
   const [loadingObraItems, setLoadingObraItems] = useState(false);
+  
+  // Sorting state
+  const [sortColumn, setSortColumn] = useState<string | null>('fecha');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
     if (!loading && !user) {
@@ -900,6 +904,72 @@ export default function AvancesPage() {
     return matchesSearch;
   });
 
+  // Sorting function
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  const renderSortIcon = (column: string) => {
+    if (sortColumn === column) {
+      return sortDirection === 'asc' 
+        ? <ArrowUp className="w-3 h-3 ml-1" />
+        : <ArrowDown className="w-3 h-3 ml-1" />;
+    }
+    return <ArrowUpDown className="w-3 h-3 ml-1 opacity-40" />;
+  };
+
+  // Sort filtered avances
+  const sortedAvances = useMemo(() => {
+    if (!sortColumn) return filteredAvances;
+    
+    return [...filteredAvances].sort((a, b) => {
+      let comparison = 0;
+      
+      switch (sortColumn) {
+        case 'fecha':
+          comparison = new Date(a.fecha).getTime() - new Date(b.fecha).getTime();
+          break;
+        case 'obra':
+          comparison = (a.obras?.nombre || '').localeCompare(b.obras?.nombre || '', 'es');
+          break;
+        case 'instalador':
+          const aInst = a.instaladores?.nombre || '';
+          const bInst = b.instaladores?.nombre || '';
+          comparison = aInst.localeCompare(bInst, 'es');
+          break;
+        case 'monto':
+          const aTotal = a.solicitudes_pago?.[0]?.total_solicitado || 
+            a.avance_items.reduce((acc, item) => acc + (item.cantidad_completada * (item.obra_items?.precio_unitario || 0)), 0);
+          const bTotal = b.solicitudes_pago?.[0]?.total_solicitado || 
+            b.avance_items.reduce((acc, item) => acc + (item.cantidad_completada * (item.obra_items?.precio_unitario || 0)), 0);
+          comparison = aTotal - bTotal;
+          break;
+        case 'estado':
+          const getEstadoPriority = (avance: AvanceRecord) => {
+            const solicitud = avance.solicitudes_pago?.[0];
+            const hasPago = solicitud?.pagos_destajos?.length > 0;
+            const corteCerrado = solicitud?.cortes_semanales?.estado === 'cerrado';
+            if (hasPago || corteCerrado) return 4;
+            if (solicitud?.estado === 'aprobada') return 3;
+            if (solicitud?.estado === 'pendiente') return 2;
+            if (solicitud?.estado === 'rechazada') return 1;
+            return 0;
+          };
+          comparison = getEstadoPriority(a) - getEstadoPriority(b);
+          break;
+        default:
+          comparison = 0;
+      }
+      
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+  }, [filteredAvances, sortColumn, sortDirection]);
+
   if (loading || loadingData) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -994,17 +1064,42 @@ export default function AvancesPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Obra</TableHead>
-                <TableHead className="hidden md:table-cell">Instalador</TableHead>
+                <TableHead 
+                  className="cursor-pointer hover:bg-muted/80 select-none"
+                  onClick={() => handleSort('fecha')}
+                >
+                  <div className="flex items-center">Fecha{renderSortIcon('fecha')}</div>
+                </TableHead>
+                <TableHead 
+                  className="cursor-pointer hover:bg-muted/80 select-none"
+                  onClick={() => handleSort('obra')}
+                >
+                  <div className="flex items-center">Obra{renderSortIcon('obra')}</div>
+                </TableHead>
+                <TableHead 
+                  className="hidden md:table-cell cursor-pointer hover:bg-muted/80 select-none"
+                  onClick={() => handleSort('instalador')}
+                >
+                  <div className="flex items-center">Instalador{renderSortIcon('instalador')}</div>
+                </TableHead>
                 <TableHead>Piezas Completadas</TableHead>
-                <TableHead className="text-right">Monto</TableHead>
-                <TableHead className="hidden lg:table-cell">Estado</TableHead>
+                <TableHead 
+                  className="text-right cursor-pointer hover:bg-muted/80 select-none"
+                  onClick={() => handleSort('monto')}
+                >
+                  <div className="flex items-center justify-end">Monto{renderSortIcon('monto')}</div>
+                </TableHead>
+                <TableHead 
+                  className="hidden lg:table-cell cursor-pointer hover:bg-muted/80 select-none"
+                  onClick={() => handleSort('estado')}
+                >
+                  <div className="flex items-center">Estado{renderSortIcon('estado')}</div>
+                </TableHead>
                 <TableHead className="hidden xl:table-cell">Registrado por</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredAvances.map((avance) => (
+              {sortedAvances.map((avance) => (
                 <TableRow 
                   key={avance.id} 
                   className="cursor-pointer hover:bg-muted/50"

@@ -603,6 +603,8 @@ export default function ObrasPage() {
     {
       key: 'nombre',
       header: 'Nombre',
+      sortKey: 'nombre',
+      getValue: (item: ObraWithItems) => item.nombre,
       cell: (item: ObraWithItems) => (
         <div>
           <span className="font-medium">{item.nombre}</span>
@@ -615,6 +617,8 @@ export default function ObrasPage() {
     {
       key: 'responsable',
       header: 'Responsable',
+      sortKey: 'responsable',
+      getValue: (item: ObraWithItems) => (item as any).responsable || '',
       cell: (item: ObraWithItems) => (
         <span className="text-sm">{(item as any).responsable || '-'}</span>
       ),
@@ -669,6 +673,8 @@ export default function ObrasPage() {
     {
       key: 'extras',
       header: 'Extras',
+      sortKey: 'extras',
+      getValue: (item: ObraWithItems) => item.totalExtras,
       cell: (item: ObraWithItems) => {
         if (item.extras.length === 0) {
           return <span className="text-muted-foreground text-xs">-</span>;
@@ -693,6 +699,13 @@ export default function ObrasPage() {
     {
       key: 'montoTotal',
       header: 'Monto Total',
+      sortKey: 'montoTotal',
+      getValue: (item: ObraWithItems) => {
+        const totalItems = item.items.reduce((sum, pieza) => sum + pieza.cantidad * pieza.precio_unitario, 0);
+        const subtotal = totalItems + item.totalExtras;
+        const descuento = (item as any).descuento || 0;
+        return subtotal * (1 - descuento / 100);
+      },
       cell: (item: ObraWithItems) => {
         const totalItems = item.items.reduce((sum, pieza) => sum + pieza.cantidad * pieza.precio_unitario, 0);
         const subtotal = totalItems + item.totalExtras;
@@ -713,6 +726,8 @@ export default function ObrasPage() {
     {
       key: 'pagado',
       header: 'Pagado',
+      sortKey: 'pagado',
+      getValue: (item: ObraWithItems) => item.totalPagado,
       cell: (item: ObraWithItems) => (
         <span className="text-muted-foreground">{formatCurrency(item.totalPagado)}</span>
       ),
@@ -721,6 +736,14 @@ export default function ObrasPage() {
     {
       key: 'porPagar',
       header: 'Por Pagar',
+      sortKey: 'porPagar',
+      getValue: (item: ObraWithItems) => {
+        const totalItems = item.items.reduce((sum, pieza) => sum + pieza.cantidad * pieza.precio_unitario, 0);
+        const subtotal = totalItems + item.totalExtras;
+        const descuento = (item as any).descuento || 0;
+        const total = subtotal * (1 - descuento / 100);
+        return total - item.totalPagado;
+      },
       cell: (item: ObraWithItems) => {
         const totalItems = item.items.reduce((sum, pieza) => sum + pieza.cantidad * pieza.precio_unitario, 0);
         const subtotal = totalItems + item.totalExtras;
@@ -735,6 +758,8 @@ export default function ObrasPage() {
     {
       key: 'estado',
       header: 'Estado',
+      sortKey: 'estado',
+      getValue: (item: ObraWithItems) => item.estado,
       cell: (item: ObraWithItems) => (
         <Badge
           variant="outline"

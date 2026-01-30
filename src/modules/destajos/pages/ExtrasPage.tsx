@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { FileText, Plus, Search, Pencil, Trash2, RotateCcw, Calendar, User, MapPin, DollarSign } from 'lucide-react';
+import { FileText, Plus, Search, Pencil, Trash2, RotateCcw, Calendar, User, MapPin, DollarSign, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -80,6 +80,10 @@ export default function ExtrasPage() {
     monto: '',
     descuento: '0',
   });
+  
+  // Sorting state
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   useEffect(() => {
     if (!loading && !user) {
@@ -414,6 +418,70 @@ export default function ExtrasPage() {
     return matchesSearch && matchesStatus;
   });
 
+  // Sorting function
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  const renderSortIcon = (column: string) => {
+    if (sortColumn === column) {
+      return sortDirection === 'asc' 
+        ? <ArrowUp className="w-3 h-3 ml-1" />
+        : <ArrowDown className="w-3 h-3 ml-1" />;
+    }
+    return <ArrowUpDown className="w-3 h-3 ml-1 opacity-40" />;
+  };
+
+  // Sort filtered extras
+  const sortedExtras = useMemo(() => {
+    if (!sortColumn) return filteredExtras;
+    
+    return [...filteredExtras].sort((a, b) => {
+      let comparison = 0;
+      
+      switch (sortColumn) {
+        case 'fecha':
+          comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+          break;
+        case 'obra':
+          comparison = (a.obras?.nombre || '').localeCompare(b.obras?.nombre || '', 'es');
+          break;
+        case 'instalador':
+          comparison = (a.instaladores?.nombre || '').localeCompare(b.instaladores?.nombre || '', 'es');
+          break;
+        case 'descripcion':
+          comparison = a.descripcion.localeCompare(b.descripcion, 'es');
+          break;
+        case 'monto':
+          const aDescuento = Number((a as any).descuento || 0);
+          const bDescuento = Number((b as any).descuento || 0);
+          const aMonto = Number(a.monto) * (1 - aDescuento / 100);
+          const bMonto = Number(b.monto) * (1 - bDescuento / 100);
+          comparison = aMonto - bMonto;
+          break;
+        case 'estado':
+          const getEstadoPriority = (extra: ExtraWithDetails) => {
+            if (extra.solicitudPagada) return 4;
+            if (extra.estado === 'aprobado') return 3;
+            if (extra.estado === 'pendiente') return 2;
+            if (extra.solicitudRechazada) return 1;
+            return 0;
+          };
+          comparison = getEstadoPriority(a) - getEstadoPriority(b);
+          break;
+        default:
+          comparison = 0;
+      }
+      
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+  }, [filteredExtras, sortColumn, sortDirection]);
+
   const renderEstadoBadge = (extra: ExtraWithDetails) => {
     if (extra.solicitudPagada) {
       return (
@@ -511,16 +579,46 @@ export default function ExtrasPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Fecha</TableHead>
-                <TableHead className="hidden md:table-cell">Obra</TableHead>
-                <TableHead className="hidden md:table-cell">Instalador</TableHead>
-                <TableHead>Descripción</TableHead>
-                <TableHead>Monto</TableHead>
-                <TableHead>Estado</TableHead>
+                <TableHead 
+                  className="cursor-pointer hover:bg-muted/80 select-none"
+                  onClick={() => handleSort('fecha')}
+                >
+                  <div className="flex items-center">Fecha{renderSortIcon('fecha')}</div>
+                </TableHead>
+                <TableHead 
+                  className="hidden md:table-cell cursor-pointer hover:bg-muted/80 select-none"
+                  onClick={() => handleSort('obra')}
+                >
+                  <div className="flex items-center">Obra{renderSortIcon('obra')}</div>
+                </TableHead>
+                <TableHead 
+                  className="hidden md:table-cell cursor-pointer hover:bg-muted/80 select-none"
+                  onClick={() => handleSort('instalador')}
+                >
+                  <div className="flex items-center">Instalador{renderSortIcon('instalador')}</div>
+                </TableHead>
+                <TableHead 
+                  className="cursor-pointer hover:bg-muted/80 select-none"
+                  onClick={() => handleSort('descripcion')}
+                >
+                  <div className="flex items-center">Descripción{renderSortIcon('descripcion')}</div>
+                </TableHead>
+                <TableHead 
+                  className="cursor-pointer hover:bg-muted/80 select-none"
+                  onClick={() => handleSort('monto')}
+                >
+                  <div className="flex items-center">Monto{renderSortIcon('monto')}</div>
+                </TableHead>
+                <TableHead 
+                  className="cursor-pointer hover:bg-muted/80 select-none"
+                  onClick={() => handleSort('estado')}
+                >
+                  <div className="flex items-center">Estado{renderSortIcon('estado')}</div>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredExtras.map((extra) => (
+              {sortedExtras.map((extra) => (
                 <TableRow 
                   key={extra.id}
                   className="cursor-pointer hover:bg-muted/50"
