@@ -1,163 +1,187 @@
 
+# Plan: Aplicación Manual de Anticipos Disponibles
 
-# Plan: Corregir Aplicación de Anticipos Disponibles en Cortes
+## Resumen del Cambio
 
-## Resumen del Problema
+Cambiar la lógica de anticipos de **automática** a **manual**:
 
-Cuando cierras un corte, los anticipos disponibles de cortes anteriores **no se están descontando del pago**. En el ejemplo de Angel Uriel:
+| Antes (automático) | Después (manual) |
+|---|---|
+| Al cerrar el corte, el sistema descontaba automáticamente todos los anticipos disponibles | El usuario decide cuándo y cuánto descontar mediante un botón "Aplicar Anticipo" |
+| Rafael Orozco: depósito reducido por $45,000 automáticamente | Rafael Orozco: recibe su anticipo de $20,000, el depósito solo se reduce por salario ($2,315.54), los $45,000 anteriores + $20,000 nuevos = $65,000 quedan disponibles para aplicar después |
+
+## Ejemplo: Rafael Orozco - Semana 5
 
 | Concepto | Valor |
-|----------|-------|
-| Destajo Semana 5 | $21,100 |
-| Anticipos disponibles (de Semana 4) | $7,000 (3,000 + 4,000) |
-| Salario semanal | ~$6,946 |
-| **Lo esperado a depositar** | ~$14,100 - salario |
-| **Lo que pasa actualmente** | $21,100 - salario = ~$14,150 |
+|---|---|
+| Anticipo nuevo (este corte) | $20,000 |
+| Salario semanal | $2,315.54 |
+| **A Depositar** | $20,000 - $2,315.54 = **$17,680** (redondeado) |
+| Anticipos disponibles después del cierre | $45,000 + $20,000 = **$65,000** |
 
-El sistema **no está considerando** los $7,000 de anticipos disponibles para descontarlos.
+## Cambios a Implementar
 
-## Causa Raíz
+### Cambio 1: Remover aplicación automática de `handleCloseCorte`
 
-El código tiene **dos conceptos de anticipos** pero solo implementa uno:
+**Ubicación**: `src/modules/destajos/pages/CortesPage.tsx` (líneas 1374-1431)
 
-1. **`anticiposEnCorte`**: Anticipos que se están **otorgando** en este corte (solicitudes tipo 'anticipo'). **Esto funciona correctamente**.
+Eliminar el bloque que aplica automáticamente los anticipos disponibles al cerrar el corte. Los anticipos solo se crean para las solicitudes tipo 'anticipo' del corte, pero no se aplican automáticamente a las deducciones.
 
-2. **`anticiposDisponibles`**: Anticipos de cortes **anteriores** que tienen saldo pendiente de cobro. **Esto NO está implementado**.
+### Cambio 2: Actualizar fórmula de cálculo
 
-El campo `anticiposEnCorte` actualmente solo cuenta los anticipos NUEVOS del corte, pero los anticipos de cortes anteriores (que deben descontarse) **nunca se cargan ni se muestran**.
+**Ubicación**: `src/modules/destajos/pages/CortesPage.tsx` (líneas 677-695)
 
-## Solución Propuesta
+Modificar la fórmula para que NO reste `anticiposAplicables` automáticamente:
 
-### Cambio 1: Agregar campo `anticiposAplicables` al tipo `InstaladorResumen`
-Nuevo campo para trackear cuánto de anticipos disponibles se aplicarán a este instalador.
+```typescript
+// ANTES:
+const basePago = inst.destajoAcumulado - inst.salarioSemanal - inst.saldoAnterior - inst.anticiposAplicables;
 
-### Cambio 2: Cargar anticipos disponibles en `handleViewCorte`
-Al cargar los detalles del corte, consultar la tabla `anticipos` para obtener el monto disponible por instalador (solo de cortes anteriores).
-
-### Cambio 3: Actualizar la fórmula de cálculo
-Modificar el cálculo de `basePago` para incluir los anticipos aplicables:
-```
-basePago = Destajo - Salario - SaldoAnterior - AnticiposAplicables
+// DESPUÉS:
+// anticiposAplicables solo muestra lo que HAY disponible, pero NO se resta automáticamente
+// Solo se resta si el usuario decide aplicarlo manualmente (creando una solicitud tipo 'aplicacion_anticipo')
+const basePago = inst.destajoAcumulado - inst.salarioSemanal - inst.saldoAnterior - inst.anticiposAplicadosManualmente;
 ```
 
-### Cambio 4: Mostrar dos columnas en la UI
-Según tu preferencia:
-- **"Anticipos otorgados"**: Dinero nuevo que se le da al instalador (sumado al destajo para fines de pago)
-- **"Anticipos aplicados"**: Descuento de anticipos previos (resta del depósito)
+### Cambio 3: Agregar nuevo campo `anticiposAplicadosManualmente`
 
-### Cambio 5: Ordenar aplicación por antigüedad
-Los anticipos más viejos se aplican primero.
+**Ubicación**: `src/modules/destajos/pages/CortesPage.tsx` (líneas 54-69)
 
-### Cambio 6: Corregir `handleCloseCorte`
-Asegurar que la aplicación de anticipos:
-- Se ejecute para todos los instaladores con destajo (no solo los que tienen solicitudes de trabajo)
-- Calcule el `maxAplicable` **después** de restar el salario y saldo, pero **antes** de restar anticipos
-- Ordene por fecha de creación (más viejos primero)
+```typescript
+interface InstaladorResumen {
+  // ...
+  anticiposEnCorte: number;           // Anticipos OTORGADOS en este corte
+  anticiposDisponibles: number;       // Anticipos disponibles (solo informativo)
+  anticiposAplicadosManualmente: number; // Anticipos que el usuario decidió aplicar
+  // ...
+}
+```
 
-### Cambio 7: Actualizar el Excel de exportación
-Agregar columna de "Anticipos Aplicados" (descuentos) además de "Anticipos" (otorgados).
+### Cambio 4: Crear función `handleApplyAnticipoToCorte`
+
+**Ubicación**: `src/modules/destajos/pages/CortesPage.tsx` (después de `handleApplySaldoToCorte`)
+
+Similar a `handleApplySaldoToCorte`, esta función:
+1. Abre un modal para seleccionar el monto a descontar (de los anticipos disponibles)
+2. Crea una solicitud tipo `'aplicacion_anticipo'` asignada al corte abierto
+3. Reduce el `monto_disponible` del anticipo correspondiente
+4. Registra en `anticipo_aplicaciones` para trazabilidad
+
+### Cambio 5: Agregar Modal de Aplicación de Anticipo
+
+**Ubicación**: `src/modules/destajos/pages/CortesPage.tsx` (nuevo estado y modal)
+
+Nuevo modal que muestra:
+- Lista de anticipos disponibles del instalador (con fecha y monto)
+- Campo para ingresar monto a aplicar (o checkbox por anticipo)
+- Botón "Aplicar" que ejecuta `handleApplyAnticipoToCorte`
+
+### Cambio 6: Agregar botón "Aplicar Anticipo" en UI del resumen
+
+**Ubicación**: `src/modules/destajos/pages/CortesPage.tsx` (líneas 2674-2678)
+
+Cambiar la columna de "-Aplicados" para que:
+- Muestre el monto disponible (informativo)
+- Incluya un botón "Aplicar" que abre el modal
+- Solo visible cuando el corte está abierto
+
+```
+| Instalador   | Destajo | +Anticipo | Salario | -Descuento | Disponibles     | A Depositar |
+|--------------|---------|-----------|---------|------------|-----------------|-------------|
+| Rafael Orozco| -       | $20,000   | $2,315  | -          | $45,000 [Aplicar] | $17,680   |
+```
+
+### Cambio 7: Actualizar lógica al cerrar el corte
+
+Cuando se cierre el corte:
+- Los anticipos disponibles que el usuario aplicó manualmente ya están registrados como solicitudes
+- Solo se generan los nuevos anticipos (de solicitudes tipo 'anticipo')
+- NO se aplican automáticamente los que no fueron seleccionados
+
+### Cambio 8: Actualizar Excel de exportación
+
+**Ubicación**: `src/modules/destajos/hooks/useExportCorteExcel.ts`
+
+- Columna `+ANTICIPOS`: Anticipos otorgados en este corte
+- Columna `-APLICADOS`: Solo lo que el usuario decidió aplicar manualmente
+- No mostrar el total disponible que no fue aplicado
+
+## Flujo Correcto con Aplicación Manual
+
+```text
+CORTE ABIERTO
+    │
+    ├─► Instalador tiene anticipos disponibles de cortes anteriores
+    │     └─► Se muestra "$45,000 disponibles" con botón [Aplicar]
+    │
+    ├─► Usuario agrega solicitud tipo 'anticipo' de $20,000
+    │     └─► Se muestra en columna "+Anticipo"
+    │
+    └─► Usuario decide NO aplicar los $45,000 anteriores
+          └─► Columna "-Aplicados" queda en $0
+
+CERRAR CORTE
+    │
+    ├─► Se calcula: $20,000 (anticipo nuevo) - $2,315.54 (salario) = $17,680
+    ├─► Se genera pago por $17,680 (o el anticipo completo según reglas)
+    ├─► Se crea registro en 'anticipos' para el nuevo anticipo de $20,000
+    │
+    └─► Los $45,000 anteriores siguen disponibles (monto_disponible sin cambios)
+          └─► Total disponible después: $45,000 + $20,000 = $65,000
+```
 
 ## Archivos a Modificar
 
 | Archivo | Cambios |
 |---------|---------|
-| `src/modules/destajos/pages/CortesPage.tsx` | Tipo, fetch, cálculo, UI, cierre |
-| `src/modules/destajos/hooks/useExportCorteExcel.ts` | Nueva columna de anticipos aplicados |
+| `src/modules/destajos/pages/CortesPage.tsx` | Interfaz, estado, función `handleApplyAnticipoToCorte`, modal, UI, remover aplicación automática |
+| `src/modules/destajos/hooks/useExportCorteExcel.ts` | Actualizar columna "-APLICADOS" para reflejar solo aplicaciones manuales |
 
 ## Detalles Técnicos
 
-### Nuevo campo en InstaladorResumen (líneas 54-68)
+### Nuevo tipo de solicitud: `aplicacion_anticipo`
+
+Similar a `saldo`, este tipo de solicitud representa una deducción manual de anticipos:
+
 ```typescript
-interface InstaladorResumen {
-  // ... campos existentes ...
-  anticiposEnCorte: number;      // Anticipos otorgados en este corte (dinero que sale)
-  anticiposAplicables: number;   // Anticipos de cortes anteriores a descontar
-  // ...
+{
+  tipo: 'aplicacion_anticipo',
+  instalador_id: '...',
+  obra_id: '...',                // Tomada del anticipo
+  total_solicitado: montoAAplicar,
+  estado: 'aprobada',
+  corte_id: corteAbierto.id,
+  observaciones: 'Aplicación manual de anticipo'
 }
 ```
 
-### Consulta de anticipos disponibles en handleViewCorte
-```typescript
-// Fetch anticipos disponibles por instalador (de cortes anteriores)
-const { data: anticiposData } = await supabase
-  .from('anticipos')
-  .select('instalador_id, monto_disponible, created_at, solicitud_pago_id')
-  .gt('monto_disponible', 0)
-  .order('created_at', { ascending: true }); // Más viejos primero
+### Registro de la aplicación
 
-// Excluir anticipos de solicitudes del corte actual
-const solicitudIdsEnCorte = new Set((asignadas || []).map(s => s.id));
-const anticiposByInstalador: Record<string, number> = {};
+Al aplicar manualmente, también se registra en `anticipo_aplicaciones`:
+- `anticipo_id`: ID del anticipo que se está aplicando
+- `pago_id`: Se genera al cerrar el corte (o null si se registra antes)
+- `monto_aplicado`: Monto que el usuario decidió aplicar
 
-anticiposData?.forEach(a => {
-  if (!a.solicitud_pago_id || !solicitudIdsEnCorte.has(a.solicitud_pago_id)) {
-    anticiposByInstalador[a.instalador_id] = 
-      (anticiposByInstalador[a.instalador_id] || 0) + Number(a.monto_disponible);
-  }
-});
-```
+### Restauración al reabrir/eliminar corte
 
-### Nueva fórmula de cálculo
-```typescript
-// Para cortes abiertos:
-const basePago = 
-  inst.destajoAcumulado - 
-  inst.salarioSemanal - 
-  inst.saldoAnterior - 
-  inst.anticiposAplicables; // <-- Nuevo: descuento de anticipos previos
-
-// Nota: anticiposEnCorte NO se resta del basePago porque son pagos adicionales
-// que salen hacia el instalador (como el salario), no descuentos.
-```
-
-### UI con dos columnas (línea ~2540-2720)
-```
-| Instalador | Destajo | +Anticipo | Salario | -Descuento | -Aplicados | A Depositar |
-|------------|---------|-----------|---------|------------|------------|-------------|
-| Angel Uriel| $21,100 | -         | $6,946  | -          | -$7,000    | ~$7,150     |
-```
-
-- **+Anticipo**: Dinero que se le entrega (solicitudes tipo 'anticipo' de este corte)
-- **-Aplicados**: Descuento de anticipos previos disponibles
-
-### Verificación del ejemplo de Angel Uriel
-Con la corrección:
-- Destajo: $21,100
-- Salario: ~$6,946
-- Anticipos aplicables: $7,000
-- basePago = 21,100 - 6,946 - 7,000 = **$7,154**
-- A Depositar (redondeado): **$7,150**
-
-## Flujo Correcto
-
-```text
-CARGAR CORTE (handleViewCorte)
-       │
-       ├─► Fetch solicitudes del corte
-       ├─► Fetch anticipos disponibles (monto_disponible > 0)
-       │     └─► Excluir anticipos de solicitudes del corte actual
-       │
-       └─► Por cada instalador:
-             ├─► anticiposEnCorte = suma de solicitudes tipo 'anticipo' del corte
-             └─► anticiposAplicables = suma de anticipos disponibles (de cortes anteriores)
-
-CALCULAR DEPÓSITO
-       │
-       └─► basePago = Destajo - Salario - Saldo - AnticiposAplicables
-             └─► Redondear a múltiplos de 50
-
-CERRAR CORTE
-       │
-       └─► Aplicar anticipos disponibles a pagos
-             ├─► Ordenar por created_at (más viejos primero)
-             ├─► maxAplicable = MAX(0, basePagoSinAnticipos)
-             └─► Registrar en anticipo_aplicaciones
-```
+Si se reabre el corte, las solicitudes tipo `aplicacion_anticipo` se revierten:
+- Se restaura el `monto_disponible` del anticipo
+- Se elimina el registro de `anticipo_aplicaciones`
+- Se elimina la solicitud
 
 ## Resultado Esperado
 
-1. **En la UI**: Ver dos columnas separadas - anticipos otorgados y anticipos aplicados
-2. **En el cierre**: Los $7,000 de Angel Uriel se descontarán automáticamente
-3. **En el Excel**: Columnas claras mostrando ambos conceptos
-4. **En la reapertura**: Los anticipos aplicados se restauran correctamente (ya funciona)
+1. **Rafael Orozco - Semana 5**:
+   - Recibe anticipo de $20,000
+   - Se descuenta salario de $2,315.54
+   - **Depósito: $17,680**
+   - Anticipos pendientes por aplicar: $65,000
 
+2. **UI del Corte**:
+   - Columna "Disponibles" muestra $45,000 con botón [Aplicar]
+   - Columna "+Anticipo" muestra $20,000 (nuevo)
+   - Columna "-Aplicados" muestra $0 (nada aplicado manualmente)
+
+3. **Flexibilidad**:
+   - El usuario puede decidir aplicar parcialmente ($10,000 de los $45,000)
+   - O no aplicar nada y dejar todo pendiente
