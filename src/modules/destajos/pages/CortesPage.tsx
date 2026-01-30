@@ -685,12 +685,12 @@ export default function CortesPage() {
           inst.saldoGenerado = Number(ci.saldo_generado);
         } else {
           // Calculate in real-time for open cortes
-          // Formula: basePago = Destajo - Salario - SaldoAnterior - AnticiposAplicadosManualmente
+          // Formula: basePago = Destajo + AnticiposOtorgados - Salario - SaldoAnterior - AnticiposAplicadosManualmente
           // (saldoAnterior = adeudo a favor de la empresa; anticiposAplicadosManualmente = lo que el usuario decidió descontar)
-          // Note: anticiposEnCorte (anticipos otorgados) NO se restan porque son pagos adicionales, no descuentos
+          // Note: anticiposEnCorte (anticipos otorgados) SE SUMAN porque son pagos adicionales que recibe el instalador
           // Note: anticiposDisponibles is just informative, NOT subtracted unless manually applied
           const basePago =
-            inst.destajoAcumulado - inst.salarioSemanal - inst.saldoAnterior - inst.anticiposAplicadosManualmente;
+            inst.destajoAcumulado + inst.anticiposEnCorte - inst.salarioSemanal - inst.saldoAnterior - inst.anticiposAplicadosManualmente;
           
           if (basePago >= 0) {
             inst.destajoADepositar = basePago;
@@ -1191,12 +1191,12 @@ export default function CortesPage() {
     );
     
     // Calculate values with edited salaries for each instalador
-    // Formula: basePago = Destajo - Salario - SaldoAnterior - AnticiposAplicadosManualmente
+    // Formula: basePago = Destajo + AnticiposOtorgados - Salario - SaldoAnterior - AnticiposAplicadosManualmente
     // (saldoAnterior = adeudo a favor de la empresa; anticiposAplicadosManualmente = lo que el usuario decidió descontar)
-    // Note: anticiposEnCorte (anticipos otorgados) NO se restan porque son pagos adicionales, no descuentos
+    // Note: anticiposEnCorte (anticipos otorgados) SE SUMAN porque son pagos adicionales que recibe el instalador
     const instaladoresCalculados = instaladoresConSolicitudes.map(inst => {
       const salario = salarioEdits[inst.id] ?? inst.salarioSemanal;
-      const basePago = inst.destajoAcumulado - salario - inst.saldoAnterior - inst.anticiposAplicadosManualmente;
+      const basePago = inst.destajoAcumulado + inst.anticiposEnCorte - salario - inst.saldoAnterior - inst.anticiposAplicadosManualmente;
       
       if (basePago >= 0) {
         return {
@@ -2663,8 +2663,8 @@ export default function CortesPage() {
                     {resumenInstaladores.map((inst) => {
                       const isExcluded = excludedInstaladores.has(inst.id);
                       const displaySalario = salarioEdits[inst.id] ?? inst.salarioSemanal;
-                      // Formula: basePago = Destajo - Salario - SaldoAnterior - AnticiposAplicadosManualmente
-                      const basePago = inst.destajoAcumulado - displaySalario - inst.saldoAnterior - inst.anticiposAplicadosManualmente;
+                      // Formula: basePago = Destajo + AnticiposOtorgados - Salario - SaldoAnterior - AnticiposAplicadosManualmente
+                      const basePago = inst.destajoAcumulado + inst.anticiposEnCorte - displaySalario - inst.saldoAnterior - inst.anticiposAplicadosManualmente;
                       const displayADepositar = isExcluded ? 0 : (basePago >= 0 ? Math.floor(basePago / 50) * 50 : 0);
                       const displaySaldoGenerado = isExcluded ? 0 : (basePago < 0 ? Math.abs(basePago) : 0);
                       const hasAnticiposOtorgados = resumenInstaladores.some(i => i.anticiposEnCorte > 0);

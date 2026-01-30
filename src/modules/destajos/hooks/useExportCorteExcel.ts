@@ -159,13 +159,13 @@ export const useExportCorteExcel = () => {
           inst.saldoAFavor = Number(ci.saldo_generado);
           inst.destajoADepositar = Math.max(
             0,
-            inst.destajoAcumulado - inst.nominaSemanal - inst.saldoAnterior - inst.anticiposAplicadosManualmente
+            inst.destajoAcumulado + inst.anticiposEnCorte - inst.nominaSemanal - inst.saldoAnterior - inst.anticiposAplicadosManualmente
           );
         } else {
           // Calculate in real-time
-          // Formula: basePago = Destajo - Salario - SaldoAnterior - AnticiposAplicadosManualmente
+          // Formula: basePago = Destajo + AnticiposOtorgados - Salario - SaldoAnterior - AnticiposAplicadosManualmente
           const basePago =
-            inst.destajoAcumulado - inst.nominaSemanal - inst.saldoAnterior - inst.anticiposAplicadosManualmente;
+            inst.destajoAcumulado + inst.anticiposEnCorte - inst.nominaSemanal - inst.saldoAnterior - inst.anticiposAplicadosManualmente;
           
           if (basePago >= 0) {
             inst.destajoADepositar = basePago;
@@ -257,12 +257,12 @@ export const useExportCorteExcel = () => {
           inst.saldoAnterior || 0,
           inst.anticiposEnCorte || 0, // H: Anticipos otorgados
           inst.anticiposAplicadosManualmente || 0, // I: Anticipos aplicados manualmente (descuentos)
-           // J: Destajo a Depositar = MAX(E - F - G - I, 0)
-           { formula: `MAX(E${rowNum}-F${rowNum}-G${rowNum}-I${rowNum},0)` },
+           // J: Destajo a Depositar = MAX(E + H - F - G - I, 0) (Destajo + Anticipos Otorgados - Salario - Saldo Anterior - Aplicados)
+           { formula: `MAX(E${rowNum}+H${rowNum}-F${rowNum}-G${rowNum}-I${rowNum},0)` },
           // K: A Depositar = FLOOR(J, 50)
           { formula: `FLOOR(J${rowNum},50)` },
-           // L: Saldo a Favor (empresa) = MAX(F + G + I - E, 0)
-           { formula: `MAX(F${rowNum}+G${rowNum}+I${rowNum}-E${rowNum},0)` },
+           // L: Saldo a Favor (empresa) = MAX(F + G + I - E - H, 0)
+           { formula: `MAX(F${rowNum}+G${rowNum}+I${rowNum}-E${rowNum}-H${rowNum},0)` },
         ]);
         row.alignment = { vertical: 'middle' };
       });
