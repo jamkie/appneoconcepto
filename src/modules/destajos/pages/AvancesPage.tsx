@@ -4,7 +4,7 @@ import { ClipboardList, Plus, Search, Pencil, Trash2, Calendar, Box, RefreshCw, 
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { PageHeader, EmptyState } from '../components';
+import { PageHeader, EmptyState, TablePagination } from '../components';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -52,6 +52,7 @@ import type { Obra, Instalador, ObraItem, AvanceInstaladorInput } from '../types
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useSubmodulePermissions } from '@/hooks/useSubmodulePermissions';
+import { usePagination } from '../hooks/usePagination';
 
 interface AvanceItemDisplay {
   obra_item_id: string;
@@ -970,6 +971,9 @@ export default function AvancesPage() {
     });
   }, [filteredAvances, sortColumn, sortDirection]);
 
+  // Pagination
+  const pagination = usePagination(sortedAvances, { initialPageSize: 10 });
+
   if (loading || loadingData) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -1099,7 +1103,7 @@ export default function AvancesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sortedAvances.map((avance) => (
+              {pagination.paginatedData.map((avance) => (
                 <TableRow 
                   key={avance.id} 
                   className="cursor-pointer hover:bg-muted/50"
@@ -1252,6 +1256,23 @@ export default function AvancesPage() {
               ))}
             </TableBody>
           </Table>
+          
+          <TablePagination
+            currentPage={pagination.currentPage}
+            totalPages={pagination.totalPages}
+            totalItems={pagination.totalItems}
+            startIndex={pagination.startIndex}
+            endIndex={pagination.endIndex}
+            pageSize={pagination.pageSize}
+            canGoNext={pagination.canGoNext}
+            canGoPrevious={pagination.canGoPrevious}
+            onPageChange={pagination.setPage}
+            onPageSizeChange={pagination.setPageSize}
+            onFirstPage={pagination.goToFirstPage}
+            onLastPage={pagination.goToLastPage}
+            onNextPage={pagination.goToNextPage}
+            onPreviousPage={pagination.goToPreviousPage}
+          />
         </div>
       )}
 
