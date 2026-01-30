@@ -1,141 +1,163 @@
 
 
-# ✅ COMPLETADO: Plan: Corregir Lógica de Anticipos en Cortes Semanales
+# Plan: Corregir Aplicación de Anticipos Disponibles en Cortes
 
 ## Resumen del Problema
 
-Actualmente hay múltiples fallos en la lógica de anticipos:
+Cuando cierras un corte, los anticipos disponibles de cortes anteriores **no se están descontando del pago**. En el ejemplo de Angel Uriel:
 
-1. **Los anticipos NUNCA se aplican automáticamente** - El código busca anticipos disponibles de **otros cortes anteriores** para aplicarlos al cierre, pero la lógica solo ejecuta la aplicación si el instalador tiene solicitudes de trabajo en este corte.
+| Concepto | Valor |
+|----------|-------|
+| Destajo Semana 5 | $21,100 |
+| Anticipos disponibles (de Semana 4) | $7,000 (3,000 + 4,000) |
+| Salario semanal | ~$6,946 |
+| **Lo esperado a depositar** | ~$14,100 - salario |
+| **Lo que pasa actualmente** | $21,100 - salario = ~$14,150 |
 
-2. **Los anticipos del mismo corte se marcan como disponibles inmediatamente** - Cuando se cierra un corte que contiene solicitudes tipo "anticipo", esos anticipos se crean con `monto_disponible = monto_original`. Según tus reglas, estos NO deben estar disponibles para aplicarse hasta que el corte esté cerrado.
+El sistema **no está considerando** los $7,000 de anticipos disponibles para descontarlos.
 
-3. **La aplicación de anticipos no respeta el tope de $0** - El código actual aplica todo el anticipo sin verificar si el depósito resultante sería negativo.
+## Causa Raíz
 
-4. **Al reabrir un corte, los anticipos generados en ese mismo cierre deberían eliminarse** - Actualmente solo se restauran los anticipos aplicados, pero los "nuevos" generados por ese cierre no se eliminan.
+El código tiene **dos conceptos de anticipos** pero solo implementa uno:
 
-## Flujo Correcto (según tus respuestas)
+1. **`anticiposEnCorte`**: Anticipos que se están **otorgando** en este corte (solicitudes tipo 'anticipo'). **Esto funciona correctamente**.
 
-```text
-CREAR SOLICITUD TIPO ANTICIPO
-       │
-       ▼
-APROBAR → Estado "aprobada", NO se crea registro en 'anticipos'
-       │
-       ▼
-CERRAR CORTE
-       │
-       ├─► Para solicitudes tipo 'anticipo': 
-       │     → AHORA se crea registro en 'anticipos' con monto_disponible = monto_original
-       │     → Se genera pago por ese monto (es dinero que se entrega)
-       │
-       └─► Para instaladores con trabajo (destajo > 0):
-             → Buscar anticipos disponibles de CORTES ANTERIORES
-             → Aplicar hasta que el depósito quede en $0 (no más)
-             → Registrar en 'anticipo_aplicaciones'
-             → Reducir 'monto_disponible' del anticipo
+2. **`anticiposDisponibles`**: Anticipos de cortes **anteriores** que tienen saldo pendiente de cobro. **Esto NO está implementado**.
 
-REABRIR CORTE
-       │
-       ├─► Restaurar anticipos aplicados (usando anticipo_aplicaciones)
-       │
-       └─► ELIMINAR anticipos generados por las solicitudes de este corte
-```
-
-## Problemas Específicos en el Código Actual
-
-### Problema 1: Anticipos del mismo corte se crean antes de tiempo
-**Ubicación**: `handleApproveAndAddToCorte` (líneas 758-781)  
-**Problema**: Cuando se aprueba una solicitud tipo "anticipo" desde el detalle del corte, se crea inmediatamente el registro en `anticipos`
-
-### Problema 2: Aplicación de anticipos disponibles no funciona correctamente
-**Ubicación**: `handleCloseCorte` (líneas 1377-1437)  
-**Problema**: 
-- Solo se ejecuta si `instSolicitudes.length > 0` (solicitudes tipo trabajo)
-- Un instalador que solo tiene anticipos nuevos no tiene pagos creados, entonces nunca aplica anticipos previos
-- No verifica el tope de $0 antes de aplicar
-
-### Problema 3: Al reabrir no se eliminan los anticipos generados
-**Ubicación**: `handleReopenCorte` (líneas 1541-1742)  
-**Problema**: Falta eliminar los registros de `anticipos` vinculados a solicitudes tipo anticipo del corte
+El campo `anticiposEnCorte` actualmente solo cuenta los anticipos NUEVOS del corte, pero los anticipos de cortes anteriores (que deben descontarse) **nunca se cargan ni se muestran**.
 
 ## Solución Propuesta
 
-### Cambio 1: No crear anticipo al aprobar desde corte abierto
-Modificar `handleApproveAndAddToCorte` para que NO cree el anticipo al aprobar una solicitud tipo "anticipo". Solo marcar la solicitud como aprobada.
+### Cambio 1: Agregar campo `anticiposAplicables` al tipo `InstaladorResumen`
+Nuevo campo para trackear cuánto de anticipos disponibles se aplicarán a este instalador.
 
-### Cambio 2: Crear anticipos solo al cerrar el corte
-Mover la creación de registros en `anticipos` (para solicitudes tipo anticipo) al momento de `handleCloseCorte`, justo después de crear los pagos.
+### Cambio 2: Cargar anticipos disponibles en `handleViewCorte`
+Al cargar los detalles del corte, consultar la tabla `anticipos` para obtener el monto disponible por instalador (solo de cortes anteriores).
 
-### Cambio 3: Aplicar anticipos disponibles respetando tope $0
-Modificar la lógica de aplicación de anticipos:
-- Ejecutar para TODOS los instaladores que tienen destajo (no solo los que tienen solicitudes de trabajo)
-- Calcular primero cuánto se puede aplicar sin que el depósito quede negativo
-- Aplicar solo hasta ese monto
-- Si sobra anticipo, mantenerlo disponible para futuros cortes
+### Cambio 3: Actualizar la fórmula de cálculo
+Modificar el cálculo de `basePago` para incluir los anticipos aplicables:
+```
+basePago = Destajo - Salario - SaldoAnterior - AnticiposAplicables
+```
 
-### Cambio 4: Eliminar anticipos generados al reabrir
-En `handleReopenCorte`, agregar lógica para:
-- Identificar solicitudes tipo "anticipo" en este corte
-- Eliminar los registros de `anticipos` vinculados vía `solicitud_pago_id`
+### Cambio 4: Mostrar dos columnas en la UI
+Según tu preferencia:
+- **"Anticipos otorgados"**: Dinero nuevo que se le da al instalador (sumado al destajo para fines de pago)
+- **"Anticipos aplicados"**: Descuento de anticipos previos (resta del depósito)
 
-### Cambio 5: Eliminar anticipos al cancelar solicitud aprobada (disponibles tab)
-Asegurarse de que `handleCancelSolicitudAprobada` elimine el anticipo si existe (ya está implementado pero confirmar)
+### Cambio 5: Ordenar aplicación por antigüedad
+Los anticipos más viejos se aplican primero.
+
+### Cambio 6: Corregir `handleCloseCorte`
+Asegurar que la aplicación de anticipos:
+- Se ejecute para todos los instaladores con destajo (no solo los que tienen solicitudes de trabajo)
+- Calcule el `maxAplicable` **después** de restar el salario y saldo, pero **antes** de restar anticipos
+- Ordene por fecha de creación (más viejos primero)
+
+### Cambio 7: Actualizar el Excel de exportación
+Agregar columna de "Anticipos Aplicados" (descuentos) además de "Anticipos" (otorgados).
 
 ## Archivos a Modificar
 
 | Archivo | Cambios |
 |---------|---------|
-| `src/modules/destajos/pages/CortesPage.tsx` | Modificar `handleApproveAndAddToCorte`, `handleCloseCorte`, `handleReopenCorte` |
+| `src/modules/destajos/pages/CortesPage.tsx` | Tipo, fetch, cálculo, UI, cierre |
+| `src/modules/destajos/hooks/useExportCorteExcel.ts` | Nueva columna de anticipos aplicados |
 
 ## Detalles Técnicos
 
-### handleApproveAndAddToCorte - Remover creación de anticipo
+### Nuevo campo en InstaladorResumen (líneas 54-68)
 ```typescript
-// REMOVER este bloque (líneas 758-781):
-// if (solicitud.tipo === 'anticipo') { ... }
-```
-
-### handleCloseCorte - Crear anticipos al cerrar
-Después de procesar todos los pagos, crear los registros de anticipos:
-```typescript
-// Para cada solicitud tipo 'anticipo' incluida en este corte:
-// 1. Crear pago por el monto del anticipo (ya se hace)
-// 2. Crear registro en 'anticipos' con monto_disponible = monto_original
-```
-
-### handleCloseCorte - Aplicar anticipos con tope $0
-```typescript
-// Antes de aplicar anticipos, calcular:
-const maxAplicable = Math.max(0, inst.aDepositar); // Tope: no bajar de 0
-
-// Aplicar anticipos hasta maxAplicable
-let totalAplicado = 0;
-for (const anticipo of anticiposDisponibles) {
-  if (totalAplicado >= maxAplicable) break;
-  const montoAplicar = Math.min(anticipo.monto_disponible, maxAplicable - totalAplicado);
-  // ... registrar aplicación
-  totalAplicado += montoAplicar;
+interface InstaladorResumen {
+  // ... campos existentes ...
+  anticiposEnCorte: number;      // Anticipos otorgados en este corte (dinero que sale)
+  anticiposAplicables: number;   // Anticipos de cortes anteriores a descontar
+  // ...
 }
 ```
 
-### handleReopenCorte - Eliminar anticipos del corte
+### Consulta de anticipos disponibles en handleViewCorte
 ```typescript
-// Identificar solicitudes tipo 'anticipo' en este corte
-const anticipoSolicitudes = solicitudesData.filter(s => s.tipo === 'anticipo');
-if (anticipoSolicitudes.length > 0) {
-  const solicitudIds = anticipoSolicitudes.map(s => s.id);
-  await supabase
-    .from('anticipos')
-    .delete()
-    .in('solicitud_pago_id', solicitudIds);
-}
+// Fetch anticipos disponibles por instalador (de cortes anteriores)
+const { data: anticiposData } = await supabase
+  .from('anticipos')
+  .select('instalador_id, monto_disponible, created_at, solicitud_pago_id')
+  .gt('monto_disponible', 0)
+  .order('created_at', { ascending: true }); // Más viejos primero
+
+// Excluir anticipos de solicitudes del corte actual
+const solicitudIdsEnCorte = new Set((asignadas || []).map(s => s.id));
+const anticiposByInstalador: Record<string, number> = {};
+
+anticiposData?.forEach(a => {
+  if (!a.solicitud_pago_id || !solicitudIdsEnCorte.has(a.solicitud_pago_id)) {
+    anticiposByInstalador[a.instalador_id] = 
+      (anticiposByInstalador[a.instalador_id] || 0) + Number(a.monto_disponible);
+  }
+});
+```
+
+### Nueva fórmula de cálculo
+```typescript
+// Para cortes abiertos:
+const basePago = 
+  inst.destajoAcumulado - 
+  inst.salarioSemanal - 
+  inst.saldoAnterior - 
+  inst.anticiposAplicables; // <-- Nuevo: descuento de anticipos previos
+
+// Nota: anticiposEnCorte NO se resta del basePago porque son pagos adicionales
+// que salen hacia el instalador (como el salario), no descuentos.
+```
+
+### UI con dos columnas (línea ~2540-2720)
+```
+| Instalador | Destajo | +Anticipo | Salario | -Descuento | -Aplicados | A Depositar |
+|------------|---------|-----------|---------|------------|------------|-------------|
+| Angel Uriel| $21,100 | -         | $6,946  | -          | -$7,000    | ~$7,150     |
+```
+
+- **+Anticipo**: Dinero que se le entrega (solicitudes tipo 'anticipo' de este corte)
+- **-Aplicados**: Descuento de anticipos previos disponibles
+
+### Verificación del ejemplo de Angel Uriel
+Con la corrección:
+- Destajo: $21,100
+- Salario: ~$6,946
+- Anticipos aplicables: $7,000
+- basePago = 21,100 - 6,946 - 7,000 = **$7,154**
+- A Depositar (redondeado): **$7,150**
+
+## Flujo Correcto
+
+```text
+CARGAR CORTE (handleViewCorte)
+       │
+       ├─► Fetch solicitudes del corte
+       ├─► Fetch anticipos disponibles (monto_disponible > 0)
+       │     └─► Excluir anticipos de solicitudes del corte actual
+       │
+       └─► Por cada instalador:
+             ├─► anticiposEnCorte = suma de solicitudes tipo 'anticipo' del corte
+             └─► anticiposAplicables = suma de anticipos disponibles (de cortes anteriores)
+
+CALCULAR DEPÓSITO
+       │
+       └─► basePago = Destajo - Salario - Saldo - AnticiposAplicables
+             └─► Redondear a múltiplos de 50
+
+CERRAR CORTE
+       │
+       └─► Aplicar anticipos disponibles a pagos
+             ├─► Ordenar por created_at (más viejos primero)
+             ├─► maxAplicable = MAX(0, basePagoSinAnticipos)
+             └─► Registrar en anticipo_aplicaciones
 ```
 
 ## Resultado Esperado
 
-1. **Anticipos nuevos** (solicitudes tipo anticipo): Se vuelven disponibles SOLO después de cerrar el corte
-2. **Anticipos disponibles** (de cortes anteriores): Se aplican automáticamente al cerrar, respetando el tope de $0
-3. **Reabrir corte**: Restaura anticipos aplicados Y elimina anticipos generados en ese cierre
-4. **Eliminar corte**: Igual que reabrir + revertir todo a pendiente
+1. **En la UI**: Ver dos columnas separadas - anticipos otorgados y anticipos aplicados
+2. **En el cierre**: Los $7,000 de Angel Uriel se descontarán automáticamente
+3. **En el Excel**: Columnas claras mostrando ambos conceptos
+4. **En la reapertura**: Los anticipos aplicados se restauran correctamente (ya funciona)
 
