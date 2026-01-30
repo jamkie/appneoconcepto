@@ -9,6 +9,8 @@ import {
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { usePagination } from '../hooks/usePagination';
+import { TablePagination } from './TablePagination';
 
 interface Column<T> {
   key: string;
@@ -29,6 +31,8 @@ interface DataTableProps<T> {
   emptyState?: React.ReactNode;
   defaultSortKey?: string;
   defaultSortDirection?: 'asc' | 'desc';
+  pageSize?: number;
+  showPagination?: boolean;
 }
 
 export function DataTable<T>({
@@ -40,6 +44,8 @@ export function DataTable<T>({
   emptyState,
   defaultSortKey,
   defaultSortDirection = 'asc',
+  pageSize: initialPageSize = 10,
+  showPagination = true,
 }: DataTableProps<T>) {
   const [sortColumn, setSortColumn] = useState<string | null>(defaultSortKey || null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>(defaultSortDirection);
@@ -84,6 +90,8 @@ export function DataTable<T>({
     });
   }, [data, sortColumn, sortDirection, columns]);
 
+  const pagination = usePagination(sortedData, { initialPageSize });
+
   if (data.length === 0 && emptyState) {
     return <>{emptyState}</>;
   }
@@ -98,6 +106,8 @@ export function DataTable<T>({
     }
     return <ArrowUpDown className="w-3 h-3 ml-1 opacity-40" />;
   };
+
+  const displayData = showPagination ? pagination.paginatedData : sortedData;
 
   return (
     <div className={cn("rounded-lg border overflow-hidden", className)}>
@@ -125,7 +135,7 @@ export function DataTable<T>({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sortedData.map((item) => (
+            {displayData.map((item) => (
               <TableRow
                 key={keyExtractor(item)}
                 onClick={() => onRowClick?.(item)}
@@ -150,6 +160,25 @@ export function DataTable<T>({
           </TableBody>
         </Table>
       </div>
+      
+      {showPagination && data.length > 0 && (
+        <TablePagination
+          currentPage={pagination.currentPage}
+          totalPages={pagination.totalPages}
+          totalItems={pagination.totalItems}
+          startIndex={pagination.startIndex}
+          endIndex={pagination.endIndex}
+          pageSize={pagination.pageSize}
+          canGoNext={pagination.canGoNext}
+          canGoPrevious={pagination.canGoPrevious}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+          onFirstPage={pagination.goToFirstPage}
+          onLastPage={pagination.goToLastPage}
+          onNextPage={pagination.goToNextPage}
+          onPreviousPage={pagination.goToPreviousPage}
+        />
+      )}
     </div>
   );
 }

@@ -5,3 +5,4 @@ export { StatCard } from './StatCard';
 export { DataTable } from './DataTable';
 export { EmptyState } from './EmptyState';
 export { StatusBadge } from './StatusBadge';
+export { TablePagination } from './TablePagination';

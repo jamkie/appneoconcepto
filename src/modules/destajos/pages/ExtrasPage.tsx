@@ -4,7 +4,7 @@ import { FileText, Plus, Search, Pencil, Trash2, RotateCcw, Calendar, User, MapP
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { PageHeader, EmptyState } from '../components';
+import { PageHeader, EmptyState, TablePagination } from '../components';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -46,6 +46,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useSubmodulePermissions } from '@/hooks/useSubmodulePermissions';
+import { usePagination } from '../hooks/usePagination';
 
 interface ExtraWithDetails extends Extra {
   obras: { nombre: string } | null;
@@ -482,6 +483,9 @@ export default function ExtrasPage() {
     });
   }, [filteredExtras, sortColumn, sortDirection]);
 
+  // Pagination
+  const pagination = usePagination(sortedExtras, { initialPageSize: 10 });
+
   const renderEstadoBadge = (extra: ExtraWithDetails) => {
     if (extra.solicitudPagada) {
       return (
@@ -618,7 +622,7 @@ export default function ExtrasPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sortedExtras.map((extra) => (
+              {pagination.paginatedData.map((extra) => (
                 <TableRow 
                   key={extra.id}
                   className="cursor-pointer hover:bg-muted/50"
@@ -664,6 +668,23 @@ export default function ExtrasPage() {
               ))}
             </TableBody>
           </Table>
+          
+          <TablePagination
+            currentPage={pagination.currentPage}
+            totalPages={pagination.totalPages}
+            totalItems={pagination.totalItems}
+            startIndex={pagination.startIndex}
+            endIndex={pagination.endIndex}
+            pageSize={pagination.pageSize}
+            canGoNext={pagination.canGoNext}
+            canGoPrevious={pagination.canGoPrevious}
+            onPageChange={pagination.setPage}
+            onPageSizeChange={pagination.setPageSize}
+            onFirstPage={pagination.goToFirstPage}
+            onLastPage={pagination.goToLastPage}
+            onNextPage={pagination.goToNextPage}
+            onPreviousPage={pagination.goToPreviousPage}
+          />
         </div>
       )}
 
