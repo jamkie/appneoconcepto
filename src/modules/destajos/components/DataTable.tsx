@@ -1,3 +1,4 @@
+import { useState, useMemo } from 'react';
 import {
   Table,
   TableBody,
@@ -7,6 +8,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 
 interface Column<T> {
   key: string;
@@ -14,6 +16,8 @@ interface Column<T> {
   cell: (item: T) => React.ReactNode;
   className?: string;
   hideOnMobile?: boolean;
+  sortKey?: string;
+  getValue?: (item: T) => string | number | Date | null | undefined;
 }
 
 interface DataTableProps<T> {
@@ -23,6 +27,8 @@ interface DataTableProps<T> {
   onRowClick?: (item: T) => void;
   className?: string;
   emptyState?: React.ReactNode;
+  defaultSortKey?: string;
+  defaultSortDirection?: 'asc' | 'desc';
 }
 
 export function DataTable<T>({
@@ -31,11 +37,67 @@ export function DataTable<T>({
   keyExtractor,
   onRowClick,
   className,
-  emptyState
+  emptyState,
+  defaultSortKey,
+  defaultSortDirection = 'asc',
 }: DataTableProps<T>) {
+  const [sortColumn, setSortColumn] = useState<string | null>(defaultSortKey || null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>(defaultSortDirection);
+
+  const handleSort = (columnKey: string) => {
+    if (sortColumn === columnKey) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(columnKey);
+      setSortDirection('asc');
+    }
+  };
+
+  const sortedData = useMemo(() => {
+    if (!sortColumn) return data;
+
+    const column = columns.find(col => col.sortKey === sortColumn);
+    if (!column || !column.getValue) return data;
+
+    return [...data].sort((a, b) => {
+      const aValue = column.getValue!(a);
+      const bValue = column.getValue!(b);
+
+      // Handle null/undefined values
+      if (aValue == null && bValue == null) return 0;
+      if (aValue == null) return sortDirection === 'asc' ? 1 : -1;
+      if (bValue == null) return sortDirection === 'asc' ? -1 : 1;
+
+      // Compare values
+      let comparison = 0;
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        comparison = aValue.localeCompare(bValue, 'es', { sensitivity: 'base' });
+      } else if (typeof aValue === 'number' && typeof bValue === 'number') {
+        comparison = aValue - bValue;
+      } else if (aValue instanceof Date && bValue instanceof Date) {
+        comparison = aValue.getTime() - bValue.getTime();
+      } else {
+        comparison = String(aValue).localeCompare(String(bValue));
+      }
+
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+  }, [data, sortColumn, sortDirection, columns]);
+
   if (data.length === 0 && emptyState) {
     return <>{emptyState}</>;
   }
+
+  const renderSortIcon = (column: Column<T>) => {
+    if (!column.sortKey) return null;
+    
+    if (sortColumn === column.sortKey) {
+      return sortDirection === 'asc' 
+        ? <ArrowUp className="w-3 h-3 ml-1" />
+        : <ArrowDown className="w-3 h-3 ml-1" />;
+    }
+    return <ArrowUpDown className="w-3 h-3 ml-1 opacity-40" />;
+  };
 
   return (
     <div className={cn("rounded-lg border overflow-hidden", className)}>
@@ -49,16 +111,21 @@ export function DataTable<T>({
                   className={cn(
                     "font-semibold text-foreground whitespace-nowrap",
                     column.className,
-                    column.hideOnMobile && "hidden md:table-cell"
+                    column.hideOnMobile && "hidden md:table-cell",
+                    column.sortKey && "cursor-pointer hover:bg-muted/80 select-none"
                   )}
+                  onClick={column.sortKey ? () => handleSort(column.sortKey!) : undefined}
                 >
-                  {typeof column.header === 'function' ? column.header() : column.header}
+                  <div className="flex items-center">
+                    {typeof column.header === 'function' ? column.header() : column.header}
+                    {renderSortIcon(column)}
+                  </div>
                 </TableHead>
               ))}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {data.map((item) => (
+            {sortedData.map((item) => (
               <TableRow
                 key={keyExtractor(item)}
                 onClick={() => onRowClick?.(item)}

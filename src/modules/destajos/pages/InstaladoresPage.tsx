@@ -185,11 +185,15 @@ export default function InstaladoresPage() {
     {
       key: 'nombre',
       header: 'Nombre',
+      sortKey: 'nombre',
+      getValue: (item: Instalador) => item.nombre,
       cell: (item: Instalador) => <span className="font-medium">{item.nombre}</span>,
     },
     {
       key: 'banco',
       header: 'Banco',
+      sortKey: 'banco',
+      getValue: (item: Instalador) => item.nombre_banco || '',
       cell: (item: Instalador) => (
         <div className="flex items-center gap-1">
           {item.nombre_banco ? (
@@ -213,6 +217,8 @@ export default function InstaladoresPage() {
     {
       key: 'salario',
       header: 'Salario Semanal',
+      sortKey: 'salario',
+      getValue: (item: Instalador) => item.salario_semanal || 0,
       cell: (item: Instalador) => (
         <div className="flex items-center gap-1">
           <DollarSign className="w-3 h-3 text-muted-foreground" />
@@ -225,6 +231,8 @@ export default function InstaladoresPage() {
     {
       key: 'estado',
       header: 'Estado',
+      sortKey: 'estado',
+      getValue: (item: Instalador) => item.activo ? 1 : 0,
       cell: (item: Instalador) => (
         <div className={cn(
           "flex items-center gap-2",

@@ -896,22 +896,30 @@ export default function SolicitudesPage() {
     {
       key: 'fecha',
       header: 'Fecha',
+      sortKey: 'fecha',
+      getValue: (item: SolicitudWithDetails) => new Date(item.created_at).getTime(),
       cell: (item: SolicitudWithDetails) => format(new Date(item.created_at), 'dd/MM/yyyy', { locale: es }),
     },
     {
       key: 'obra',
       header: 'Obra',
+      sortKey: 'obra',
+      getValue: (item: SolicitudWithDetails) => item.obras?.nombre || '',
       cell: (item: SolicitudWithDetails) => <span className="font-medium">{item.obras?.nombre || 'N/A'}</span>,
     },
     {
       key: 'instalador',
       header: 'Instalador',
+      sortKey: 'instalador',
+      getValue: (item: SolicitudWithDetails) => item.instaladores?.nombre || '',
       cell: (item: SolicitudWithDetails) => item.instaladores?.nombre || 'N/A',
       hideOnMobile: true,
     },
     {
       key: 'tipo',
       header: 'Tipo',
+      sortKey: 'tipo',
+      getValue: (item: SolicitudWithDetails) => item.tipo,
       cell: (item: SolicitudWithDetails) => (
         item.tipo === 'anticipo' ? (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">
@@ -931,11 +939,15 @@ export default function SolicitudesPage() {
     {
       key: 'total',
       header: 'Total',
+      sortKey: 'total',
+      getValue: (item: SolicitudWithDetails) => Number(item.total_solicitado),
       cell: (item: SolicitudWithDetails) => formatCurrency(Number(item.total_solicitado)),
     },
     {
       key: 'estado',
       header: 'Estado',
+      sortKey: 'estado',
+      getValue: (item: SolicitudWithDetails) => item.estado,
       cell: (item: SolicitudWithDetails) => <StatusBadge status={item.estado} />,
     },
     {

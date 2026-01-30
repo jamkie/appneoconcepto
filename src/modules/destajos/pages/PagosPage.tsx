@@ -152,22 +152,30 @@ export default function PagosPage() {
     {
       key: 'fecha',
       header: 'Fecha',
+      sortKey: 'fecha',
+      getValue: (item: PagoWithDetails) => new Date(item.fecha).getTime(),
       cell: (item: PagoWithDetails) => format(new Date(item.fecha), 'dd/MM/yyyy', { locale: es }),
     },
     {
       key: 'obra',
       header: 'Obra',
+      sortKey: 'obra',
+      getValue: (item: PagoWithDetails) => item.obras?.nombre || '',
       cell: (item: PagoWithDetails) => <span className="font-medium">{item.obras?.nombre || 'N/A'}</span>,
     },
     {
       key: 'instalador',
       header: 'Instalador',
+      sortKey: 'instalador',
+      getValue: (item: PagoWithDetails) => item.instaladores?.nombre || '',
       cell: (item: PagoWithDetails) => item.instaladores?.nombre || 'N/A',
       hideOnMobile: true,
     },
     {
       key: 'monto',
       header: 'Monto',
+      sortKey: 'monto',
+      getValue: (item: PagoWithDetails) => Number(item.monto),
       cell: (item: PagoWithDetails) => (
         <span className="font-semibold text-green-600">{formatCurrency(Number(item.monto))}</span>
       ),
@@ -175,6 +183,8 @@ export default function PagosPage() {
     {
       key: 'metodo',
       header: 'Método',
+      sortKey: 'metodo',
+      getValue: (item: PagoWithDetails) => paymentMethodLabels[item.metodo_pago],
       cell: (item: PagoWithDetails) => (
         <Badge variant="outline">{paymentMethodLabels[item.metodo_pago]}</Badge>
       ),
