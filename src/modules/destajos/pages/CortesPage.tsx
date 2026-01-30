@@ -1999,8 +1999,8 @@ export default function CortesPage() {
     }
     
     const salario = salarioEdits[inst.id] ?? inst.salarioSemanal;
-    // Formula: basePago = Destajo - Salario - SaldoAnterior (saldo is a DEDUCTION)
-    const basePago = inst.destajoAcumulado - salario - inst.saldoAnterior;
+    // Formula: basePago = Destajo + Anticipos - Salario - SaldoAnterior - AnticiposAplicados
+    const basePago = inst.destajoAcumulado + inst.anticiposEnCorte - salario - inst.saldoAnterior - inst.anticiposAplicadosManualmente;
     
     if (basePago >= 0) {
       return {
@@ -2010,8 +2010,8 @@ export default function CortesPage() {
         saldoGenerado: 0,
       };
     } else {
-      // Saldo generado = what the company credits when salary exceeds destajo
-      const saldoGen = Math.max(0, salario - inst.destajoAcumulado + inst.saldoAnterior);
+      // Saldo generado = absolute value of negative basePago (includes anticipos in calculation)
+      const saldoGen = Math.abs(basePago);
       return {
         salario,
         destajoADepositar: 0,
@@ -2040,12 +2040,12 @@ export default function CortesPage() {
       if (error) throw error;
       
       // Recalculate and update local state
-      // Formula: basePago = Destajo - Salario - SaldoAnterior (saldo is a DEDUCTION)
+      // Formula: basePago = Destajo + Anticipos - Salario - SaldoAnterior - AnticiposAplicados
       setResumenInstaladores(prev => 
         prev.map(i => {
           if (i.id !== instaladorId) return i;
           
-          const basePago = i.destajoAcumulado - newSalario - i.saldoAnterior;
+          const basePago = i.destajoAcumulado + i.anticiposEnCorte - newSalario - i.saldoAnterior - i.anticiposAplicadosManualmente;
           
           if (basePago >= 0) {
             return {
@@ -2057,7 +2057,7 @@ export default function CortesPage() {
               total: Math.floor(basePago / 50) * 50,
             };
           } else {
-            const saldo = Math.max(0, newSalario - i.destajoAcumulado + i.saldoAnterior);
+            const saldo = Math.abs(basePago);
             return {
               ...i,
               salarioSemanal: newSalario,
