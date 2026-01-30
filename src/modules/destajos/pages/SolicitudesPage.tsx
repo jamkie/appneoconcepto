@@ -79,11 +79,6 @@ export default function SolicitudesPage() {
   const [anticiposDisponibles, setAnticiposDisponibles] = useState<AnticipoWithDetails[]>([]);
   const [anticiposSeleccionados, setAnticiposSeleccionados] = useState<{[key: string]: number}>({});
   
-  // Bulk approval with anticipos states
-  const [showBulkAnticiposDialog, setShowBulkAnticiposDialog] = useState(false);
-  const [bulkSolicitudesParaAprobar, setBulkSolicitudesParaAprobar] = useState<SolicitudWithDetails[]>([]);
-  const [bulkAnticiposDisponibles, setBulkAnticiposDisponibles] = useState<AnticipoWithDetails[]>([]);
-  const [bulkAnticiposSeleccionados, setBulkAnticiposSeleccionados] = useState<{[key: string]: number}>({});
   
   
   
@@ -694,34 +689,12 @@ export default function SolicitudesPage() {
     }
   };
 
-  // Bulk approval handler - now shows anticipo dialog if available
+  // Bulk approval handler - directly approves without anticipo dialog
   const handleAprobarMasivo = async () => {
     if (!user || selectedIds.size === 0) return;
     
     const solicitudesAProbar = filteredSolicitudes.filter(s => selectedIds.has(s.id));
-    
-    // Get unique installer IDs from selected solicitudes (excluding anticipo type)
-    const instaladorIds = [...new Set(
-      solicitudesAProbar
-        .filter(s => s.tipo !== 'anticipo')
-        .map(s => s.instalador_id)
-    )];
-    
-    // Check if there are anticipos available for any of these installers
-    const anticiposParaInstaladores = anticipos.filter(a => 
-      instaladorIds.includes(a.instalador_id) && a.monto_disponible > 0
-    );
-    
-    if (anticiposParaInstaladores.length > 0) {
-      // Show dialog to select anticipos
-      setBulkSolicitudesParaAprobar(solicitudesAProbar);
-      setBulkAnticiposDisponibles(anticiposParaInstaladores);
-      setBulkAnticiposSeleccionados({});
-      setShowBulkAnticiposDialog(true);
-    } else {
-      // No anticipos available, proceed directly
-      await procesarAprobacionMasiva(solicitudesAProbar, {});
-    }
+    await procesarAprobacionMasiva(solicitudesAProbar, {});
   };
 
   // Process bulk approval (with or without anticipos)
@@ -855,31 +828,9 @@ export default function SolicitudesPage() {
     
     setSelectedIds(new Set());
     setProcessingBulk(false);
-    setShowBulkAnticiposDialog(false);
-    setBulkSolicitudesParaAprobar([]);
-    setBulkAnticiposSeleccionados({});
     fetchSolicitudes();
   };
 
-  // Handle bulk anticipo amount change
-  const handleBulkAnticipoAmountChange = (anticipoId: string, value: string, maxDisponible: number) => {
-    const numValue = parseFloat(value) || 0;
-    const clampedValue = Math.min(Math.max(0, numValue), maxDisponible);
-    setBulkAnticiposSeleccionados(prev => ({
-      ...prev,
-      [anticipoId]: clampedValue,
-    }));
-  };
-
-  // Confirm bulk approval with anticipos
-  const handleConfirmarAprobacionMasiva = async () => {
-    await procesarAprobacionMasiva(bulkSolicitudesParaAprobar, { ...bulkAnticiposSeleccionados });
-  };
-
-  // Approve bulk without anticipos
-  const handleAprobarMasivoSinAnticipo = async () => {
-    await procesarAprobacionMasiva(bulkSolicitudesParaAprobar, {});
-  };
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-MX', {
@@ -1681,128 +1632,6 @@ export default function SolicitudesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Bulk Approval with Anticipos Dialog */}
-      <Dialog 
-        open={showBulkAnticiposDialog} 
-        onOpenChange={(open) => {
-          if (!open && !processingBulk) {
-            setShowBulkAnticiposDialog(false);
-            setBulkSolicitudesParaAprobar([]);
-            setBulkAnticiposSeleccionados({});
-          }
-        }}
-      >
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-hidden flex flex-col">
-          <DialogHeader className="flex-shrink-0">
-            <DialogTitle className="flex items-center gap-2">
-              <Banknote className="w-5 h-5 text-amber-600" />
-              Aplicar Anticipos (Aprobación Masiva)
-            </DialogTitle>
-          </DialogHeader>
-          
-          <div className="space-y-4 overflow-y-auto flex-1 pr-1">
-            <div className="p-3 bg-muted rounded-lg text-sm">
-              <div className="flex justify-between mb-1">
-                <span className="text-muted-foreground">Solicitudes a aprobar:</span>
-                <span className="font-medium">{bulkSolicitudesParaAprobar.length}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Total a pagar:</span>
-                <span className="font-semibold text-emerald-600">
-                  {formatCurrency(bulkSolicitudesParaAprobar.reduce((sum, s) => sum + Number(s.total_solicitado), 0))}
-                </span>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <Label className="text-sm font-medium">Anticipos disponibles para los instaladores seleccionados:</Label>
-              {bulkAnticiposDisponibles.map((anticipo) => (
-                <div key={anticipo.id} className="p-3 border rounded-lg space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <div>
-                      <span className="font-medium">{anticipo.instaladores?.nombre}</span>
-                      <span className="text-muted-foreground ml-2">({anticipo.obras?.nombre})</span>
-                    </div>
-                    <span className="font-medium text-amber-600">
-                      Disponible: {formatCurrency(anticipo.monto_disponible)}
-                    </span>
-                  </div>
-                  {anticipo.observaciones && (
-                    <p className="text-xs text-muted-foreground">{anticipo.observaciones}</p>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <Label className="text-xs whitespace-nowrap">Aplicar:</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      max={anticipo.monto_disponible}
-                      step="0.01"
-                      value={bulkAnticiposSeleccionados[anticipo.id] || ''}
-                      onChange={(e) => handleBulkAnticipoAmountChange(anticipo.id, e.target.value, anticipo.monto_disponible)}
-                      placeholder="0.00"
-                      className="h-8 text-sm"
-                      disabled={processingBulk}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="text-xs h-8"
-                      disabled={processingBulk}
-                      onClick={() => {
-                        handleBulkAnticipoAmountChange(anticipo.id, anticipo.monto_disponible.toString(), anticipo.monto_disponible);
-                      }}
-                    >
-                      Max
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {Object.values(bulkAnticiposSeleccionados).reduce((sum, val) => sum + val, 0) > 0 && (
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm">
-                <div className="flex justify-between">
-                  <span className="text-emerald-700">Total anticipos a aplicar:</span>
-                  <span className="font-semibold text-emerald-700">
-                    -{formatCurrency(Object.values(bulkAnticiposSeleccionados).reduce((sum, val) => sum + val, 0))}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter className="flex-shrink-0 flex-col gap-2 sm:flex-row sm:justify-end pt-4 border-t">
-            <Button
-              variant="outline"
-              className="w-full sm:w-auto"
-              onClick={() => {
-                setShowBulkAnticiposDialog(false);
-                setBulkSolicitudesParaAprobar([]);
-                setBulkAnticiposSeleccionados({});
-              }}
-              disabled={processingBulk}
-            >
-              Cancelar
-            </Button>
-            <Button
-              variant="secondary"
-              className="w-full sm:w-auto"
-              onClick={handleAprobarMasivoSinAnticipo}
-              disabled={processingBulk}
-            >
-              {processingBulk ? 'Procesando...' : 'Aprobar sin anticipo'}
-            </Button>
-            <Button
-              className="w-full sm:w-auto"
-              onClick={handleConfirmarAprobacionMasiva}
-              disabled={processingBulk || Object.values(bulkAnticiposSeleccionados).reduce((sum, val) => sum + val, 0) === 0}
-            >
-              {processingBulk ? 'Procesando...' : 'Aprobar con anticipos'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Delete Avance/Extra Confirmation from Detail Dialog */}
       <AlertDialog 
