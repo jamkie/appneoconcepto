@@ -34,12 +34,14 @@ interface ApplyAnticipoModalProps {
   onClose: () => void;
   instaladorId: string;
   instaladorNombre: string;
-  corteId: string;
-  corteNombre: string;
+  corteId?: string;
+  corteNombre?: string;
   // IDs of solicitudes that belong to this corte (to exclude their anticipos)
-  solicitudIdsEnCorte: Set<string>;
+  solicitudIdsEnCorte?: Set<string>;
   userId: string;
   onSuccess: () => void;
+  /** When provided, only show anticipos for this obra */
+  obraId?: string;
 }
 
 export function ApplyAnticipoModal({
@@ -52,6 +54,7 @@ export function ApplyAnticipoModal({
   solicitudIdsEnCorte,
   userId,
   onSuccess,
+  obraId,
 }: ApplyAnticipoModalProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -68,7 +71,7 @@ export function ApplyAnticipoModal({
   const fetchAnticipos = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('anticipos')
         .select(`
           id,
@@ -83,11 +86,17 @@ export function ApplyAnticipoModal({
         .gt('monto_disponible', 0)
         .order('created_at', { ascending: true }); // FIFO - oldest first
 
+      if (obraId) {
+        query = query.eq('obra_id', obraId);
+      }
+
+      const { data, error } = await query;
+
       if (error) throw error;
 
-      // Filter out anticipos that belong to solicitudes in THIS corte
+      // Filter out anticipos that belong to solicitudes in THIS corte (if provided)
       const filtered = (data || [])
-        .filter((a: any) => !a.solicitud_pago_id || !solicitudIdsEnCorte.has(a.solicitud_pago_id))
+        .filter((a: any) => !solicitudIdsEnCorte || !a.solicitud_pago_id || !solicitudIdsEnCorte.has(a.solicitud_pago_id))
         .map((a: any) => ({
           id: a.id,
           monto_disponible: Number(a.monto_disponible),
@@ -178,8 +187,10 @@ export function ApplyAnticipoModal({
             solicitado_por: userId,
             aprobado_por: userId,
             fecha_aprobacion: new Date().toISOString(),
-            corte_id: corteId,
-            observaciones: `Aplicación manual de anticipo (${format(new Date(anticipo.created_at), 'dd/MM/yyyy', { locale: es })}) al corte: ${corteNombre}`,
+            corte_id: corteId || null,
+            observaciones: corteNombre
+              ? `Aplicación manual de anticipo (${format(new Date(anticipo.created_at), 'dd/MM/yyyy', { locale: es })}) al corte: ${corteNombre}`
+              : `Aplicación manual de anticipo (${format(new Date(anticipo.created_at), 'dd/MM/yyyy', { locale: es })}) al registrar avance`,
           });
 
         if (insertError) throw insertError;
