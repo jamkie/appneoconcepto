@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ClipboardList, Plus, Search, Pencil, Trash2, Calendar, Box, RefreshCw, Users, X, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -53,6 +53,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useSubmodulePermissions } from '@/hooks/useSubmodulePermissions';
 import { usePagination } from '../hooks/usePagination';
+import { ApplyAnticipoModal } from '../components/ApplyAnticipoModal';
 
 interface AvanceItemDisplay {
   obra_item_id: string;
@@ -124,6 +125,11 @@ export default function AvancesPage() {
   // Sorting state
   const [sortColumn, setSortColumn] = useState<string | null>('fecha');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
+  // Anticipo modal queue state
+  const [anticipoQueue, setAnticipoQueue] = useState<{ id: string; nombre: string; obraId: string }[]>([]);
+  const [currentAnticipoInstalador, setCurrentAnticipoInstalador] = useState<{ id: string; nombre: string; obraId: string } | null>(null);
+  const [isApplyAnticipoOpen, setIsApplyAnticipoOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -635,9 +641,37 @@ export default function AvancesPage() {
         }
       }
 
-      resetForm();
-      setIsModalOpen(false);
-      fetchData();
+      // Check if any instalador has available anticipos
+      const instaladoresConAnticipos: { id: string; nombre: string; obraId: string }[] = [];
+      for (const inst of selectedInstaladores) {
+        const { data: anticiposDisponibles } = await supabase
+          .from('anticipos')
+          .select('id')
+          .eq('instalador_id', inst.instalador_id)
+          .gt('monto_disponible', 0)
+          .limit(1);
+
+        if (anticiposDisponibles && anticiposDisponibles.length > 0) {
+          const nombre = instaladores.find(i => i.id === inst.instalador_id)?.nombre || 'Instalador';
+          instaladoresConAnticipos.push({ id: inst.instalador_id, nombre, obraId: selectedObraId });
+        }
+      }
+
+      if (instaladoresConAnticipos.length > 0) {
+        // Open anticipo modal for first instalador, queue the rest
+        const [first, ...rest] = instaladoresConAnticipos;
+        setCurrentAnticipoInstalador(first);
+        setAnticipoQueue(rest);
+        setIsApplyAnticipoOpen(true);
+        // Don't close the form modal yet - we'll close after anticipos are handled
+        // But do reset form and refresh data
+        resetForm();
+        fetchData();
+      } else {
+        resetForm();
+        setIsModalOpen(false);
+        fetchData();
+      }
     } catch (error) {
       console.error('Error saving avance:', error);
       toast({
@@ -649,6 +683,23 @@ export default function AvancesPage() {
       setSaving(false);
     }
   };
+
+  const handleAnticipoModalClose = useCallback(() => {
+    setIsApplyAnticipoOpen(false);
+    if (anticipoQueue.length > 0) {
+      const [next, ...rest] = anticipoQueue;
+      setCurrentAnticipoInstalador(next);
+      setAnticipoQueue(rest);
+      setIsApplyAnticipoOpen(true);
+    } else {
+      setCurrentAnticipoInstalador(null);
+      setIsModalOpen(false);
+    }
+  }, [anticipoQueue]);
+
+  const handleAnticipoSuccess = useCallback(() => {
+    fetchData();
+  }, []);
 
   const handleDelete = async () => {
     if (!avanceToDelete) return;
@@ -1704,6 +1755,19 @@ export default function AvancesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Apply Anticipo Modal */}
+      {currentAnticipoInstalador && (
+        <ApplyAnticipoModal
+          isOpen={isApplyAnticipoOpen}
+          onClose={handleAnticipoModalClose}
+          instaladorId={currentAnticipoInstalador.id}
+          instaladorNombre={currentAnticipoInstalador.nombre}
+          obraId={currentAnticipoInstalador.obraId}
+          userId={user?.id || ''}
+          onSuccess={handleAnticipoSuccess}
+        />
+      )}
     </div>
   );
 }

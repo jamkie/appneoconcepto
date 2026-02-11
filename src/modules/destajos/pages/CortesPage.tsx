@@ -6,7 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { PageHeader, DataTable, EmptyState, StatusBadge } from '../components';
-import { ApplyAnticipoModal } from '../components/ApplyAnticipoModal';
+
 import { useExportCorteExcel } from '../hooks/useExportCorteExcel';
 import { useGenerateBatchPDF } from '../hooks/useGenerateBatchPDF';
 import { Input } from '@/components/ui/input';
@@ -154,9 +154,7 @@ export default function CortesPage() {
   // Instaladores excluded from corte
   const [excludedInstaladores, setExcludedInstaladores] = useState<Set<string>>(new Set());
   
-  // Apply anticipo modal state
-  const [isApplyAnticipoOpen, setIsApplyAnticipoOpen] = useState(false);
-  const [applyAnticipoInstalador, setApplyAnticipoInstalador] = useState<{ id: string; nombre: string } | null>(null);
+  
 
   useEffect(() => {
     if (!loading && !user) {
@@ -2759,18 +2757,7 @@ export default function CortesPage() {
                           {hasAnticiposDisponibles && (
                             <div className="text-right text-sm">
                               {inst.anticiposDisponibles > 0 ? (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-6 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                  onClick={() => {
-                                    setApplyAnticipoInstalador({ id: inst.id, nombre: inst.nombre });
-                                    setIsApplyAnticipoOpen(true);
-                                  }}
-                                >
-                                  <CreditCard className="w-3 h-3 mr-1" />
-                                  {formatCurrency(inst.anticiposDisponibles)}
-                                </Button>
+                                <span className="text-blue-600">{formatCurrency(inst.anticiposDisponibles)}</span>
                               ) : (
                                 <span className="text-muted-foreground">-</span>
                               )}
@@ -3284,23 +3271,6 @@ export default function CortesPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Apply Anticipo Modal */}
-      {viewingCorte && applyAnticipoInstalador && (
-        <ApplyAnticipoModal
-          isOpen={isApplyAnticipoOpen}
-          onClose={() => {
-            setIsApplyAnticipoOpen(false);
-            setApplyAnticipoInstalador(null);
-          }}
-          instaladorId={applyAnticipoInstalador.id}
-          instaladorNombre={applyAnticipoInstalador.nombre}
-          corteId={viewingCorte.id}
-          corteNombre={viewingCorte.nombre}
-          solicitudIdsEnCorte={new Set(corteSolicitudes.map(s => s.id))}
-          userId={user?.id || ''}
-          onSuccess={() => handleViewCorte(viewingCorte)}
-        />
-      )}
     </div>
   );
 }
