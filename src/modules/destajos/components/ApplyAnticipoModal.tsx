@@ -44,6 +44,8 @@ interface ApplyAnticipoModalProps {
   obraId?: string;
   /** Maximum total that can be applied (e.g. the avance amount) */
   montoMaximo?: number;
+  /** When provided, links the aplicacion_anticipo solicitud to this avance */
+  avanceId?: string;
 }
 
 export function ApplyAnticipoModal({
@@ -58,6 +60,7 @@ export function ApplyAnticipoModal({
   onSuccess,
   obraId,
   montoMaximo,
+  avanceId,
 }: ApplyAnticipoModalProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -203,6 +206,7 @@ export function ApplyAnticipoModal({
             aprobado_por: userId,
             fecha_aprobacion: new Date().toISOString(),
             corte_id: corteId || null,
+            avance_id: avanceId || null,
             observaciones: corteNombre
               ? `Aplicación manual de anticipo (${format(new Date(anticipo.created_at), 'dd/MM/yyyy', { locale: es })}) al corte: ${corteNombre}`
               : `Aplicación manual de anticipo (${format(new Date(anticipo.created_at), 'dd/MM/yyyy', { locale: es })}) al registrar avance`,
