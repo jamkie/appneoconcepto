@@ -1684,33 +1684,34 @@ export default function CortesPage() {
       
       // CRITICAL: Revert saldos_generados from corte_instaladores
       // When a corte is closed, saldo_generado is added to saldos_instaladores
-      // We need to subtract that amount when reopening to restore the previous state
+      // Also, saldo_anterior was subtracted (consumed) in the calculation
+      // We need to reverse both operations: add back saldo_anterior and subtract saldo_generado
       if (ciData && ciData.length > 0) {
         for (const ci of ciData) {
-          if (ci.saldo_generado > 0) {
-            // Get current saldo for this instalador
-            const { data: currentSaldo } = await supabase
-              .from('saldos_instaladores')
-              .select('saldo_acumulado')
-              .eq('instalador_id', ci.instalador_id)
-              .maybeSingle();
-            
-            const currentAmount = Number(currentSaldo?.saldo_acumulado) || 0;
-            const revertedAmount = Math.max(0, currentAmount - ci.saldo_generado);
-            
-            // Update or upsert the saldo
-            const { error: revertError } = await supabase
-              .from('saldos_instaladores')
-              .upsert({
-                instalador_id: ci.instalador_id,
-                saldo_acumulado: revertedAmount,
-                updated_at: new Date().toISOString(),
-              }, {
-                onConflict: 'instalador_id'
-              });
-            
-            if (revertError) throw revertError;
-          }
+          // Get current saldo for this instalador
+          const { data: currentSaldo } = await supabase
+            .from('saldos_instaladores')
+            .select('saldo_acumulado')
+            .eq('instalador_id', ci.instalador_id)
+            .maybeSingle();
+          
+          const currentAmount = Number(currentSaldo?.saldo_acumulado) || 0;
+          // Reverse the formula: nuevoSaldo = saldoActual - saldoAnterior + saldoGenerado
+          // To revert: revertedAmount = currentAmount + saldoAnterior - saldoGenerado
+          const revertedAmount = Math.max(0, currentAmount + Number(ci.saldo_anterior) - Number(ci.saldo_generado));
+          
+          // Update or upsert the saldo
+          const { error: revertError } = await supabase
+            .from('saldos_instaladores')
+            .upsert({
+              instalador_id: ci.instalador_id,
+              saldo_acumulado: revertedAmount,
+              updated_at: new Date().toISOString(),
+            }, {
+              onConflict: 'instalador_id'
+            });
+          
+          if (revertError) throw revertError;
         }
       }
       
