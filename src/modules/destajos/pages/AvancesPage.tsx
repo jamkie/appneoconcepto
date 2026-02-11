@@ -127,8 +127,8 @@ export default function AvancesPage() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   // Anticipo modal queue state
-  const [anticipoQueue, setAnticipoQueue] = useState<{ id: string; nombre: string; obraId: string }[]>([]);
-  const [currentAnticipoInstalador, setCurrentAnticipoInstalador] = useState<{ id: string; nombre: string; obraId: string } | null>(null);
+  const [anticipoQueue, setAnticipoQueue] = useState<{ id: string; nombre: string; obraId: string; montoAvance: number }[]>([]);
+  const [currentAnticipoInstalador, setCurrentAnticipoInstalador] = useState<{ id: string; nombre: string; obraId: string; montoAvance: number } | null>(null);
   const [isApplyAnticipoOpen, setIsApplyAnticipoOpen] = useState(false);
 
   useEffect(() => {
@@ -642,7 +642,7 @@ export default function AvancesPage() {
       }
 
       // Check if any instalador has available anticipos
-      const instaladoresConAnticipos: { id: string; nombre: string; obraId: string }[] = [];
+      const instaladoresConAnticipos: { id: string; nombre: string; obraId: string; montoAvance: number }[] = [];
       for (const inst of selectedInstaladores) {
         const { data: anticiposDisponibles } = await supabase
           .from('anticipos')
@@ -653,7 +653,11 @@ export default function AvancesPage() {
 
         if (anticiposDisponibles && anticiposDisponibles.length > 0) {
           const nombre = instaladores.find(i => i.id === inst.instalador_id)?.nombre || 'Instalador';
-          instaladoresConAnticipos.push({ id: inst.instalador_id, nombre, obraId: selectedObraId });
+          const porcentajeFactor = inst.porcentaje / 100;
+          const subtotalInst = subtotalPiezas * porcentajeFactor;
+          const montoDescuento = subtotalInst * (descuento / 100);
+          const totalConDescuento = subtotalInst - montoDescuento;
+          instaladoresConAnticipos.push({ id: inst.instalador_id, nombre, obraId: selectedObraId, montoAvance: totalConDescuento });
         }
       }
 
@@ -1766,6 +1770,7 @@ export default function AvancesPage() {
           obraId={currentAnticipoInstalador.obraId}
           userId={user?.id || ''}
           onSuccess={handleAnticipoSuccess}
+          montoMaximo={currentAnticipoInstalador.montoAvance}
         />
       )}
     </div>

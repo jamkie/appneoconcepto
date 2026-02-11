@@ -42,6 +42,8 @@ interface ApplyAnticipoModalProps {
   onSuccess: () => void;
   /** When provided, only show anticipos for this obra */
   obraId?: string;
+  /** Maximum total that can be applied (e.g. the avance amount) */
+  montoMaximo?: number;
 }
 
 export function ApplyAnticipoModal({
@@ -55,6 +57,7 @@ export function ApplyAnticipoModal({
   userId,
   onSuccess,
   obraId,
+  montoMaximo,
 }: ApplyAnticipoModalProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -124,29 +127,41 @@ export function ApplyAnticipoModal({
   };
 
   const handleToggleAnticipo = (id: string, checked: boolean) => {
-    setAnticipos(prev => prev.map(a => {
-      if (a.id === id) {
-        const newMontoAplicar = checked ? a.monto_disponible : 0;
-        return { ...a, selected: checked, montoAplicar: newMontoAplicar };
-      }
-      return a;
-    }));
-
-    // Recalculate total
-    setTimeout(() => {
-      setAnticipos(prev => {
-        const total = prev.reduce((sum, a) => sum + (a.montoAplicar || 0), 0);
-        setMontoTotal(total);
-        return prev;
+    setAnticipos(prev => {
+      const updated = prev.map(a => {
+        if (a.id === id) {
+          if (!checked) {
+            return { ...a, selected: false, montoAplicar: 0 };
+          }
+          // Calculate available space considering montoMaximo
+          const otrosSeleccionados = prev
+            .filter(x => x.id !== id)
+            .reduce((sum, x) => sum + (x.montoAplicar || 0), 0);
+          const espacioDisponible = montoMaximo != null
+            ? Math.max(0, montoMaximo - otrosSeleccionados)
+            : Infinity;
+          const newMontoAplicar = Math.min(a.monto_disponible, espacioDisponible);
+          return { ...a, selected: newMontoAplicar > 0, montoAplicar: newMontoAplicar };
+        }
+        return a;
       });
-    }, 0);
+      const total = updated.reduce((sum, a) => sum + (a.montoAplicar || 0), 0);
+      setMontoTotal(total);
+      return updated;
+    });
   };
 
   const handleMontoChange = (id: string, value: number) => {
     setAnticipos(prev => {
       const updated = prev.map(a => {
         if (a.id === id) {
-          const clampedValue = Math.min(Math.max(0, value), a.monto_disponible);
+          const otrosSeleccionados = prev
+            .filter(x => x.id !== id)
+            .reduce((sum, x) => sum + (x.montoAplicar || 0), 0);
+          const espacioDisponible = montoMaximo != null
+            ? Math.max(0, montoMaximo - otrosSeleccionados)
+            : Infinity;
+          const clampedValue = Math.min(Math.max(0, value), a.monto_disponible, espacioDisponible);
           return { ...a, montoAplicar: clampedValue, selected: clampedValue > 0 };
         }
         return a;
@@ -308,11 +323,22 @@ export function ApplyAnticipoModal({
             <p className="text-sm text-muted-foreground">Total disponible</p>
             <p className="font-semibold">{formatCurrency(totalDisponible)}</p>
           </div>
+          {montoMaximo != null && (
+            <div className="text-center">
+              <p className="text-sm text-muted-foreground">Monto del avance</p>
+              <p className="font-semibold">{formatCurrency(montoMaximo)}</p>
+            </div>
+          )}
           <div className="text-right">
             <p className="text-sm text-muted-foreground">A aplicar</p>
-            <p className="font-bold text-primary text-lg">{formatCurrency(montoTotal)}</p>
+            <p className={`font-bold text-lg ${montoMaximo != null && montoTotal >= montoMaximo ? 'text-orange-600' : 'text-primary'}`}>
+              {formatCurrency(montoTotal)}
+            </p>
           </div>
         </div>
+        {montoMaximo != null && montoTotal >= montoMaximo && (
+          <p className="text-xs text-orange-600 text-center">Se alcanzó el tope máximo del avance</p>
+        )}
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={applying}>
