@@ -265,11 +265,11 @@ export default function CortesPage() {
             .select('total_solicitado, tipo', { count: 'exact' })
             .eq('corte_id', corte.id);
           
-          // Calculate total: 'saldo' type requests are DEDUCTIONS (credit in favor of company)
+          // Calculate total: 'saldo' and 'aplicacion_anticipo' type requests are DEDUCTIONS
           const total = (solicitudesData || []).reduce((sum, s) => {
             const monto = Number(s.total_solicitado);
-            // Saldo requests subtract from total (they are deductions)
-            return s.tipo === 'saldo' ? sum - monto : sum + monto;
+            // Saldo and aplicacion_anticipo requests subtract from total (they are deductions)
+            return (s.tipo === 'saldo' || s.tipo === 'aplicacion_anticipo') ? sum - monto : sum + monto;
           }, 0);
           
           return {
