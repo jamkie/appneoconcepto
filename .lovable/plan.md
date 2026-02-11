@@ -1,171 +1,50 @@
 
-# Plan: Agregar Ordenamiento por Columnas en Tablas del Módulo Destajos
+# Plan: Incluir Instaladores Sin Trabajo en el Cierre de Corte
 
-## Resumen
+## Problema
 
-Implementar funcionalidad de ordenamiento (ascendente/descendente) al hacer clic en los encabezados de las columnas en las siguientes páginas:
-- **Obras** 
-- **Instaladores**
-- **Avances**
-- **Extras**
-- **Solicitudes**
-- **Pagos**
+Jose Luis Santes fue excluido del corte Semana 7 porque no tenía solicitudes, destajo, anticipos ni saldo anterior. Sin embargo, se le pagó nómina ($4,631.08), lo que debería haber generado un **saldo a favor de la empresa** por ese mismo monto.
 
-## Comportamiento Esperado
-
-- Al hacer clic en el encabezado de una columna, los datos se ordenan de forma **ascendente**
-- Al hacer clic nuevamente, cambia a orden **descendente**
-- Un tercer clic vuelve a ascendente
-- Se muestra un indicador visual (flecha ↑ o ↓) en la columna actualmente ordenada
-
-## Enfoque de Implementación
-
-### 1. Mejorar el Componente `DataTable`
-
-Actualizar el componente compartido para soportar ordenamiento:
-
-- Agregar prop `sortKey` opcional a cada columna para indicar la clave de ordenamiento
-- Agregar estado interno para `sortColumn` y `sortDirection`
-- Agregar función `getValue` opcional para extraer el valor comparable
-- Mostrar iconos de ordenamiento en los encabezados clicables
-
-### 2. Actualizar Cada Página
-
-Agregar las claves de ordenamiento y funciones de extracción de valores a las definiciones de columnas.
-
-## Archivos a Modificar
-
-| Archivo | Cambios |
-|---------|---------|
-| `src/modules/destajos/components/DataTable.tsx` | Agregar lógica de ordenamiento y UI de indicadores |
-| `src/modules/destajos/pages/PagosPage.tsx` | Agregar `sortKey` y `getValue` a columnas |
-| `src/modules/destajos/pages/InstaladoresPage.tsx` | Agregar `sortKey` y `getValue` a columnas |
-| `src/modules/destajos/pages/ObrasPage.tsx` | Agregar `sortKey` y `getValue` a columnas |
-| `src/modules/destajos/pages/SolicitudesPage.tsx` | Agregar `sortKey` y `getValue` a columnas |
-| `src/modules/destajos/pages/AvancesPage.tsx` | Migrar a DataTable con ordenamiento |
-| `src/modules/destajos/pages/ExtrasPage.tsx` | Migrar a DataTable con ordenamiento |
-
----
-
-## Detalles Técnicos
-
-### Cambios en `DataTable.tsx`
+El filtro en la línea 1187-1191 de `CortesPage.tsx` excluye a cualquier instalador que no tenga actividad:
 
 ```typescript
-interface Column<T> {
-  key: string;
-  header: string | (() => React.ReactNode);
-  cell: (item: T) => React.ReactNode;
-  className?: string;
-  hideOnMobile?: boolean;
-  // Nuevas propiedades para ordenamiento
-  sortKey?: string;
-  getValue?: (item: T) => string | number | Date | null;
-}
-
-interface DataTableProps<T> {
-  columns: Column<T>[];
-  data: T[];
-  keyExtractor: (item: T) => string;
-  onRowClick?: (item: T) => void;
-  className?: string;
-  emptyState?: React.ReactNode;
-  // Nuevas props opcionales
-  defaultSortKey?: string;
-  defaultSortDirection?: 'asc' | 'desc';
-}
+// FILTRO PROBLEMÁTICO (línea 1189-1191):
+const instaladoresConSolicitudes = instaladoresIncluidos.filter(inst => 
+  inst.solicitudes.length > 0 || inst.destajoAcumulado > 0 || inst.anticiposEnCorte > 0 || inst.saldoAnterior > 0 || inst.anticiposAplicadosManualmente > 0
+);
 ```
 
-**Lógica de ordenamiento:**
-- Estado: `sortColumn` (string | null), `sortDirection` ('asc' | 'desc')
-- Función `handleSort(columnKey)` que alterna la dirección
-- Ordenar `data` antes de renderizar usando `getValue` o acceso directo por key
-- Iconos: `ArrowUp`, `ArrowDown`, `ArrowUpDown` (sin ordenar)
+Esto impide que un instalador que solo recibe salario (sin trabajo registrado) genere la deuda correspondiente al cerrar el corte.
 
-### Ejemplo de Columna con Ordenamiento
+## Solución
 
-**PagosPage.tsx:**
+Eliminar ese filtro restrictivo. Si un instalador fue **marcado manualmente** (no está en `excludedInstaladores`), debe ser incluido en el cierre del corte. El cálculo de basePago ya maneja correctamente el caso:
+
+- Destajo: $0 + Anticipos: $0 - Salario: $4,631.08 = **-$4,631.08**
+- basePago < 0 => Saldo generado: **$4,631.08**
+
+## Cambios a Realizar
+
+### Archivo: `src/modules/destajos/pages/CortesPage.tsx`
+
+**Líneas 1187-1191** - Eliminar el filtro restrictivo y usar directamente `instaladoresIncluidos`:
+
 ```typescript
-{
-  key: 'fecha',
-  header: 'Fecha',
-  sortKey: 'fecha',
-  getValue: (item) => new Date(item.fecha).getTime(),
-  cell: (item) => format(new Date(item.fecha), 'dd/MM/yyyy', { locale: es }),
-},
-{
-  key: 'monto',
-  header: 'Monto',
-  sortKey: 'monto',
-  getValue: (item) => Number(item.monto),
-  cell: (item) => formatCurrency(Number(item.monto)),
-},
+// ANTES:
+const instaladoresConSolicitudes = instaladoresIncluidos.filter(inst => 
+  inst.solicitudes.length > 0 || inst.destajoAcumulado > 0 || ...
+);
+const instaladoresCalculados = instaladoresConSolicitudes.map(inst => { ... });
+
+// DESPUÉS:
+const instaladoresCalculados = instaladoresIncluidos.map(inst => { ... });
 ```
 
-### Columnas Ordenables por Página
-
-**Pagos:**
-- Fecha (date)
-- Obra (string)
-- Instalador (string)
-- Monto (number)
-- Método (string)
-
-**Instaladores:**
-- Nombre (string)
-- Banco (string)
-- Salario Semanal (number)
-- Estado (boolean)
-
-**Obras:**
-- Nombre (string)
-- Responsable (string)
-- Monto Total (number calculado)
-- Total Pagado (number)
-
-**Avances:**
-- Fecha (date)
-- Obra (string)
-- Instalador (string)
-- Total (number)
-- Estado (string)
-
-**Extras:**
-- Descripción (string)
-- Obra (string)
-- Instalador (string)
-- Monto (number)
-- Estado (string)
-
-**Solicitudes:**
-- Fecha (date)
-- Obra (string)
-- Instalador (string)
-- Tipo (string)
-- Total (number)
-- Estado (string)
-
----
-
-## Diseño Visual del Encabezado Ordenable
-
-```
-┌─────────────────┬─────────────────┬─────────────────┐
-│ Fecha ↓         │ Obra ↕          │ Monto ↕         │
-├─────────────────┼─────────────────┼─────────────────┤
-│ 01/01/2025      │ Casa Rosa       │ $5,000.00       │
-│ 31/12/2024      │ Edificio Norte  │ $3,500.00       │
-└─────────────────┴─────────────────┴─────────────────┘
-
-Leyenda:
-↓ = Ordenado descendente (activo)
-↑ = Ordenado ascendente (activo)
-↕ = Sin ordenar (clic para ordenar)
-```
+Tambien actualizar la validación de corte vacío (línea 1221) para verificar contra `instaladoresCalculados` en lugar de `instaladoresConSolicitudes`.
 
 ## Resultado Esperado
 
-- Todas las tablas del módulo destajos tendrán la capacidad de ordenarse
-- El usuario podrá hacer clic en cualquier encabezado para cambiar el orden
-- Experiencia consistente en todas las páginas
-- Indicadores visuales claros del estado de ordenamiento
+- Los instaladores marcados (no excluidos) que solo reciben salario sin trabajo generarán un **saldo a favor** al cerrar el corte
+- Jose Luis Santes con salario $4,631.08 y $0 de destajo generará un saldo a favor de $4,631.08
+- Los instaladores que el usuario **desmarcó** (excluyó manualmente) seguirán sin ser procesados
+- No afecta el comportamiento de instaladores con trabajo registrado
