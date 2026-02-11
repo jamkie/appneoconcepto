@@ -280,20 +280,33 @@ export default function SolicitudesPage() {
     const montoSolicitud = Number(solicitud.total_solicitado);
     
     // For non-anticipo, check if there are available anticipos for this obra/instalador
+    // BUT skip if anticipos were already applied during avance registration
     if (!isAnticipo) {
-      const anticiposParaAplicar = anticipos.filter(
-        a => a.obra_id === solicitud.obra_id && 
-             a.instalador_id === solicitud.instalador_id && 
-             a.monto_disponible > 0
-      );
-      
-      if (anticiposParaAplicar.length > 0) {
-        // Show dialog to apply anticipos
-        setSolicitudParaAprobar(solicitud);
-        setAnticiposDisponibles(anticiposParaAplicar);
-        setAnticiposSeleccionados({});
-        setShowAplicarAnticipoDialog(true);
-        return;
+      let yaAplicados = false;
+      if (solicitud.avance_id) {
+        const { data: aplicaciones } = await supabase
+          .from('solicitudes_pago')
+          .select('id')
+          .eq('avance_id', solicitud.avance_id)
+          .eq('tipo', 'aplicacion_anticipo')
+          .limit(1);
+        yaAplicados = (aplicaciones && aplicaciones.length > 0) || false;
+      }
+
+      if (!yaAplicados) {
+        const anticiposParaAplicar = anticipos.filter(
+          a => a.obra_id === solicitud.obra_id && 
+               a.instalador_id === solicitud.instalador_id && 
+               a.monto_disponible > 0
+        );
+        
+        if (anticiposParaAplicar.length > 0) {
+          setSolicitudParaAprobar(solicitud);
+          setAnticiposDisponibles(anticiposParaAplicar);
+          setAnticiposSeleccionados({});
+          setShowAplicarAnticipoDialog(true);
+          return;
+        }
       }
     }
     
