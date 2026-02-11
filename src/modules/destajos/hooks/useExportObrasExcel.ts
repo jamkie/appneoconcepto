@@ -55,10 +55,15 @@ export const useExportObrasExcel = () => {
         .from('avance_items')
         .select('obra_item_id, cantidad_completada');
 
-      // Fetch all pagos_destajos
+      // Fetch all pagos_destajos (with corte_id to filter)
       const { data: pagosData } = await supabase
         .from('pagos_destajos')
-        .select('obra_id, monto');
+        .select('obra_id, monto, corte_id');
+
+      // Fetch all anticipos
+      const { data: anticiposData } = await supabase
+        .from('anticipos')
+        .select('obra_id, monto_original');
 
       // Fetch all extras
       const { data: extrasData } = await supabase
@@ -129,10 +134,17 @@ export const useExportObrasExcel = () => {
         });
         const porcentajeAvance = totalPiezas > 0 ? (totalInstaladas / totalPiezas) * 100 : 0;
 
-        // Calculate total pagado
-        const totalPagado = (pagosData || [])
-          .filter((p) => p.obra_id === obra.id)
+        // Calculate total pagado (direct payments only, no corte-based)
+        const pagosDirectos = (pagosData || [])
+          .filter((p) => p.obra_id === obra.id && !p.corte_id)
           .reduce((sum, p) => sum + Number(p.monto), 0);
+
+        // Add anticipos
+        const totalAnticipos = (anticiposData || [])
+          .filter((a) => a.obra_id === obra.id)
+          .reduce((sum, a) => sum + Number(a.monto_original), 0);
+
+        const totalPagado = pagosDirectos + totalAnticipos;
 
         // Calculate total extras (only aprobados)
         const obraExtras = (extrasData || []).filter((e) => e.obra_id === obra.id && e.estado === 'aprobado');

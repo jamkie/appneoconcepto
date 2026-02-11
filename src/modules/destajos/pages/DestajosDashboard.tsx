@@ -75,15 +75,22 @@ export default function DestajosDashboard() {
         .select('*', { count: 'exact', head: true })
         .eq('activo', true);
 
-      // Fetch total pagado (all payments)
+      // Fetch total pagado (only direct payments, excluding corte-based)
       const { data: pagosData } = await supabase
         .from('pagos_destajos')
-        .select('monto');
+        .select('monto, corte_id, obra_id');
 
-      const totalPagado = pagosData?.reduce((sum, p) => sum + Number(p.monto), 0) || 0;
+      // Fetch anticipos for accurate totals
+      const { data: anticiposData } = await supabase
+        .from('anticipos')
+        .select('obra_id, monto_original');
+
+      const totalPagado = (pagosData || [])
+        .filter((p) => !p.corte_id)
+        .reduce((sum, p) => sum + Number(p.monto), 0)
+        + (anticiposData || []).reduce((sum, a) => sum + Number(a.monto_original), 0);
 
       // Calculate total por pagar from active obras
-      // Get all active obras
       const { data: obrasActivas } = await supabase
         .from('obras')
         .select('id, descuento')
@@ -100,34 +107,30 @@ export default function DestajosDashboard() {
         .select('obra_id, monto, descuento')
         .eq('estado', 'aprobado');
 
-      // Get all payments per obra
-      const { data: pagosPorObra } = await supabase
-        .from('pagos_destajos')
-        .select('obra_id, monto');
-
       // Calculate pending balance for each active obra
       let totalPorPagar = 0;
       (obrasActivas || []).forEach((obra) => {
-        // Subtotal items
         const subtotalItems = (obraItems || [])
           .filter((item) => item.obra_id === obra.id)
           .reduce((sum, item) => sum + (item.cantidad * Number(item.precio_unitario)), 0);
 
-        // Subtotal extras (with individual discount)
         const subtotalExtras = (extras || [])
           .filter((e) => e.obra_id === obra.id)
           .reduce((sum, e) => sum + (Number(e.monto) * (1 - (e.descuento || 0) / 100)), 0);
 
-        // Total with obra discount
         const subtotal = subtotalItems + subtotalExtras;
         const montoTotal = subtotal * (1 - (obra.descuento || 0) / 100);
 
-        // Total paid for this obra
-        const pagadoObra = (pagosPorObra || [])
-          .filter((p) => p.obra_id === obra.id)
+        // Pagos directos (sin corte_id) + anticipos
+        const pagosDirectos = (pagosData || [])
+          .filter((p) => p.obra_id === obra.id && !p.corte_id)
           .reduce((sum, p) => sum + Number(p.monto), 0);
 
-        // Add pending balance
+        const anticiposObra = (anticiposData || [])
+          .filter((a) => a.obra_id === obra.id)
+          .reduce((sum, a) => sum + Number(a.monto_original), 0);
+
+        const pagadoObra = pagosDirectos + anticiposObra;
         totalPorPagar += Math.max(0, montoTotal - pagadoObra);
       });
 
