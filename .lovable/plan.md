@@ -1,95 +1,74 @@
 
 
-# Plan: Mover Aplicacion de Anticipos al Registro de Avance
+# Plan: Limitar Anticipo al Monto del Avance
 
-## Resumen
+## Problema
 
-Despues de guardar un avance (nuevo o editado), el sistema verificara si el instalador tiene anticipos disponibles. Si los tiene, se abrira el modal de seleccion de anticipos para que el usuario decida cuanto descontar. El boton de anticipos en el detalle del corte sera eliminado.
+Al aplicar un anticipo despues de registrar un avance, el sistema permite aplicar mas anticipo que el valor del avance mismo. Ejemplo: avance de $6,975 pero se pudo aplicar anticipo de $15,000.
 
-## Cambios a Realizar
+## Solucion
 
-### 1. Archivo: `src/modules/destajos/pages/AvancesPage.tsx`
+Agregar un prop `montoMaximo` al modal de anticipos que limite el total aplicable al monto del avance del instalador.
 
-**Agregar estado y logica para el modal de anticipos:**
+## Cambios
 
-- Importar `ApplyAnticipoModal` desde `../components/ApplyAnticipoModal`
-- Agregar estados nuevos:
-  - `isApplyAnticipoOpen` (boolean)
-  - `applyAnticipoData` (objeto con instalador info, obra_id, etc.)
-- Modificar `handleSave`: despues de guardar exitosamente el avance (tanto nuevo como editado), verificar si alguno de los instaladores del avance tiene anticipos disponibles (`monto_disponible > 0`). Si los tiene, abrir el modal de anticipos en lugar de cerrar el formulario inmediatamente.
-- Si hay multiples instaladores en el avance, se abriran secuencialmente (uno por uno).
-- Al cerrar el modal (o si no hay anticipos), continuar con el flujo normal (resetForm, cerrar modal, refrescar datos).
+### 1. `src/modules/destajos/pages/AvancesPage.tsx`
 
-**Adaptar el modal:**
+- Agregar `montoAvance` al tipo de la cola de anticipos: `{ id: string; nombre: string; obraId: string; montoAvance: number }`
+- Calcular `totalConDescuento` por instalador y pasarlo al queue al detectar anticipos disponibles (linea 656)
+- Pasar `montoMaximo={currentAnticipoInstalador.montoAvance}` al componente `ApplyAnticipoModal` (linea 1761)
 
-El `ApplyAnticipoModal` actual requiere `corteId` y `corteNombre`. Como ahora se usara desde avances (sin corte), se necesita:
-- Crear la solicitud de tipo `aplicacion_anticipo` **sin** `corte_id` (sera null, indicando que fue aplicado manualmente desde avance)
-- O bien, hacer que `corteId` y `corteNombre` sean opcionales en el modal
+### 2. `src/modules/destajos/components/ApplyAnticipoModal.tsx`
 
-### 2. Archivo: `src/modules/destajos/components/ApplyAnticipoModal.tsx`
-
-**Hacer corteId y corteNombre opcionales:**
-
-- Cambiar la interfaz para que `corteId` y `corteNombre` sean opcionales (`corteId?: string`)
-- Ajustar la insercion de `solicitudes_pago` para que `corte_id` sea `corteId || null`
-- Ajustar el texto de `observaciones` para indicar si fue aplicado desde avance o desde corte
-- Agregar un prop opcional `obraId` para filtrar anticipos solo de la obra del avance (mas relevante contextualmente)
-
-### 3. Archivo: `src/modules/destajos/pages/CortesPage.tsx`
-
-**Eliminar la funcionalidad de anticipos del corte:**
-
-- Remover el import de `ApplyAnticipoModal`
-- Remover los estados `isApplyAnticipoOpen` y `applyAnticipoInstalador`
-- Remover el boton "Aplicar Anticipo" del detalle del instalador en el corte
-- Remover el componente `ApplyAnticipoModal` del JSX
-
-## Flujo Resultante
-
-```text
-1. Usuario registra avance en obra
-2. Se guardan avance_items + solicitudes_pago
-3. Sistema consulta: tiene anticipos disponibles este instalador?
-   - SI: Abre modal de anticipos para seleccionar montos
-   - NO: Cierra formulario normalmente
-4. Usuario selecciona anticipos y montos a aplicar
-5. Se descuenta monto_disponible de cada anticipo seleccionado
-6. Se cierra modal y refresca datos
-```
+- Agregar prop opcional `montoMaximo?: number` a la interfaz
+- En `handleToggleAnticipo`: al seleccionar un anticipo, limitar el monto pre-llenado al espacio disponible considerando lo ya seleccionado y el tope maximo
+- En `handleMontoChange`: ademas del clamp por `monto_disponible`, validar que la suma total no exceda `montoMaximo`
+- En el boton "Aplicar": deshabilitar si `montoTotal > montoMaximo`
+- Mostrar el monto del avance en el resumen inferior junto a "Total disponible" y "A aplicar" para que el usuario vea el limite
+- Mostrar advertencia visual si el total a aplicar alcanza el tope
 
 ## Seccion Tecnica
 
-### Verificacion de anticipos despues de guardar
+### Calculo del montoAvance por instalador
 
-Despues de guardar exitosamente, para cada instalador del avance:
+En `AvancesPage.tsx`, al construir la cola de anticipos (~linea 646):
 
 ```typescript
-const { data: anticiposDisponibles } = await supabase
-  .from('anticipos')
-  .select('id')
-  .eq('instalador_id', instaladorId)
-  .gt('monto_disponible', 0)
-  .limit(1);
-
-if (anticiposDisponibles && anticiposDisponibles.length > 0) {
-  // Abrir modal de anticipos para este instalador
+for (const inst of selectedInstaladores) {
+  // ... check anticipos disponibles ...
+  if (anticiposDisponibles && anticiposDisponibles.length > 0) {
+    const porcentajeFactor = inst.porcentaje / 100;
+    const subtotalInst = subtotalPiezas * porcentajeFactor;
+    const montoDescuento = subtotalInst * (descuento / 100);
+    const totalConDescuento = subtotalInst - montoDescuento;
+    
+    instaladoresConAnticipos.push({
+      id: inst.instalador_id,
+      nombre,
+      obraId: selectedObraId,
+      montoAvance: totalConDescuento,
+    });
+  }
 }
 ```
 
-### Manejo de multiples instaladores
-
-Si el avance tiene 2+ instaladores con anticipos disponibles, se procesaran en secuencia usando una cola:
+### Logica de clamp en el modal
 
 ```typescript
-const [anticipoQueue, setAnticipoQueue] = useState<{id: string, nombre: string}[]>([]);
+// En handleMontoChange:
+const otrosSeleccionados = updated
+  .filter(a => a.id !== id)
+  .reduce((sum, a) => sum + (a.montoAplicar || 0), 0);
+const espacioDisponible = montoMaximo
+  ? montoMaximo - otrosSeleccionados
+  : Infinity;
+const clampedValue = Math.min(
+  Math.max(0, value),
+  a.monto_disponible,
+  espacioDisponible
+);
 ```
 
-Cuando se cierra el modal del primer instalador, se abre el del siguiente hasta vaciar la cola.
+### UI del resumen
 
-### Cambios en ApplyAnticipoModal
-
-- `corteId?: string` - Opcional, sera null cuando se aplique desde avance
-- `corteNombre?: string` - Opcional
-- La solicitud generada usara `corte_id: corteId || null`
-- Observaciones indicaran: "Aplicacion manual de anticipo al avance" en lugar de "al corte: X"
-
+Se agrega una tercera columna "Monto del avance" mostrando `montoMaximo` cuando esta presente, para que el usuario tenga visibilidad del tope.
