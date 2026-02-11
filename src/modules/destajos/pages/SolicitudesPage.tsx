@@ -86,6 +86,9 @@ export default function SolicitudesPage() {
   const [viewingSolicitud, setViewingSolicitud] = useState<SolicitudWithDetails | null>(null);
   const [avanceItems, setAvanceItems] = useState<{ descripcion: string; cantidad: number; precio: number }[]>([]);
   const [extrasInfo, setExtrasInfo] = useState<{ descripcion: string; monto: number }[]>([]);
+  const [anticiposAplicadosDetail, setAnticiposAplicadosDetail] = useState<
+    { id: string; total_solicitado: number; observaciones: string | null; obras: { nombre: string } | null }[]
+  >([]);
   
   // Delete from detail dialog states
   const [confirmDeleteType, setConfirmDeleteType] = useState<'avance' | 'extra' | null>(null);
@@ -185,6 +188,7 @@ export default function SolicitudesPage() {
     setViewingSolicitud(solicitud);
     setAvanceItems([]);
     setExtrasInfo([]);
+    setAnticiposAplicadosDetail([]);
     
     // If it has an avance_id, fetch the avance items
     if (solicitud.avance_id) {
@@ -247,6 +251,23 @@ export default function SolicitudesPage() {
         }
       } catch (error) {
         console.error('Error fetching extra by match:', error);
+      }
+    }
+
+    // Fetch anticipos aplicados linked to the same avance
+    if (solicitud.avance_id && solicitud.tipo === 'avance') {
+      try {
+        const { data: aplicaciones } = await supabase
+          .from('solicitudes_pago')
+          .select('id, total_solicitado, observaciones, obras(nombre)')
+          .eq('avance_id', solicitud.avance_id)
+          .eq('tipo', 'aplicacion_anticipo');
+        
+        if (aplicaciones && aplicaciones.length > 0) {
+          setAnticiposAplicadosDetail(aplicaciones as any);
+        }
+      } catch (error) {
+        console.error('Error fetching anticipos aplicados:', error);
       }
     }
   };
@@ -1272,6 +1293,39 @@ export default function SolicitudesPage() {
                   <span className="text-emerald-600">{formatCurrency(Number(viewingSolicitud.total_solicitado))}</span>
                 </div>
               </div>
+
+              {/* Anticipos aplicados */}
+              {anticiposAplicadosDetail.length > 0 && (
+                <div className="border rounded-lg p-3 space-y-2 bg-blue-50 border-blue-200">
+                  <h4 className="font-semibold text-sm text-blue-800 flex items-center gap-1.5">
+                    <ArrowDownCircle className="w-4 h-4" />
+                    Anticipos Aplicados
+                  </h4>
+                  <div className="space-y-1">
+                    {anticiposAplicadosDetail.map((app) => (
+                      <div key={app.id} className="flex justify-between text-sm">
+                        <span className="text-blue-900">{app.obras?.nombre || 'N/A'}</span>
+                        <span className="font-medium text-blue-700">-{formatCurrency(Number(app.total_solicitado))}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-between text-sm font-semibold border-t border-blue-200 pt-2">
+                    <span className="text-blue-800">Total Anticipos:</span>
+                    <span className="text-blue-700">
+                      -{formatCurrency(anticiposAplicadosDetail.reduce((sum, a) => sum + Number(a.total_solicitado), 0))}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm font-semibold border-t border-blue-200 pt-2">
+                    <span className="text-blue-800">Monto Neto:</span>
+                    <span className="text-emerald-600">
+                      {formatCurrency(
+                        Number(viewingSolicitud.total_solicitado) - 
+                        anticiposAplicadosDetail.reduce((sum, a) => sum + Number(a.total_solicitado), 0)
+                      )}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Observations */}
               {viewingSolicitud.observaciones && (
