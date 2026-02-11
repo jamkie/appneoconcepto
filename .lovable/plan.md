@@ -1,50 +1,64 @@
 
 
-# Plan: Mostrar Anticipos Aplicados en el Detalle de la Solicitud
+# Plan: Corregir calculo de "Total Pagado" en Obras
 
 ## Problema
 
-Cuando se aplican anticipos al registrar un avance, se crean solicitudes tipo `aplicacion_anticipo` vinculadas al mismo `avance_id`. Sin embargo, al ver el detalle de la solicitud de avance en la pagina de Solicitudes, no se muestran esos anticipos aplicados.
+El calculo actual de "Total Pagado" en las obras suma los pagos de corte (pagos_destajos con `corte_id`) MAS los anticipos. Esto produce un conteo doble porque los pagos de corte son depositos salariales que ya estan representados en el sistema de anticipos.
+
+**Ejemplo con TRU HOTEL:**
+- Monto Total: $175,005
+- Anticipos (monto_original): $102,500
+- Pago de corte: $41,850
+- Calculo actual: $102,500 + $41,850 = $144,350 (incorrecto)
+- Calculo correcto: $102,500 + $0 (pagos directos) = $102,500
+- Saldo correcto: $175,005 - $102,500 = **$72,505**
 
 ## Solucion
 
-Agregar una seccion en el detalle de la solicitud que muestre los anticipos aplicados al mismo avance.
+Excluir los pagos que tienen `corte_id` del calculo de "Total Pagado", ya que esos depositos ya estan representados por los anticipos del sistema de cortes. Solo se contaran pagos directos (sin `corte_id`) mas los anticipos.
 
-## Cambios
+## Archivos a modificar
 
-### `src/modules/destajos/pages/SolicitudesPage.tsx`
+### 1. `src/modules/destajos/pages/ObrasPage.tsx`
 
-**En `handleViewSolicitud`:**
-- Despues de cargar los avance items, buscar solicitudes tipo `aplicacion_anticipo` que compartan el mismo `avance_id`
-- Guardar esos datos en un nuevo estado `anticiposAplicados`
+**Query de pagos (linea ~177-179):** Agregar `corte_id` al select para poder filtrar.
 
-**En el dialog de detalle (lineas ~1182-1346):**
-- Agregar una nueva seccion visual (similar al desglose de extras) que muestre los anticipos aplicados:
-  - Obra de origen del anticipo
-  - Monto aplicado
-  - Total de descuentos por anticipos
-- Mostrar el monto neto (total solicitado - anticipos aplicados) como referencia
-
-### Nuevo estado
+**Calculo de totalPagosSinAnticipos (lineas ~256-266):** Agregar condicion para excluir pagos con `corte_id`:
 
 ```typescript
-const [anticiposAplicadosDetail, setAnticiposAplicadosDetail] = useState<
-  { id: string; total_solicitado: number; observaciones: string | null; obras: { nombre: string } | null }[]
->([]);
+const totalPagosSinAnticipos = (pagosData || [])
+  .filter((p) => p.obra_id === obra.id)
+  .filter((p) => !p.corte_id) // Excluir pagos de corte
+  .filter((p) => {
+    // ...filtro existente de matching anticipos...
+  })
+  .reduce((sum, p) => sum + Number(p.monto), 0);
 ```
 
-### Consulta adicional en `handleViewSolicitud`
+**Lista de pagos mostrados (lineas ~226-248):** Tambien excluir pagos con `corte_id` del listado visual para no confundir al usuario.
 
-Cuando la solicitud tenga `avance_id` y sea tipo `avance`:
+### 2. `src/modules/destajos/pages/DestajosDashboard.tsx`
+
+**Calculo de "Por Pagar" (lineas ~104-131):** Aplicar la misma logica - excluir pagos con `corte_id` y sumar anticipos en su lugar:
 
 ```typescript
-const { data: aplicaciones } = await supabase
-  .from('solicitudes_pago')
-  .select('id, total_solicitado, observaciones, obras(nombre)')
-  .eq('avance_id', solicitud.avance_id)
-  .eq('tipo', 'aplicacion_anticipo');
+// Agregar fetch de anticipos
+const { data: anticiposData } = await supabase
+  .from('anticipos')
+  .select('obra_id, monto_original');
+
+// En el calculo por obra:
+const pagadoObra = pagosDirectos + anticiposObra;
 ```
 
-### Seccion visual en el detalle
+### 3. `src/modules/destajos/hooks/useExportObrasExcel.ts`
 
-Despues del desglose de montos, mostrar una seccion con icono y fondo azul/indigo que liste cada anticipo aplicado con su monto, y un total de descuentos. Esto dara visibilidad inmediata de que el avance ya tiene anticipos descontados.
+**Calculo del Excel (lineas ~55-60):** Agregar `corte_id` al fetch de pagos y excluirlos del calculo, sumando anticipos en su lugar para mantener coherencia con la interfaz.
+
+## Resultado esperado
+
+- TRU HOTEL mostrara Total Pagado = $102,500 y Saldo = $72,505
+- El Dashboard reflejara los mismos numeros coherentes
+- El Excel exportado mantendra la misma logica de calculo
+
