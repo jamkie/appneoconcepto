@@ -176,7 +176,7 @@ export default function ObrasPage() {
       // Fetch all pagos_destajos with instalador info
       const { data: pagosData } = await supabase
         .from('pagos_destajos')
-        .select('id, obra_id, monto, fecha, metodo_pago, instalador_id, created_at');
+        .select('id, obra_id, monto, fecha, metodo_pago, instalador_id, created_at, corte_id');
 
       // Fetch instaladores for pagos
       const { data: instaladoresData } = await supabase
@@ -225,9 +225,9 @@ export default function ObrasPage() {
         // Filter out payments that correspond to anticipos that haven't been applied yet
         const obraPagos = (pagosData || [])
           .filter((p) => p.obra_id === obra.id)
+          .filter((p) => !p.corte_id) // Excluir pagos de corte (ya representados por anticipos)
           .map((p) => {
             const instalador = (instaladoresData || []).find((i) => i.id === p.instalador_id);
-            // Check if this pago corresponds to an anticipo (same instalador, monto, and same date)
             const matchingAnticipo = obraAnticiposRaw.find((a) => 
               a.instalador_id === p.instalador_id && 
               Math.abs(Number(a.monto_original) - Number(p.monto)) < 0.01 &&
@@ -239,12 +239,10 @@ export default function ObrasPage() {
               monto: Number(p.monto),
               instalador_nombre: instalador?.nombre || 'Desconocido',
               metodo_pago: p.metodo_pago,
-              // Mark if this pago is from an anticipo and if it's been applied
               esDeAnticipo: !!matchingAnticipo,
               anticipoAplicado: matchingAnticipo ? Number(matchingAnticipo.monto_disponible) < Number(matchingAnticipo.monto_original) : false,
             };
           })
-          // Filter: exclude pagos from anticipos that haven't been applied
           .filter((p) => !p.esDeAnticipo || p.anticipoAplicado);
 
         // Total Pagado (Obras): contar pagos normales + anticipos aprobados.
@@ -255,6 +253,7 @@ export default function ObrasPage() {
 
         const totalPagosSinAnticipos = (pagosData || [])
           .filter((p) => p.obra_id === obra.id)
+          .filter((p) => !p.corte_id) // Excluir pagos de corte
           .filter((p) => {
             const matched = obraAnticiposRaw.some((a) =>
               a.instalador_id === p.instalador_id &&
