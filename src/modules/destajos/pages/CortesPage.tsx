@@ -1184,17 +1184,9 @@ export default function CortesPage() {
       inst => !excludedInstaladores.has(inst.id)
     );
     
-    // CRITICAL FIX: Only include instaladores that have at least one solicitud in this corte
-    // This prevents creating incorrect saldos for installers with no work in this period
-    const instaladoresConSolicitudes = instaladoresIncluidos.filter(inst => 
-      inst.solicitudes.length > 0 || inst.destajoAcumulado > 0 || inst.anticiposEnCorte > 0 || inst.saldoAnterior > 0 || inst.anticiposAplicadosManualmente > 0
-    );
-    
-    // Calculate values with edited salaries for each instalador
-    // Formula: basePago = Destajo + AnticiposOtorgados - Salario - SaldoAnterior - AnticiposAplicadosManualmente
-    // (saldoAnterior = adeudo a favor de la empresa; anticiposAplicadosManualmente = lo que el usuario decidió descontar)
-    // Note: anticiposEnCorte (anticipos otorgados) SE SUMAN porque son pagos adicionales que recibe el instalador
-    const instaladoresCalculados = instaladoresConSolicitudes.map(inst => {
+    // Include ALL marked instaladores (not excluded) in the cut calculation.
+    // Even those without work will generate a saldo a favor if they receive salary.
+    const instaladoresCalculados = instaladoresIncluidos.map(inst => {
       const salario = salarioEdits[inst.id] ?? inst.salarioSemanal;
       const basePago = inst.destajoAcumulado + inst.anticiposEnCorte - salario - inst.saldoAnterior - inst.anticiposAplicadosManualmente;
       
