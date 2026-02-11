@@ -1,74 +1,91 @@
 
 
-# Plan: Limitar Anticipo al Monto del Avance
+# Plan: Restaurar Anticipos al Eliminar un Avance
 
 ## Problema
 
-Al aplicar un anticipo despues de registrar un avance, el sistema permite aplicar mas anticipo que el valor del avance mismo. Ejemplo: avance de $6,975 pero se pudo aplicar anticipo de $15,000.
+Cuando se elimina un avance que tenia un anticipo aplicado, el anticipo no vuelve a su estado disponible. Esto ocurre porque las solicitudes tipo `aplicacion_anticipo` se crean **sin vinculo directo** al avance (no tienen `avance_id`), asi que al eliminar el avance no se detectan ni revierten.
 
 ## Solucion
 
-Agregar un prop `montoMaximo` al modal de anticipos que limite el total aplicable al monto del avance del instalador.
+Dos partes: (1) vincular las solicitudes de aplicacion de anticipo al avance que las origino, y (2) al eliminar un avance, buscar y revertir esas solicitudes.
 
 ## Cambios
 
-### 1. `src/modules/destajos/pages/AvancesPage.tsx`
+### 1. `src/modules/destajos/components/ApplyAnticipoModal.tsx`
 
-- Agregar `montoAvance` al tipo de la cola de anticipos: `{ id: string; nombre: string; obraId: string; montoAvance: number }`
-- Calcular `totalConDescuento` por instalador y pasarlo al queue al detectar anticipos disponibles (linea 656)
-- Pasar `montoMaximo={currentAnticipoInstalador.montoAvance}` al componente `ApplyAnticipoModal` (linea 1761)
+- Agregar un prop opcional `avanceId?: string` a la interfaz del componente
+- Al insertar la solicitud tipo `aplicacion_anticipo`, incluir `avance_id: avanceId || null` para que quede vinculada al avance que la origino
 
-### 2. `src/modules/destajos/components/ApplyAnticipoModal.tsx`
+### 2. `src/modules/destajos/pages/AvancesPage.tsx`
 
-- Agregar prop opcional `montoMaximo?: number` a la interfaz
-- En `handleToggleAnticipo`: al seleccionar un anticipo, limitar el monto pre-llenado al espacio disponible considerando lo ya seleccionado y el tope maximo
-- En `handleMontoChange`: ademas del clamp por `monto_disponible`, validar que la suma total no exceda `montoMaximo`
-- En el boton "Aplicar": deshabilitar si `montoTotal > montoMaximo`
-- Mostrar el monto del avance en el resumen inferior junto a "Total disponible" y "A aplicar" para que el usuario vea el limite
-- Mostrar advertencia visual si el total a aplicar alcanza el tope
+**En la invocacion del modal (al pasar props):**
+- Pasar el `avanceId` del avance recien guardado al `ApplyAnticipoModal`
+
+**En `handleDelete` (lineas 708-769):**
+Antes de eliminar las solicitudes del avance, agregar logica para:
+1. Buscar solicitudes tipo `aplicacion_anticipo` vinculadas al avance (`avance_id = avanceToDelete.id`)
+2. Para cada una, restaurar el `monto_disponible` del anticipo correspondiente (sumando de vuelta el `total_solicitado`)
+3. Eliminar esas solicitudes de aplicacion
+
+### 3. `src/modules/destajos/pages/SolicitudesPage.tsx`
+
+**En `handleDeleteAvanceFromDetail` (lineas 451-495):**
+Aplicar la misma logica de reversion:
+1. Buscar solicitudes tipo `aplicacion_anticipo` con el `avance_id` del avance a eliminar
+2. Restaurar `monto_disponible` en los anticipos correspondientes
+3. Eliminar las solicitudes de aplicacion
 
 ## Seccion Tecnica
 
-### Calculo del montoAvance por instalador
+### Vincular aplicacion_anticipo al avance
 
-En `AvancesPage.tsx`, al construir la cola de anticipos (~linea 646):
+En `ApplyAnticipoModal.tsx`, al insertar la solicitud:
 
 ```typescript
-for (const inst of selectedInstaladores) {
-  // ... check anticipos disponibles ...
-  if (anticiposDisponibles && anticiposDisponibles.length > 0) {
-    const porcentajeFactor = inst.porcentaje / 100;
-    const subtotalInst = subtotalPiezas * porcentajeFactor;
-    const montoDescuento = subtotalInst * (descuento / 100);
-    const totalConDescuento = subtotalInst - montoDescuento;
-    
-    instaladoresConAnticipos.push({
-      id: inst.instalador_id,
-      nombre,
-      obraId: selectedObraId,
-      montoAvance: totalConDescuento,
-    });
+await supabase.from('solicitudes_pago').insert({
+  tipo: 'aplicacion_anticipo',
+  avance_id: avanceId || null,  // NUEVO: vincular al avance
+  // ... resto de campos
+});
+```
+
+### Reversion al eliminar avance
+
+Logica a agregar en ambos handlers de eliminacion:
+
+```typescript
+// 1. Buscar aplicaciones de anticipo vinculadas a este avance
+const { data: aplicaciones } = await supabase
+  .from('solicitudes_pago')
+  .select('id, total_solicitado, instalador_id, obra_id')
+  .eq('avance_id', avanceId)
+  .eq('tipo', 'aplicacion_anticipo');
+
+// 2. Restaurar monto_disponible en cada anticipo
+for (const app of aplicaciones || []) {
+  const { data: anticipos } = await supabase
+    .from('anticipos')
+    .select('id, monto_disponible')
+    .eq('instalador_id', app.instalador_id)
+    .eq('obra_id', app.obra_id)
+    .order('created_at', { ascending: true });
+
+  let montoRestante = Number(app.total_solicitado);
+  for (const ant of anticipos || []) {
+    if (montoRestante <= 0) break;
+    const restoreAmount = Math.min(montoRestante, Number(ant.monto_disponible) + montoRestante);
+    await supabase
+      .from('anticipos')
+      .update({ monto_disponible: Number(ant.monto_disponible) + montoRestante })
+      .eq('id', ant.id);
+    montoRestante = 0;
   }
 }
+
+// 3. Eliminar las solicitudes de aplicacion (se eliminaran junto con las demas del avance)
 ```
 
-### Logica de clamp en el modal
+### Nota sobre datos existentes
 
-```typescript
-// En handleMontoChange:
-const otrosSeleccionados = updated
-  .filter(a => a.id !== id)
-  .reduce((sum, a) => sum + (a.montoAplicar || 0), 0);
-const espacioDisponible = montoMaximo
-  ? montoMaximo - otrosSeleccionados
-  : Infinity;
-const clampedValue = Math.min(
-  Math.max(0, value),
-  a.monto_disponible,
-  espacioDisponible
-);
-```
-
-### UI del resumen
-
-Se agrega una tercera columna "Monto del avance" mostrando `montoMaximo` cuando esta presente, para que el usuario tenga visibilidad del tope.
+Las solicitudes `aplicacion_anticipo` creadas antes de este cambio no tendran `avance_id`, por lo que no se revertiran automaticamente. Esto solo afecta anticipos aplicados **a partir de ahora**.
