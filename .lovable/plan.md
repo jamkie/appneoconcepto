@@ -1,50 +1,70 @@
 
-# Plan: Incluir Instaladores Sin Trabajo en el Cierre de Corte
+# Plan: Acumular Saldos Correctamente al Cerrar Cortes
 
 ## Problema
 
-Jose Luis Santes fue excluido del corte Semana 7 porque no tenía solicitudes, destajo, anticipos ni saldo anterior. Sin embargo, se le pagó nómina ($4,631.08), lo que debería haber generado un **saldo a favor de la empresa** por ese mismo monto.
+Al cerrar los cortes de Semana 6 y Semana 7, ambos generaron un saldo de $4,631.08 para Jose Luis Santes, pero el saldo final en la base de datos es solo $4,631.08 en lugar de $9,262.16.
 
-El filtro en la línea 1187-1191 de `CortesPage.tsx` excluye a cualquier instalador que no tenga actividad:
+**Causa raíz:** En la linea 1359 del archivo `CortesPage.tsx`, al cerrar un corte, el nuevo saldo simplemente **reemplaza** el saldo existente:
 
-```typescript
-// FILTRO PROBLEMÁTICO (línea 1189-1191):
-const instaladoresConSolicitudes = instaladoresIncluidos.filter(inst => 
-  inst.solicitudes.length > 0 || inst.destajoAcumulado > 0 || inst.anticiposEnCorte > 0 || inst.saldoAnterior > 0 || inst.anticiposAplicadosManualmente > 0
-);
+```text
+nuevoSaldo = inst.saldoGenerado  (solo el saldo de ESTE corte)
 ```
 
-Esto impide que un instalador que solo recibe salario (sin trabajo registrado) genere la deuda correspondiente al cerrar el corte.
+Esto ignora cualquier saldo previamente acumulado que NO fue consumido como `saldoAnterior` en este corte.
 
-## Solución
+**Ejemplo real:**
+- Semana 7 se cerro primero: saldoAnterior=0, saldoGenerado=4,631.08 --> saldo_acumulado se pone en 4,631.08
+- Semana 6 se cerro despues: saldoAnterior=0, saldoGenerado=4,631.08 --> saldo_acumulado se SOBREESCRIBE a 4,631.08 (deberia ser 9,262.16)
 
-Eliminar ese filtro restrictivo. Si un instalador fue **marcado manualmente** (no está en `excludedInstaladores`), debe ser incluido en el cierre del corte. El cálculo de basePago ya maneja correctamente el caso:
+## Solucion
 
-- Destajo: $0 + Anticipos: $0 - Salario: $4,631.08 = **-$4,631.08**
-- basePago < 0 => Saldo generado: **$4,631.08**
+Cambiar la logica para que el nuevo saldo se **acumule** sobre el saldo existente, restando lo que ya fue consumido como `saldoAnterior`:
 
-## Cambios a Realizar
+```text
+ANTES:
+nuevoSaldo = saldoGenerado
+
+DESPUES:
+saldoActual = leer saldo_acumulado actual de la BD
+nuevoSaldo = saldoActual - saldoAnterior + saldoGenerado
+```
+
+**Logica:**
+- `saldoActual`: lo que el instalador debe actualmente
+- `saldoAnterior`: la parte del saldo anterior que YA se descontó en este corte (ya esta restada en la formula)
+- `saldoGenerado`: nueva deuda generada por este corte
+- Resultado: saldo previo menos lo que se consumio, mas lo nuevo generado
+
+**Ejemplo corregido:**
+- Semana 7 cierra primero: saldoActual=0, saldoAnterior=0, saldoGenerado=4631 --> nuevo = 0 - 0 + 4631 = 4,631.08
+- Semana 6 cierra despues: saldoActual=4631, saldoAnterior=0, saldoGenerado=4631 --> nuevo = 4631 - 0 + 4631 = 9,262.16
+
+## Cambio en Codigo
 
 ### Archivo: `src/modules/destajos/pages/CortesPage.tsx`
 
-**Líneas 1187-1191** - Eliminar el filtro restrictivo y usar directamente `instaladoresIncluidos`:
+**Linea 1358-1370** - Leer saldo actual antes de actualizar:
 
 ```typescript
-// ANTES:
-const instaladoresConSolicitudes = instaladoresIncluidos.filter(inst => 
-  inst.solicitudes.length > 0 || inst.destajoAcumulado > 0 || ...
-);
-const instaladoresCalculados = instaladoresConSolicitudes.map(inst => { ... });
+// ANTES (linea 1359):
+const nuevoSaldo = inst.saldoGenerado;
 
-// DESPUÉS:
-const instaladoresCalculados = instaladoresIncluidos.map(inst => { ... });
+// DESPUES:
+const { data: currentSaldoData } = await supabase
+  .from('saldos_instaladores')
+  .select('saldo_acumulado')
+  .eq('instalador_id', inst.id)
+  .maybeSingle();
+
+const saldoActual = Number(currentSaldoData?.saldo_acumulado) || 0;
+const nuevoSaldo = saldoActual - inst.saldoAnterior + inst.saldoGenerado;
 ```
 
-Tambien actualizar la validación de corte vacío (línea 1221) para verificar contra `instaladoresCalculados` en lugar de `instaladoresConSolicitudes`.
+El resto del upsert (lineas 1361-1370) se mantiene igual.
 
 ## Resultado Esperado
 
-- Los instaladores marcados (no excluidos) que solo reciben salario sin trabajo generarán un **saldo a favor** al cerrar el corte
-- Jose Luis Santes con salario $4,631.08 y $0 de destajo generará un saldo a favor de $4,631.08
-- Los instaladores que el usuario **desmarcó** (excluyó manualmente) seguirán sin ser procesados
-- No afecta el comportamiento de instaladores con trabajo registrado
+- Cerrar multiples cortes para el mismo instalador acumulara correctamente los saldos
+- El orden en que se cierren los cortes no afectara el resultado final
+- Si un instalador tiene saldoAnterior que ya fue descontado, se resta del acumulado para no contar doble
