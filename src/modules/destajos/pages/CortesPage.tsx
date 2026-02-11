@@ -1355,8 +1355,15 @@ export default function CortesPage() {
         
         if (ciError) throw ciError;
         
-        // Update or create saldo_instalador record
-        const nuevoSaldo = inst.saldoGenerado; // Saldo generado becomes the new accumulated saldo
+        // Update or create saldo_instalador record - accumulate over existing balance
+        const { data: currentSaldoData } = await supabase
+          .from('saldos_instaladores')
+          .select('saldo_acumulado')
+          .eq('instalador_id', inst.id)
+          .maybeSingle();
+
+        const saldoActual = Number(currentSaldoData?.saldo_acumulado) || 0;
+        const nuevoSaldo = saldoActual - inst.saldoAnterior + inst.saldoGenerado;
         
         const { error: saldoError } = await supabase
           .from('saldos_instaladores')
