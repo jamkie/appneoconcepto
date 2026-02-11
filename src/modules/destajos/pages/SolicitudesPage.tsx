@@ -454,6 +454,35 @@ export default function SolicitudesPage() {
     try {
       setDeletingFromDetail(true);
       
+      // Restore anticipos linked to this avance before deleting solicitudes
+      const { data: aplicacionesAnticipo } = await supabase
+        .from('solicitudes_pago')
+        .select('id, total_solicitado, instalador_id, obra_id')
+        .eq('avance_id', viewingSolicitud.avance_id)
+        .eq('tipo', 'aplicacion_anticipo');
+
+      for (const app of aplicacionesAnticipo || []) {
+        const montoRestaurar = Number(app.total_solicitado);
+        if (montoRestaurar <= 0) continue;
+
+        const { data: anticiposData } = await supabase
+          .from('anticipos')
+          .select('id, monto_disponible')
+          .eq('instalador_id', app.instalador_id)
+          .eq('obra_id', app.obra_id)
+          .order('created_at', { ascending: true });
+
+        let restante = montoRestaurar;
+        for (const ant of anticiposData || []) {
+          if (restante <= 0) break;
+          await supabase
+            .from('anticipos')
+            .update({ monto_disponible: Number(ant.monto_disponible) + restante })
+            .eq('id', ant.id);
+          restante = 0;
+        }
+      }
+
       // Delete ALL solicitudes associated with this avance (handles multi-installer avances)
       const { error: solicitudError } = await supabase
         .from('solicitudes_pago')

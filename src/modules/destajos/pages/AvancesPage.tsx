@@ -127,8 +127,8 @@ export default function AvancesPage() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   // Anticipo modal queue state
-  const [anticipoQueue, setAnticipoQueue] = useState<{ id: string; nombre: string; obraId: string; montoAvance: number }[]>([]);
-  const [currentAnticipoInstalador, setCurrentAnticipoInstalador] = useState<{ id: string; nombre: string; obraId: string; montoAvance: number } | null>(null);
+  const [anticipoQueue, setAnticipoQueue] = useState<{ id: string; nombre: string; obraId: string; montoAvance: number; avanceId: string }[]>([]);
+  const [currentAnticipoInstalador, setCurrentAnticipoInstalador] = useState<{ id: string; nombre: string; obraId: string; montoAvance: number; avanceId: string } | null>(null);
   const [isApplyAnticipoOpen, setIsApplyAnticipoOpen] = useState(false);
 
   useEffect(() => {
@@ -470,8 +470,11 @@ export default function AvancesPage() {
       const subtotalPiezas = itemsWithProgress.reduce((acc, item) => {
         return acc + (parseInt(item.cantidad_a_avanzar) * item.precio_unitario);
       }, 0);
+
+      let savedAvanceId: string;
       
       if (editingAvance) {
+        savedAvanceId = editingAvance.id;
         // Update avance - set instalador_id to first one for backwards compatibility
         const { error: avanceError } = await supabase
           .from('avances')
@@ -569,6 +572,7 @@ export default function AvancesPage() {
           .single();
         
         if (avanceError) throw avanceError;
+        savedAvanceId = avanceData.id;
         
         // Insert avance_items
         const avanceItemsToInsert = itemsWithProgress.map((item) => ({
@@ -642,7 +646,7 @@ export default function AvancesPage() {
       }
 
       // Check if any instalador has available anticipos
-      const instaladoresConAnticipos: { id: string; nombre: string; obraId: string; montoAvance: number }[] = [];
+      const instaladoresConAnticipos: { id: string; nombre: string; obraId: string; montoAvance: number; avanceId: string }[] = [];
       for (const inst of selectedInstaladores) {
         const { data: anticiposDisponibles } = await supabase
           .from('anticipos')
@@ -657,7 +661,7 @@ export default function AvancesPage() {
           const subtotalInst = subtotalPiezas * porcentajeFactor;
           const montoDescuento = subtotalInst * (descuento / 100);
           const totalConDescuento = subtotalInst - montoDescuento;
-          instaladoresConAnticipos.push({ id: inst.instalador_id, nombre, obraId: selectedObraId, montoAvance: totalConDescuento });
+          instaladoresConAnticipos.push({ id: inst.instalador_id, nombre, obraId: selectedObraId, montoAvance: totalConDescuento, avanceId: savedAvanceId });
         }
       }
 
@@ -724,6 +728,35 @@ export default function AvancesPage() {
         return;
       }
       
+      // Restore anticipos linked to this avance before deleting solicitudes
+      const { data: aplicacionesAnticipo } = await supabase
+        .from('solicitudes_pago')
+        .select('id, total_solicitado, instalador_id, obra_id')
+        .eq('avance_id', avanceToDelete.id)
+        .eq('tipo', 'aplicacion_anticipo');
+
+      for (const app of aplicacionesAnticipo || []) {
+        const montoRestaurar = Number(app.total_solicitado);
+        if (montoRestaurar <= 0) continue;
+
+        const { data: anticiposData } = await supabase
+          .from('anticipos')
+          .select('id, monto_disponible')
+          .eq('instalador_id', app.instalador_id)
+          .eq('obra_id', app.obra_id)
+          .order('created_at', { ascending: true });
+
+        let restante = montoRestaurar;
+        for (const ant of anticiposData || []) {
+          if (restante <= 0) break;
+          await supabase
+            .from('anticipos')
+            .update({ monto_disponible: Number(ant.monto_disponible) + restante })
+            .eq('id', ant.id);
+          restante = 0;
+        }
+      }
+
       // Delete ALL associated solicitudes (handles multi-installer avances)
       const { error: solicitudError } = await supabase
         .from('solicitudes_pago')
@@ -1771,6 +1804,7 @@ export default function AvancesPage() {
           userId={user?.id || ''}
           onSuccess={handleAnticipoSuccess}
           montoMaximo={currentAnticipoInstalador.montoAvance}
+          avanceId={currentAnticipoInstalador.avanceId}
         />
       )}
     </div>
