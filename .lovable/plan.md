@@ -1,46 +1,45 @@
 
-## Opciones para mostrar el Saldo Acumulado en el Excel
 
-### Opción 1: Reemplazar columna "Saldo a Favor" por "Saldo Acumulado Total" 
-**Lo que hace:** Muestra el saldo acumulado histórico del instalador (tabla `saldos_instaladores`)
+# Revision del Codigo: Problemas Encontrados
 
-**Cambios:**
-- Renombrar encabezado de "SALDO A FAVOR" a "SALDO ACUMULADO TOTAL"
-- Reemplazar la fórmula Excel por el valor real `saldoAcumulado` obtenido de la base de datos
-- Esto muestra el balance total que el instalador tiene a la fecha (positivo = la empresa le debe, negativo = él debe)
+## Bug 1: Formula inconsistente para cortes cerrados en la UI (CortesPage.tsx)
 
-**Ventaja:** Muestra el contexto histórico completo
-**Desventaja:** Pierde la visibilidad del saldo generado solo en este corte
+**Linea 683-685** - En la UI, cuando un corte esta cerrado, la formula para `destajoADepositar` NO incluye `anticiposEnCorte`:
 
----
+```text
+// UI (cerrado): destajoAcumulado - salario - saldoAnterior - aplicados
+// UI (abierto): destajoAcumulado + anticiposEnCorte - salario - saldoAnterior - aplicados
+// Excel:        destajoAcumulado + anticiposEnCorte - salario - saldoAnterior - aplicados
+// Cierre:       destajoAcumulado + anticiposEnCorte - salario - saldoAnterior - aplicados
+```
 
-### Opción 2: Agregar una columna adicional "Saldo Acumulado Total"
-**Lo que hace:** Mantiene las dos columnas (saldo generado + saldo acumulado)
+La UI para cortes cerrados esta **faltando `+ anticiposEnCorte`**. Esto hace que el "Destajo a Depositar" mostrado en cortes cerrados sea incorrecto si habia anticipos otorgados.
 
-**Cambios:**
-- Mantener "SALDO A FAVOR" con el saldo del corte (fórmula actual)
-- Agregar nueva columna "SALDO ACUMULADO TOTAL" con el valor real de la BD
-- Total de 13 columnas en el Excel
+**Correccion:** Agregar `+ inst.anticiposEnCorte` en la linea 685.
 
-**Ventaja:** Muestra ambos datos (período y acumulado)
-**Desventaja:** El Excel se hace más ancho
+## Bug 2: Doble conteo de saldoAnterior en el Excel (useExportCorteExcel.ts)
 
----
+Para **cortes abiertos**, el Excel inicializa `saldoAnterior` con el valor actual de la BD (`saldosMap[inst.id]`, linea 115) y luego **suma** las solicitudes tipo `saldo` encima (linea 134). Pero las solicitudes tipo `saldo` representan exactamente el saldo que se aplico como descuento, no un monto adicional.
 
-### Opción 3: Mostrar en una tercera hoja adicional
-**Lo que hace:** Crear una nueva hoja "Saldos Acumulados" con el resumen
+En la UI (CortesPage), `saldoAnterior` empieza en 0 y solo se llena con solicitudes tipo `saldo`. Esto es correcto porque las solicitudes tipo `saldo` SON el saldo anterior aplicado.
 
-**Cambios:**
-- Agregar nueva worksheet con 3 columnas: Nombre | Saldo Acumulado | Estado
-- Ordenar por saldo (mayores deudas primero)
-- Similar al "Resumen Depósitos" que ya existe
+El Excel esta **sumando el saldo de la BD + solicitudes saldo**, lo cual es un doble conteo.
 
-**Ventaja:** No contamina el Excel principal, fácil de leer
-**Desventaja:** Es información secundaria
+**Correccion:** Inicializar `saldoAnterior` en 0 (como la UI) en lugar de `saldosMap[inst.id]` en la linea 115. Los saldos de la BD ya estan representados por las solicitudes tipo `saldo` asignadas al corte.
 
----
+## Bug 3: Variable no utilizada en el Excel
 
-## Mi recomendación
-**Opción 2** es la mejor: mantén el saldo del corte (útil para auditoría semanal) y agrega el saldo acumulado total (contexto financiero). Así tienes todo en una sola hoja sin perder información.
+`solicitudIdsEnCorte` (linea 101) se declara pero nunca se usa. Es codigo muerto.
 
-¿Cuál prefieres?
+**Correccion:** Eliminar la linea.
+
+## Resumen de cambios
+
+### Archivo: `src/modules/destajos/pages/CortesPage.tsx`
+- Linea 683-685: Agregar `+ inst.anticiposEnCorte` a la formula de `destajoADepositar` para cortes cerrados
+
+### Archivo: `src/modules/destajos/hooks/useExportCorteExcel.ts`
+- Linea 115: Cambiar `saldoAnterior: saldosMap[inst.id] || 0` a `saldoAnterior: 0` para evitar doble conteo en cortes abiertos
+- Linea 101: Eliminar la variable `solicitudIdsEnCorte` que no se usa
+
+Nota: Para cortes **cerrados**, el Excel ya sobrescribe `saldoAnterior` con `ci.saldo_anterior` (linea 159), asi que el bug 2 solo afecta cortes abiertos.
