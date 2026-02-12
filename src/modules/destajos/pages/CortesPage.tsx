@@ -41,6 +41,7 @@ import {
 import { format, startOfWeek, endOfWeek, getWeek } from 'date-fns';
 import { es } from 'date-fns/locale';
 import type { CorteSemanal, SolicitudPago } from '../types';
+import { ApplyAnticipoModal } from '../components/ApplyAnticipoModal';
 
 interface CorteWithDetails extends CorteSemanal {
   solicitudes_count?: number;
@@ -153,6 +154,10 @@ export default function CortesPage() {
   
   // Instaladores excluded from corte
   const [excludedInstaladores, setExcludedInstaladores] = useState<Set<string>>(new Set());
+  
+  // Apply anticipo modal
+  const [isApplyAnticipoOpen, setIsApplyAnticipoOpen] = useState(false);
+  const [currentAnticipoInstalador, setCurrentAnticipoInstalador] = useState<{ id: string; nombre: string } | null>(null);
   
   
 
@@ -2757,7 +2762,23 @@ export default function CortesPage() {
                           {hasAnticiposDisponibles && (
                             <div className="text-right text-sm">
                               {inst.anticiposDisponibles > 0 ? (
-                                <span className="text-blue-600">{formatCurrency(inst.anticiposDisponibles)}</span>
+                                <div className="flex items-center justify-end gap-1">
+                                  <span className="text-blue-600">{formatCurrency(inst.anticiposDisponibles)}</span>
+                                  {viewingCorte?.estado === 'abierto' && !isExcluded && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setCurrentAnticipoInstalador({ id: inst.id, nombre: inst.nombre });
+                                        setIsApplyAnticipoOpen(true);
+                                      }}
+                                    >
+                                      Aplicar
+                                    </Button>
+                                  )}
+                                </div>
                               ) : (
                                 <span className="text-muted-foreground">-</span>
                               )}
@@ -3270,6 +3291,27 @@ export default function CortesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Apply Anticipo Modal */}
+      {currentAnticipoInstalador && viewingCorte && (
+        <ApplyAnticipoModal
+          isOpen={isApplyAnticipoOpen}
+          onClose={() => {
+            setIsApplyAnticipoOpen(false);
+            setCurrentAnticipoInstalador(null);
+          }}
+          instaladorId={currentAnticipoInstalador.id}
+          instaladorNombre={currentAnticipoInstalador.nombre}
+          corteId={viewingCorte.id}
+          corteNombre={viewingCorte.nombre}
+          solicitudIdsEnCorte={new Set(corteSolicitudes.map(s => s.id))}
+          userId={user?.id || ''}
+          onSuccess={() => {
+            // Refresh corte detail to update Disponibles and Aplicados columns
+            handleViewCorte(viewingCorte);
+          }}
+        />
+      )}
 
     </div>
   );
