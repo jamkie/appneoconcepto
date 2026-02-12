@@ -1,64 +1,57 @@
 
 
-# Plan: Corregir calculo de "Total Pagado" en Obras
+# Plan: Agregar boton "Aplicar" anticipos desde el detalle del Corte
 
 ## Problema
 
-El calculo actual de "Total Pagado" en las obras suma los pagos de corte (pagos_destajos con `corte_id`) MAS los anticipos. Esto produce un conteo doble porque los pagos de corte son depositos salariales que ya estan representados en el sistema de anticipos.
-
-**Ejemplo con TRU HOTEL:**
-- Monto Total: $175,005
-- Anticipos (monto_original): $102,500
-- Pago de corte: $41,850
-- Calculo actual: $102,500 + $41,850 = $144,350 (incorrecto)
-- Calculo correcto: $102,500 + $0 (pagos directos) = $102,500
-- Saldo correcto: $175,005 - $102,500 = **$72,505**
+Cuando se reabre un corte, los anticipos aplicados se restauran correctamente (se eliminan las solicitudes `aplicacion_anticipo` y se devuelve el `monto_disponible`). Sin embargo, al volver a cerrar el corte, los anticipos **no se re-aplican automaticamente** porque la aplicacion es manual. El problema es que la columna "Disponibles" en la tabla del corte solo muestra el monto informativo, pero **no tiene un boton para aplicarlos**.
 
 ## Solucion
 
-Excluir los pagos que tienen `corte_id` del calculo de "Total Pagado", ya que esos depositos ya estan representados por los anticipos del sistema de cortes. Solo se contaran pagos directos (sin `corte_id`) mas los anticipos.
+Agregar un boton "Aplicar" en la columna "Disponibles" de cada instalador que tenga anticipos disponibles, el cual abrira el `ApplyAnticipoModal` existente para seleccionar y aplicar los anticipos deseados.
 
-## Archivos a modificar
+## Cambios en `src/modules/destajos/pages/CortesPage.tsx`
 
-### 1. `src/modules/destajos/pages/ObrasPage.tsx`
+### 1. Importar el componente ApplyAnticipoModal
 
-**Query de pagos (linea ~177-179):** Agregar `corte_id` al select para poder filtrar.
+Agregar el import de `ApplyAnticipoModal` desde `../components/ApplyAnticipoModal`.
 
-**Calculo de totalPagosSinAnticipos (lineas ~256-266):** Agregar condicion para excluir pagos con `corte_id`:
+### 2. Agregar estado para el modal de anticipos
 
-```typescript
-const totalPagosSinAnticipos = (pagosData || [])
-  .filter((p) => p.obra_id === obra.id)
-  .filter((p) => !p.corte_id) // Excluir pagos de corte
-  .filter((p) => {
-    // ...filtro existente de matching anticipos...
-  })
-  .reduce((sum, p) => sum + Number(p.monto), 0);
+Nuevas variables de estado:
+- `isApplyAnticipoOpen`: booleano para controlar visibilidad del modal
+- `currentAnticipoInstalador`: objeto con `id` y `nombre` del instalador seleccionado
+
+### 3. Modificar la columna "Disponibles" en la tabla (lineas ~2757-2764)
+
+Cambiar el texto plano del monto disponible por un boton que al hacer clic:
+1. Guarde el `id` y `nombre` del instalador
+2. Abra el `ApplyAnticipoModal`
+
+```text
+Antes:  "$5,000"  (solo texto)
+Despues: "$5,000 [Aplicar]"  (texto + boton)
 ```
 
-**Lista de pagos mostrados (lineas ~226-248):** Tambien excluir pagos con `corte_id` del listado visual para no confundir al usuario.
+### 4. Agregar el componente ApplyAnticipoModal al render
 
-### 2. `src/modules/destajos/pages/DestajosDashboard.tsx`
+Renderizar el modal pasando:
+- `instaladorId` y `instaladorNombre` del instalador seleccionado
+- `corteId` y `corteNombre` del corte actual
+- `solicitudIdsEnCorte` para excluir anticipos del propio corte
+- `userId` del usuario actual
+- `onSuccess` que refresque los datos del corte (llamar a `fetchCorteDetail` o similar)
 
-**Calculo de "Por Pagar" (lineas ~104-131):** Aplicar la misma logica - excluir pagos con `corte_id` y sumar anticipos en su lugar:
+### 5. Handler de exito
 
-```typescript
-// Agregar fetch de anticipos
-const { data: anticiposData } = await supabase
-  .from('anticipos')
-  .select('obra_id, monto_original');
-
-// En el calculo por obra:
-const pagadoObra = pagosDirectos + anticiposObra;
-```
-
-### 3. `src/modules/destajos/hooks/useExportObrasExcel.ts`
-
-**Calculo del Excel (lineas ~55-60):** Agregar `corte_id` al fetch de pagos y excluirlos del calculo, sumando anticipos en su lugar para mantener coherencia con la interfaz.
+Al cerrar el modal exitosamente, refrescar el resumen del corte para que la columna "Disponibles" y "-Aplicados" se actualicen con los nuevos valores.
 
 ## Resultado esperado
 
-- TRU HOTEL mostrara Total Pagado = $102,500 y Saldo = $72,505
-- El Dashboard reflejara los mismos numeros coherentes
-- El Excel exportado mantendra la misma logica de calculo
-
+1. El usuario reabre un corte
+2. Los anticipos se restauran automaticamente (esto ya funciona)
+3. En la tabla del corte abierto, la columna "Disponibles" muestra un boton "Aplicar" junto al monto
+4. Al hacer clic, se abre el modal para seleccionar que anticipos aplicar
+5. Al confirmar, se crean las solicitudes `aplicacion_anticipo` y se reduce el `monto_disponible`
+6. La tabla se refresca mostrando los nuevos valores en "-Aplicados" y "A Depositar"
+7. El usuario cierra el corte normalmente con los anticipos ya aplicados
