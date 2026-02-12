@@ -2813,7 +2813,7 @@ export default function CortesPage() {
                       const totalSalario = includedInstaladores.reduce((sum, i) => sum + (salarioEdits[i.id] ?? i.salarioSemanal), 0);
                       const totalDepositar = includedInstaladores.reduce((sum, inst) => {
                         const sal = salarioEdits[inst.id] ?? inst.salarioSemanal;
-                        const base = inst.destajoAcumulado - sal - inst.saldoAnterior - inst.anticiposAplicadosManualmente;
+                        const base = inst.destajoAcumulado + inst.anticiposEnCorte - sal - inst.saldoAnterior - inst.anticiposAplicadosManualmente;
                         return sum + (base >= 0 ? Math.floor(base / 50) * 50 : 0);
                       }, 0);
                       
