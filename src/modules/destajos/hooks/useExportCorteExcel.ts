@@ -17,6 +17,7 @@ interface InstaladorPago {
   destajoADepositar: number;
   aDepositar: number;
   saldoAFavor: number;
+  saldoAcumuladoTotal: number;
 }
 
 export const useExportCorteExcel = () => {
@@ -54,6 +55,15 @@ export const useExportCorteExcel = () => {
       let saldosMap: Record<string, number> = {};
       let corteInstaladoresMap: Record<string, any> = {};
       
+      // Always fetch current saldos acumulados for the new column
+      const { data: saldosData } = await supabase
+        .from('saldos_instaladores')
+        .select('instalador_id, saldo_acumulado');
+      
+      (saldosData || []).forEach((s: any) => {
+        saldosMap[s.instalador_id] = Number(s.saldo_acumulado) || 0;
+      });
+      
       // Get the list of instaladores that are PART of this corte
       let involvedInstaladorIds: string[] = [];
       
@@ -72,15 +82,6 @@ export const useExportCorteExcel = () => {
         // For open cortes, get instaladores from solicitudes assigned to this corte
         const solicitudInstaladorIds = [...new Set((solicitudes || []).map((s: any) => s.instalador_id).filter(Boolean))];
         involvedInstaladorIds = solicitudInstaladorIds;
-        
-        // Use current saldos
-        const { data: saldosData } = await supabase
-          .from('saldos_instaladores')
-          .select('instalador_id, saldo_acumulado');
-        
-        (saldosData || []).forEach((s: any) => {
-          saldosMap[s.instalador_id] = Number(s.saldo_acumulado) || 0;
-        });
       }
 
       // Fetch ONLY the instaladores involved in this corte
@@ -117,6 +118,7 @@ export const useExportCorteExcel = () => {
           destajoADepositar: 0,
           aDepositar: 0,
           saldoAFavor: 0,
+          saldoAcumuladoTotal: saldosMap[inst.id] || 0,
           jefes: new Set(),
         };
       });
@@ -195,7 +197,7 @@ export const useExportCorteExcel = () => {
       const weekNum = corte.nombre.match(/Semana (\d+)/i)?.[1] || '01';
 
       // Add title row
-      sheet.mergeCells('A1:L1');
+      sheet.mergeCells('A1:M1');
       const titleCell = sheet.getCell('A1');
       titleCell.value = `PAGO SEMANAL INSTALADORES SEMANA ${weekNum} DEL ${fechaInicio} AL ${fechaFin}`;
       titleCell.font = { bold: true, size: 12 };
@@ -214,11 +216,12 @@ export const useExportCorteExcel = () => {
         'DESTAJO ACUMULADO',
         'NOMINA SEMANAL',
         'SALDO ANTERIOR',
-        '+ANTICIPOS', // Anticipos otorgados en este corte
-        '-APLICADOS', // Anticipos de cortes anteriores descontados
+        '+ANTICIPOS',
+        '-APLICADOS',
         'DESTAJO A DEPOSITAR',
         'A DEPOSITAR',
         'SALDO A FAVOR',
+        'SALDO ACUMULADO TOTAL',
       ];
       
       const headerRow = sheet.addRow(headers);
@@ -226,20 +229,20 @@ export const useExportCorteExcel = () => {
       headerRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       headerRow.height = 30;
 
-      // Set column widths (updated for 12 columns)
       sheet.columns = [
-        { width: 35 }, // A: Nombre
-        { width: 15 }, // B: Jefes
-        { width: 14 }, // C: Banco
-        { width: 20 }, // D: CLABE
-        { width: 18 }, // E: Destajo Acumulado
-        { width: 16 }, // F: Nomina Semanal
-        { width: 16 }, // G: Saldo Anterior
-        { width: 14 }, // H: +Anticipos (otorgados)
-        { width: 14 }, // I: -Aplicados (descuentos)
-        { width: 20 }, // J: Destajo a Depositar
-        { width: 14 }, // K: A Depositar
-        { width: 14 }, // L: Saldo a Favor
+        { width: 35 }, // A
+        { width: 15 }, // B
+        { width: 14 }, // C
+        { width: 20 }, // D
+        { width: 18 }, // E
+        { width: 16 }, // F
+        { width: 16 }, // G
+        { width: 14 }, // H
+        { width: 14 }, // I
+        { width: 20 }, // J
+        { width: 14 }, // K
+        { width: 14 }, // L
+        { width: 22 }, // M: Saldo Acumulado Total
       ];
 
        // Add data rows with formulas
@@ -259,10 +262,9 @@ export const useExportCorteExcel = () => {
           inst.anticiposAplicadosManualmente || 0, // I: Anticipos aplicados manualmente (descuentos)
            // J: Destajo a Depositar = MAX(E + H - F - G - I, 0) (Destajo + Anticipos Otorgados - Salario - Saldo Anterior - Aplicados)
            { formula: `MAX(E${rowNum}+H${rowNum}-F${rowNum}-G${rowNum}-I${rowNum},0)` },
-          // K: A Depositar = FLOOR(J, 50)
           { formula: `FLOOR(J${rowNum},50)` },
-           // L: Saldo a Favor (empresa) = MAX(F + G + I - E - H, 0)
            { formula: `MAX(F${rowNum}+G${rowNum}+I${rowNum}-E${rowNum}-H${rowNum},0)` },
+          inst.saldoAcumuladoTotal || 0,
         ]);
         row.alignment = { vertical: 'middle' };
       });
@@ -285,12 +287,12 @@ export const useExportCorteExcel = () => {
         { formula: `SUM(J${dataStartRow}:J${dataEndRow})` },
         { formula: `SUM(K${dataStartRow}:K${dataEndRow})` },
         { formula: `SUM(L${dataStartRow}:L${dataEndRow})` },
+        { formula: `SUM(M${dataStartRow}:M${dataEndRow})` },
       ]);
       totalRow.font = { bold: true };
       totalRow.alignment = { vertical: 'middle' };
 
-      // Format number columns (updated: E..L are now columns 5-12)
-      const numCols = [5, 6, 7, 8, 9, 10, 11, 12]; // E, F, G, H, I, J, K, L
+      const numCols = [5, 6, 7, 8, 9, 10, 11, 12, 13]; // E through M
       numCols.forEach((colNum) => {
         sheet.getColumn(colNum).numFmt = '#,##0.00';
         sheet.getColumn(colNum).alignment = { horizontal: 'right', vertical: 'middle' };
