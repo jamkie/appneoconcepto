@@ -97,8 +97,6 @@ export const useExportCorteExcel = () => {
         allInstaladores = instData || [];
       }
 
-      // Fetch anticipos disponibles (from previous cortes) for all instaladores
-      const solicitudIdsEnCorte = new Set((solicitudes || []).map((s: any) => s.id));
 
       // Build instalador map with ONLY involved instaladores
       const instaladorMap: Record<string, InstaladorPago & { jefes: Set<string> }> = {};
@@ -112,7 +110,7 @@ export const useExportCorteExcel = () => {
           clabe: inst.numero_cuenta || '',
           destajoAcumulado: 0,
           nominaSemanal: inst.salario_semanal || 0,
-          saldoAnterior: saldosMap[inst.id] || 0,
+          saldoAnterior: 0,
           anticiposEnCorte: 0,
           anticiposAplicadosManualmente: 0, // Only manual applications
           destajoADepositar: 0,

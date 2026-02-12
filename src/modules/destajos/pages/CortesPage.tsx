@@ -682,7 +682,7 @@ export default function CortesPage() {
           // For closed cortes, anticiposAplicadosManualmente is the sum of aplicacion_anticipo solicitudes (already loaded above)
           inst.destajoADepositar = Math.max(
             0,
-            inst.destajoAcumulado - inst.salarioSemanal - inst.saldoAnterior - inst.anticiposAplicadosManualmente
+            inst.destajoAcumulado + inst.anticiposEnCorte - inst.salarioSemanal - inst.saldoAnterior - inst.anticiposAplicadosManualmente
           );
           inst.aDepositar = Number(ci.monto_depositado);
           inst.saldoGenerado = Number(ci.saldo_generado);
