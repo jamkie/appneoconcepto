@@ -358,13 +358,13 @@ export const useExportCorteExcel = () => {
       totalRowResumen.font = { bold: true };
       totalRowResumen.alignment = { vertical: 'middle' };
 
-      // SUB TOTAL FACTURA = TOTAL / 1.06
+      // SUB TOTAL FACTURA = TOTAL / 1.035
       const subTotalRowNum = totalRowNumResumen + 1;
       const subTotalRow = sheetResumen.addRow([
         '',
         '',
         'SUB TOTAL FACTURA',
-        { formula: `D${totalRowNumResumen}/1.06` },
+        { formula: `D${totalRowNumResumen}/1.035` },
       ]);
       subTotalRow.font = { bold: true };
       subTotalRow.alignment = { vertical: 'middle' };
