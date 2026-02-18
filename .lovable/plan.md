@@ -1,71 +1,53 @@
 
-# Problema: Yenni no puede crear cortes — RLS bloquea operaciones
+# Fix: Modal de Detalle de Solicitud — Agregar Scroll
 
-## Diagnóstico
+## Problema
 
-Los permisos de Yenni en la base de datos son correctos para el submódulo `cortes`:
-- can_read: true
-- can_create: true
-- can_update: true
-- can_delete: true
+El `DialogContent` del modal de detalle de solicitud (línea 1218 en `SolicitudesPage.tsx`) no tiene límite de altura ni scroll:
 
-Sin embargo, las políticas RLS (Row Level Security) de la tabla `cortes_semanales` actualmente **solo permiten a administradores** hacer INSERT, UPDATE y DELETE:
-
+```tsx
+<DialogContent className="max-w-md">
+  ...
+  <div className="space-y-4">   // sin altura máxima ni overflow
+    {/* Basic info */}
+    {/* Avance items breakdown */}
+    {/* Extras breakdown */}
+    {/* Amounts breakdown */}
+    {/* Anticipos aplicados */}
+    {/* Observations */}
+  </div>
 ```
-Policy: "Admins can manage cortes"
-Command: ALL
-Expression: has_role(auth.uid(), 'admin')
-```
 
-Yenni tiene rol `user`, no `admin`, por lo que la base de datos rechaza sus operaciones aunque la UI le muestre los botones activos.
-
-Lo mismo aplica para las tablas relacionadas al proceso de cortes:
-- `corte_instaladores` — solo admins pueden INSERT/UPDATE/DELETE
-- `saldos_instaladores` — solo admins pueden INSERT/UPDATE/DELETE
-- `solicitudes_pago` — solo admins pueden UPDATE (aprobar solicitudes al cerrar corte)
-- `pagos_destajos` — solo admins pueden INSERT/UPDATE/DELETE
+Cuando una solicitud tiene muchos ítems de avance + anticipos aplicados, el contenido excede la altura de la pantalla y no hay manera de hacer scroll para verlo todo.
 
 ## Solución
 
-Actualizar las políticas RLS de todas las tablas involucradas en el flujo de cortes para permitir que usuarios con permiso granular (`can_create`, `can_update`, `can_delete` en `user_permissions` para `destajos/cortes`) puedan ejecutar esas operaciones.
+Dos cambios en `src/modules/destajos/pages/SolicitudesPage.tsx`:
 
-Se seguirá el mismo patrón ya usado en otras tablas del sistema (como `avances`), que verifica en `user_permissions`:
+### 1. Limitar la altura del DialogContent
 
-```sql
-has_role(auth.uid(), 'admin') OR EXISTS (
-  SELECT 1 FROM user_permissions
-  WHERE user_id = auth.uid()
-    AND module_id = 'destajos'
-    AND submodule_id = 'cortes'
-    AND can_create = true  -- o can_update / can_delete según la operación
-)
+Agregar `max-h-[90vh]` y `flex flex-col` al `DialogContent` para que el modal no exceda el 90% del alto de la pantalla:
+
+```tsx
+<DialogContent className="max-w-md max-h-[90vh] flex flex-col">
 ```
 
-## Tablas y políticas a actualizar
+### 2. Hacer scrolleable el área de contenido
 
-### 1. `cortes_semanales`
-- INSERT: admins O usuarios con `can_create` en destajos/cortes
-- UPDATE: admins O usuarios con `can_update` en destajos/cortes
-- DELETE: admins O usuarios con `can_delete` en destajos/cortes
+Envolver el bloque de contenido del detalle en un div con `overflow-y-auto` para que sea el área interna la que haga scroll, manteniendo el header y footer fijos:
 
-### 2. `corte_instaladores`
-- INSERT/UPDATE/DELETE: admins O usuarios con permisos en destajos/cortes (estas filas se crean/actualizan al cerrar un corte)
+```tsx
+<div className="overflow-y-auto flex-1 pr-1">
+  <div className="space-y-4">
+    {/* todo el contenido */}
+  </div>
+</div>
+```
 
-### 3. `saldos_instaladores`
-- INSERT/UPDATE: admins O usuarios con `can_update` en destajos/cortes (los saldos se actualizan al cerrar/reabrir un corte)
+Esto sigue el patrón ya aplicado en otros modales del proyecto (como el modal de anticipos en `ApplyAnticipoModal.tsx` con `max-h: 85vh` y scroll interno).
 
-### 4. `pagos_destajos`
-- INSERT: admins O usuarios con `can_create` en destajos/pagos (los pagos se generan al cerrar un corte)
-- UPDATE: admins O usuarios con `can_update` en destajos/pagos
-- DELETE: admins O usuarios con `can_delete` en destajos/pagos
+## Archivos a modificar
 
-### 5. `solicitudes_pago`
-- UPDATE: la política actual solo permite a admins actualizar. Se necesita permitir a usuarios con `can_update` en destajos/cortes (para cambiar estado de solicitudes a 'aprobada' al cerrar el corte)
-
-## Implementación
-
-Se creará una única migración SQL que:
-1. Elimina las políticas restrictivas existentes
-2. Crea nuevas políticas que unen la comprobación de admin con la verificación de permisos granulares
-
-No se modifica ningún código TypeScript — solo se actualizan las políticas en la base de datos.
+- `src/modules/destajos/pages/SolicitudesPage.tsx`
+  - Línea 1218: agregar `max-h-[90vh] flex flex-col` al `DialogContent`
+  - Líneas 1226-1350: envolver el `div.space-y-4` en un contenedor con `overflow-y-auto flex-1`
