@@ -1215,7 +1215,7 @@ export default function SolicitudesPage() {
 
       {/* View Solicitud Detail Dialog */}
       <Dialog open={!!viewingSolicitud} onOpenChange={(open) => !open && setViewingSolicitud(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Eye className="w-5 h-5" />
@@ -1223,6 +1223,7 @@ export default function SolicitudesPage() {
             </DialogTitle>
           </DialogHeader>
           {viewingSolicitud && (
+            <div className="overflow-y-auto flex-1 pr-1">
             <div className="space-y-4">
               {/* Basic info */}
               <div className="grid grid-cols-2 gap-3 text-sm">
@@ -1347,6 +1348,7 @@ export default function SolicitudesPage() {
                   <p className="mt-1 p-2 bg-muted/50 rounded">{viewingSolicitud.observaciones}</p>
                 </div>
               )}
+            </div>
             </div>
           )}
           <DialogFooter className="flex-col sm:flex-row gap-2">
