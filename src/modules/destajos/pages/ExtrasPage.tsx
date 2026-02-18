@@ -311,12 +311,24 @@ export default function ExtrasPage() {
     try {
       setDeleting(true);
 
-      // Eliminar solicitud de pago asociada si está pendiente
-      await supabase
+      // Eliminar solicitud de pago asociada en cualquier estado que no sea parte de un corte cerrado
+      // Si la solicitud está en un corte abierto o sin corte, también se elimina
+      const { data: solicitudExistente } = await supabase
         .from('solicitudes_pago')
-        .delete()
+        .select('id, corte_id, cortes_semanales(estado)')
         .contains('extras_ids', [deleteExtra.id])
-        .eq('estado', 'pendiente');
+        .single();
+
+      if (solicitudExistente) {
+        const corteEstado = (solicitudExistente as any).cortes_semanales?.estado;
+        if (corteEstado !== 'cerrado') {
+          // Delete the solicitud unless it belongs to a closed corte
+          await supabase
+            .from('solicitudes_pago')
+            .delete()
+            .eq('id', solicitudExistente.id);
+        }
+      }
 
       // Eliminar el extra
       const { error } = await supabase
