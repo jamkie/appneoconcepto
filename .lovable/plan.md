@@ -1,53 +1,88 @@
 
-# Fix: Modal de Detalle de Solicitud — Agregar Scroll
+# Fix: Validación de Saldo en Aprobación de Solicitudes — TRU HOTEL
 
-## Problema
+## Problema Identificado
 
-El `DialogContent` del modal de detalle de solicitud (línea 1218 en `SolicitudesPage.tsx`) no tiene límite de altura ni scroll:
+Hay dos cálculos distintos del "Total Pagado" en el sistema:
 
-```tsx
-<DialogContent className="max-w-md">
-  ...
-  <div className="space-y-4">   // sin altura máxima ni overflow
-    {/* Basic info */}
-    {/* Avance items breakdown */}
-    {/* Extras breakdown */}
-    {/* Amounts breakdown */}
-    {/* Anticipos aplicados */}
-    {/* Observations */}
-  </div>
+**Módulo Obras (CORRECTO):**
+- Excluye pagos con `corte_id` (son distribuciones salariales ya contabilizadas en anticipos)
+- Suma el `monto_original` de todos los anticipos
+
+```
+TRU HOTEL - Cálculo correcto:
+  Total anticipos otorgados:  $120,000
+  Pagos directos sin corte:       $0
+  Total Pagado correcto:      $120,000
+  Total Obra (con 10% desc):  $175,005
+  Saldo pendiente real:        $55,005  ← la solicitud de $34,875 SÍ cabe
 ```
 
-Cuando una solicitud tiene muchos ítems de avance + anticipos aplicados, el contenido excede la altura de la pantalla y no hay manera de hacer scroll para verlo todo.
+**Módulo Solicitudes - función `aprobarSolicitud` (INCORRECTO):**
+- Suma TODOS los `pagos_destajos` sin filtrar por `corte_id`
+- Incluye los 3 pagos de los cortes de Semana 7: $41,850 + $69,750 + $69,750 = **$181,350**
+
+```
+TRU HOTEL - Cálculo incorrecto en SolicitudesPage:
+  Total pagado (todos):       $181,350  ← inflado por pagos de corte
+  Total Obra:                 $175,005
+  Saldo calculado:             -$6,345  ← NEGATIVO → bloquea la aprobación ❌
+```
 
 ## Solución
 
-Dos cambios en `src/modules/destajos/pages/SolicitudesPage.tsx`:
+Modificar la función `aprobarSolicitud` en `SolicitudesPage.tsx` para que calcule el "Total Pagado" con la misma lógica que usa el módulo de Obras:
 
-### 1. Limitar la altura del DialogContent
+1. **Filtrar pagos con `corte_id`**: excluirlos del cálculo, igual que hace `ObrasPage.tsx` línea 228
+2. **Sumar anticipos otorgados**: usar `monto_original` de la tabla `anticipos` en lugar de pagos de corte
 
-Agregar `max-h-[90vh]` y `flex flex-col` al `DialogContent` para que el modal no exceda el 90% del alto de la pantalla:
-
-```tsx
-<DialogContent className="max-w-md max-h-[90vh] flex flex-col">
-```
-
-### 2. Hacer scrolleable el área de contenido
-
-Envolver el bloque de contenido del detalle en un div con `overflow-y-auto` para que sea el área interna la que haga scroll, manteniendo el header y footer fijos:
-
-```tsx
-<div className="overflow-y-auto flex-1 pr-1">
-  <div className="space-y-4">
-    {/* todo el contenido */}
-  </div>
-</div>
-```
-
-Esto sigue el patrón ya aplicado en otros modales del proyecto (como el modal de anticipos en `ApplyAnticipoModal.tsx` con `max-h: 85vh` y scroll interno).
+La misma corrección se aplicará también en `procesarAprobacionMasiva` que tiene una validación idéntica.
 
 ## Archivos a modificar
 
-- `src/modules/destajos/pages/SolicitudesPage.tsx`
-  - Línea 1218: agregar `max-h-[90vh] flex flex-col` al `DialogContent`
-  - Líneas 1226-1350: envolver el `div.space-y-4` en un contenedor con `overflow-y-auto flex-1`
+**`src/modules/destajos/pages/SolicitudesPage.tsx`**
+
+### Cambio 1: función `aprobarSolicitud` (líneas 329-375)
+
+Cambiar la consulta de `pagos_destajos` para:
+- Agregar `.is('corte_id', null)` para excluir pagos de corte
+- Agregar una consulta adicional a `anticipos` para sumar `monto_original`
+
+```typescript
+// ANTES (incorrecto):
+supabase
+  .from('pagos_destajos')
+  .select('monto')
+  .eq('obra_id', solicitud.obra_id)
+// → suma $181,350
+
+// DESPUÉS (correcto):
+// Pagos directos (sin corte_id)
+supabase
+  .from('pagos_destajos')
+  .select('monto')
+  .eq('obra_id', solicitud.obra_id)
+  .is('corte_id', null),
+// Anticipos otorgados
+supabase
+  .from('anticipos')
+  .select('monto_original')
+  .eq('obra_id', solicitud.obra_id)
+// totalPagado = pagos directos + suma monto_original anticipos → $120,000
+```
+
+### Cambio 2: función `procesarAprobacionMasiva` (líneas ~795-808)
+
+Aplicar la misma corrección en el bloque de validación masiva.
+
+## Resultado esperado
+
+Con este fix:
+- TRU HOTEL `totalPagado` = $120,000 (anticipos otorgados)
+- `saldoPendiente` = $175,005 - $120,000 = **$55,005**
+- La solicitud de $34,875 queda dentro del límite ✅
+- Yenni podrá aprobar la solicitud sin bloqueo
+
+## Sin cambios en base de datos
+
+No se requieren cambios en la base de datos. Los datos son correctos — el problema es solo cómo el código calcula el saldo en la validación de aprobación.
