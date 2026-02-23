@@ -18,16 +18,24 @@ import { Loader2 } from 'lucide-react';
 import { PedidoEstado } from '../types';
 
 export default function PedidosPage() {
-  const { pedidos, loading, fetchPedidos, createPedido, updatePedidoEstado } = usePedidos();
+  const { pedidos, profiles, loading, fetchPedidos, fetchProfiles, createPedido, updatePedidoEstado } = usePedidos();
   const { clientes, fetchClientes } = useClientes();
   const { canCreate, canUpdate } = useSubmodulePermissions('produccion', 'pedidos');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [filterEstado, setFilterEstado] = useState<string>('todos');
-  const [form, setForm] = useState({ cliente_id: '', nombre_proyecto: '', fecha_entrega: '', observaciones: '' });
+  const [form, setForm] = useState({
+    cliente_id: '',
+    nombre_proyecto: '',
+    fecha_entrega: '',
+    observaciones: '',
+    vendedor_id: '',
+    disenador_id: '',
+  });
 
   useEffect(() => {
     fetchPedidos();
     fetchClientes();
+    fetchProfiles();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -41,11 +49,19 @@ export default function PedidosPage() {
       nombre_proyecto: form.nombre_proyecto,
       fecha_entrega: form.fecha_entrega,
       observaciones: form.observaciones,
+      vendedor_id: form.vendedor_id || undefined,
+      disenador_id: form.disenador_id || undefined,
     });
     if (result) {
       setDialogOpen(false);
-      setForm({ cliente_id: '', nombre_proyecto: '', fecha_entrega: '', observaciones: '' });
+      setForm({ cliente_id: '', nombre_proyecto: '', fecha_entrega: '', observaciones: '', vendedor_id: '', disenador_id: '' });
     }
+  };
+
+  const getProfileName = (id: string | null) => {
+    if (!id) return '—';
+    const p = profiles.find(pr => pr.id === id);
+    return p?.full_name || p?.email || '—';
   };
 
   const filtered = filterEstado === 'todos' ? pedidos : pedidos.filter(p => p.estado === filterEstado);
@@ -81,7 +97,7 @@ export default function PedidosPage() {
               <DialogTrigger asChild>
                 <Button><Plus className="w-4 h-4 mr-2" />Nuevo Pedido</Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="max-h-[90vh] overflow-y-auto">
                 <DialogHeader><DialogTitle>Nuevo Pedido</DialogTitle></DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <div>
@@ -95,9 +111,42 @@ export default function PedidosPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div><Label>Nombre del Proyecto *</Label><Input required value={form.nombre_proyecto} onChange={(e) => setForm(f => ({ ...f, nombre_proyecto: e.target.value }))} /></div>
-                  <div><Label>Fecha de Entrega</Label><Input type="date" value={form.fecha_entrega} onChange={(e) => setForm(f => ({ ...f, fecha_entrega: e.target.value }))} /></div>
-                  <div><Label>Observaciones</Label><Textarea value={form.observaciones} onChange={(e) => setForm(f => ({ ...f, observaciones: e.target.value }))} /></div>
+                  <div>
+                    <Label>Nombre del Proyecto *</Label>
+                    <Input required value={form.nombre_proyecto} onChange={(e) => setForm(f => ({ ...f, nombre_proyecto: e.target.value }))} />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <Label>Vendedor</Label>
+                      <Select value={form.vendedor_id} onValueChange={(val) => setForm(f => ({ ...f, vendedor_id: val }))}>
+                        <SelectTrigger><SelectValue placeholder="Seleccionar vendedor" /></SelectTrigger>
+                        <SelectContent>
+                          {profiles.map(p => (
+                            <SelectItem key={p.id} value={p.id}>{p.full_name || p.email}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Diseñador</Label>
+                      <Select value={form.disenador_id} onValueChange={(val) => setForm(f => ({ ...f, disenador_id: val }))}>
+                        <SelectTrigger><SelectValue placeholder="Seleccionar diseñador" /></SelectTrigger>
+                        <SelectContent>
+                          {profiles.map(p => (
+                            <SelectItem key={p.id} value={p.id}>{p.full_name || p.email}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Fecha de Entrega</Label>
+                    <Input type="date" value={form.fecha_entrega} onChange={(e) => setForm(f => ({ ...f, fecha_entrega: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>Observaciones</Label>
+                    <Textarea value={form.observaciones} onChange={(e) => setForm(f => ({ ...f, observaciones: e.target.value }))} />
+                  </div>
                   <Button type="submit" className="w-full" disabled={!form.cliente_id}>Crear Pedido</Button>
                 </form>
               </DialogContent>
@@ -117,20 +166,24 @@ export default function PedidosPage() {
                   <TableRow>
                     <TableHead>Cliente</TableHead>
                     <TableHead>Proyecto</TableHead>
-                    <TableHead className="hidden sm:table-cell">Fecha Carga</TableHead>
-                    <TableHead className="hidden md:table-cell">Entrega</TableHead>
+                    <TableHead className="hidden sm:table-cell">Vendedor</TableHead>
+                    <TableHead className="hidden md:table-cell">Diseñador</TableHead>
+                    <TableHead className="hidden lg:table-cell">Entrega</TableHead>
                     <TableHead>Estado</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map((p) => (
+                  {filtered.map((p: any) => (
                     <TableRow key={p.id}>
                       <TableCell className="font-medium">{p.cliente}</TableCell>
                       <TableCell>{p.nombre_proyecto}</TableCell>
                       <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
-                        {format(new Date(p.fecha_carga), 'dd MMM yyyy', { locale: es })}
+                        {getProfileName(p.vendedor_id)}
                       </TableCell>
                       <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
+                        {getProfileName(p.disenador_id)}
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
                         {p.fecha_entrega ? format(new Date(p.fecha_entrega), 'dd MMM yyyy', { locale: es }) : '—'}
                       </TableCell>
                       <TableCell>
