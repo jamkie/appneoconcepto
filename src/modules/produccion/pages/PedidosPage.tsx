@@ -150,8 +150,8 @@ export default function PedidosPage() {
                     <Input type="date" value={form.fecha_entrega} onChange={(e) => setForm(f => ({ ...f, fecha_entrega: e.target.value }))} />
                   </div>
                   <div>
-                    <Label>Observaciones</Label>
-                    <Textarea value={form.observaciones} onChange={(e) => setForm(f => ({ ...f, observaciones: e.target.value }))} />
+                    <Label>Descripción del Proyecto</Label>
+                    <Textarea value={form.observaciones} onChange={(e) => setForm(f => ({ ...f, observaciones: e.target.value }))} placeholder="Descripción general del proyecto..." />
                   </div>
                   <Button type="submit" className="w-full" disabled={!form.cliente_id}>Crear Pedido</Button>
                 </form>
