@@ -16,6 +16,7 @@ import NotFound from "./pages/NotFound";
 import { ComisionesPage } from "./modules/comisiones";
 import { DestajosPage } from "./modules/destajos";
 import { ServiciosPage } from "./modules/servicios";
+import { ProduccionPage } from "./modules/produccion";
 
 const queryClient = new QueryClient();
 
@@ -72,6 +73,14 @@ const App = () => (
               element={
                 <ModuleRoute moduleId="servicios">
                   <ServiciosPage />
+                </ModuleRoute>
+              }
+            />
+            <Route
+              path="/produccion/*"
+              element={
+                <ModuleRoute moduleId="produccion">
+                  <ProduccionPage />
                 </ModuleRoute>
               }
             />
