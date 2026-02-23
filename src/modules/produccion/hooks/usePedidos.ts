@@ -49,6 +49,7 @@ export function usePedidos() {
     observaciones?: string;
     vendedor_id?: string;
     disenador_id?: string;
+    numero_intelisis?: string;
   }) => {
     if (!user) return null;
     const { data: newPedido, error } = await supabase
@@ -61,6 +62,7 @@ export function usePedidos() {
         observaciones: data.observaciones || null,
         vendedor_id: data.vendedor_id || null,
         disenador_id: data.disenador_id || null,
+        numero_intelisis: data.numero_intelisis || null,
         creado_por: user.id,
       })
       .select()
