@@ -443,6 +443,39 @@ export type Database = {
         }
         Relationships: []
       }
+      notificaciones_produccion: {
+        Row: {
+          created_at: string
+          id: string
+          leida: boolean
+          mensaje: string
+          referencia_id: string | null
+          tipo: string
+          titulo: string
+          usuario_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          leida?: boolean
+          mensaje: string
+          referencia_id?: string | null
+          tipo?: string
+          titulo: string
+          usuario_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          leida?: boolean
+          mensaje?: string
+          referencia_id?: string | null
+          tipo?: string
+          titulo?: string
+          usuario_id?: string
+        }
+        Relationships: []
+      }
       obra_instaladores: {
         Row: {
           created_at: string | null
@@ -600,6 +633,126 @@ export type Database = {
         }
         Relationships: []
       }
+      orden_archivos: {
+        Row: {
+          created_at: string
+          id: string
+          nombre_archivo: string
+          orden_id: string
+          storage_path: string
+          subido_por: string
+          tipo: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          nombre_archivo: string
+          orden_id: string
+          storage_path: string
+          subido_por: string
+          tipo?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          nombre_archivo?: string
+          orden_id?: string
+          storage_path?: string
+          subido_por?: string
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orden_archivos_orden_id_fkey"
+            columns: ["orden_id"]
+            isOneToOne: false
+            referencedRelation: "ordenes_produccion"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      orden_transiciones: {
+        Row: {
+          etapa_anterior: Database["public"]["Enums"]["produccion_etapa"]
+          etapa_nueva: Database["public"]["Enums"]["produccion_etapa"]
+          id: string
+          observaciones: string | null
+          orden_id: string
+          realizado_por: string
+          timestamp: string
+        }
+        Insert: {
+          etapa_anterior: Database["public"]["Enums"]["produccion_etapa"]
+          etapa_nueva: Database["public"]["Enums"]["produccion_etapa"]
+          id?: string
+          observaciones?: string | null
+          orden_id: string
+          realizado_por: string
+          timestamp?: string
+        }
+        Update: {
+          etapa_anterior?: Database["public"]["Enums"]["produccion_etapa"]
+          etapa_nueva?: Database["public"]["Enums"]["produccion_etapa"]
+          id?: string
+          observaciones?: string | null
+          orden_id?: string
+          realizado_por?: string
+          timestamp?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orden_transiciones_orden_id_fkey"
+            columns: ["orden_id"]
+            isOneToOne: false
+            referencedRelation: "ordenes_produccion"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ordenes_produccion: {
+        Row: {
+          creado_por: string
+          created_at: string
+          descripcion: string
+          etapa_actual: Database["public"]["Enums"]["produccion_etapa"]
+          fecha_entrega_estimada: string | null
+          id: string
+          numero_orden: string
+          pedido_id: string
+          updated_at: string
+        }
+        Insert: {
+          creado_por: string
+          created_at?: string
+          descripcion: string
+          etapa_actual?: Database["public"]["Enums"]["produccion_etapa"]
+          fecha_entrega_estimada?: string | null
+          id?: string
+          numero_orden: string
+          pedido_id: string
+          updated_at?: string
+        }
+        Update: {
+          creado_por?: string
+          created_at?: string
+          descripcion?: string
+          etapa_actual?: Database["public"]["Enums"]["produccion_etapa"]
+          fecha_entrega_estimada?: string | null
+          id?: string
+          numero_orden?: string
+          pedido_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ordenes_produccion_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pagos_destajos: {
         Row: {
           corte_id: string | null
@@ -714,6 +867,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      pedidos: {
+        Row: {
+          cliente: string
+          creado_por: string
+          created_at: string
+          estado: Database["public"]["Enums"]["pedido_estado"]
+          fecha_carga: string
+          fecha_entrega: string | null
+          id: string
+          nombre_proyecto: string
+          observaciones: string | null
+          updated_at: string
+        }
+        Insert: {
+          cliente: string
+          creado_por: string
+          created_at?: string
+          estado?: Database["public"]["Enums"]["pedido_estado"]
+          fecha_carga?: string
+          fecha_entrega?: string | null
+          id?: string
+          nombre_proyecto: string
+          observaciones?: string | null
+          updated_at?: string
+        }
+        Update: {
+          cliente?: string
+          creado_por?: string
+          created_at?: string
+          estado?: Database["public"]["Enums"]["pedido_estado"]
+          fecha_carga?: string
+          fecha_entrega?: string | null
+          id?: string
+          nombre_proyecto?: string
+          observaciones?: string | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
@@ -1118,6 +1310,21 @@ export type Database = {
       obra_status: "activa" | "cerrada"
       payment_method: "efectivo" | "transferencia" | "cheque" | "otro"
       payment_request_status: "pendiente" | "aprobada" | "rechazada"
+      pedido_estado:
+        | "nuevo"
+        | "en_ingenieria"
+        | "en_produccion"
+        | "completado"
+        | "entregado"
+      produccion_etapa:
+        | "ingenieria"
+        | "espera_materiales"
+        | "dimensionado"
+        | "enchapado"
+        | "maquinado"
+        | "armado"
+        | "empaquetado"
+        | "almacen"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1250,6 +1457,23 @@ export const Constants = {
       obra_status: ["activa", "cerrada"],
       payment_method: ["efectivo", "transferencia", "cheque", "otro"],
       payment_request_status: ["pendiente", "aprobada", "rechazada"],
+      pedido_estado: [
+        "nuevo",
+        "en_ingenieria",
+        "en_produccion",
+        "completado",
+        "entregado",
+      ],
+      produccion_etapa: [
+        "ingenieria",
+        "espera_materiales",
+        "dimensionado",
+        "enchapado",
+        "maquinado",
+        "armado",
+        "empaquetado",
+        "almacen",
+      ],
     },
   },
 } as const

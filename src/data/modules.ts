@@ -75,12 +75,19 @@ export const modulesWithSubmodules: ModuleWithSubmodules[] = [
   {
     id: 'produccion',
     title: 'Producción',
-    description: 'Control y monitoreo de líneas de producción en tiempo real.',
+    description: 'Control y monitoreo del flujo de producción de mobiliario.',
     icon: 'Factory',
-    route: null,
-    status: 'coming_soon',
+    route: '/produccion',
+    status: 'active',
     requiredPermissions: ['produccion.view'],
-    submodules: [],
+    submodules: [
+      { id: 'dashboard', label: 'Dashboard' },
+      { id: 'pedidos', label: 'Pedidos' },
+      { id: 'ordenes', label: 'Órdenes' },
+      { id: 'kanban', label: 'Kanban' },
+      { id: 'calendario', label: 'Calendario' },
+      { id: 'notificaciones', label: 'Notificaciones' },
+    ],
   },
 ];
 
