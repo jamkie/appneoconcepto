@@ -913,6 +913,7 @@ export type Database = {
           cliente_id: string | null
           creado_por: string
           created_at: string
+          disenador_id: string | null
           estado: Database["public"]["Enums"]["pedido_estado"]
           fecha_carga: string
           fecha_entrega: string | null
@@ -920,12 +921,14 @@ export type Database = {
           nombre_proyecto: string
           observaciones: string | null
           updated_at: string
+          vendedor_id: string | null
         }
         Insert: {
           cliente: string
           cliente_id?: string | null
           creado_por: string
           created_at?: string
+          disenador_id?: string | null
           estado?: Database["public"]["Enums"]["pedido_estado"]
           fecha_carga?: string
           fecha_entrega?: string | null
@@ -933,12 +936,14 @@ export type Database = {
           nombre_proyecto: string
           observaciones?: string | null
           updated_at?: string
+          vendedor_id?: string | null
         }
         Update: {
           cliente?: string
           cliente_id?: string | null
           creado_por?: string
           created_at?: string
+          disenador_id?: string | null
           estado?: Database["public"]["Enums"]["pedido_estado"]
           fecha_carga?: string
           fecha_entrega?: string | null
@@ -946,6 +951,7 @@ export type Database = {
           nombre_proyecto?: string
           observaciones?: string | null
           updated_at?: string
+          vendedor_id?: string | null
         }
         Relationships: [
           {
