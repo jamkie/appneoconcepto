@@ -30,6 +30,7 @@ export default function PedidosPage() {
     observaciones: '',
     vendedor_id: '',
     disenador_id: '',
+    numero_intelisis: '',
   });
 
   useEffect(() => {
@@ -51,10 +52,11 @@ export default function PedidosPage() {
       observaciones: form.observaciones,
       vendedor_id: form.vendedor_id || undefined,
       disenador_id: form.disenador_id || undefined,
+      numero_intelisis: form.numero_intelisis || undefined,
     });
     if (result) {
       setDialogOpen(false);
-      setForm({ cliente_id: '', nombre_proyecto: '', fecha_entrega: '', observaciones: '', vendedor_id: '', disenador_id: '' });
+      setForm({ cliente_id: '', nombre_proyecto: '', fecha_entrega: '', observaciones: '', vendedor_id: '', disenador_id: '', numero_intelisis: '' });
     }
   };
 
@@ -115,6 +117,10 @@ export default function PedidosPage() {
                     <Label>Nombre del Proyecto *</Label>
                     <Input required value={form.nombre_proyecto} onChange={(e) => setForm(f => ({ ...f, nombre_proyecto: e.target.value }))} />
                   </div>
+                  <div>
+                    <Label>No. Pedido Intelisis</Label>
+                    <Input value={form.numero_intelisis} onChange={(e) => setForm(f => ({ ...f, numero_intelisis: e.target.value }))} placeholder="Ej. PED-12345" />
+                  </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label>Vendedor</Label>
@@ -166,9 +172,10 @@ export default function PedidosPage() {
                   <TableRow>
                     <TableHead>Cliente</TableHead>
                     <TableHead>Proyecto</TableHead>
-                    <TableHead className="hidden sm:table-cell">Vendedor</TableHead>
-                    <TableHead className="hidden md:table-cell">Diseñador</TableHead>
-                    <TableHead className="hidden lg:table-cell">Entrega</TableHead>
+                    <TableHead className="hidden sm:table-cell">No. Intelisis</TableHead>
+                    <TableHead className="hidden md:table-cell">Vendedor</TableHead>
+                    <TableHead className="hidden lg:table-cell">Diseñador</TableHead>
+                    <TableHead className="hidden xl:table-cell">Entrega</TableHead>
                     <TableHead>Estado</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -178,9 +185,12 @@ export default function PedidosPage() {
                       <TableCell className="font-medium">{p.cliente}</TableCell>
                       <TableCell>{p.nombre_proyecto}</TableCell>
                       <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
-                        {getProfileName(p.vendedor_id)}
+                        {p.numero_intelisis || '—'}
                       </TableCell>
                       <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
+                        {getProfileName(p.vendedor_id)}
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
                         {getProfileName(p.disenador_id)}
                       </TableCell>
                       <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">

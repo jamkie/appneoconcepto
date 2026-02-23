@@ -1,0 +1,1 @@
+ALTER TABLE public.pedidos ADD COLUMN numero_intelisis text;

@@ -919,6 +919,7 @@ export type Database = {
           fecha_entrega: string | null
           id: string
           nombre_proyecto: string
+          numero_intelisis: string | null
           observaciones: string | null
           updated_at: string
           vendedor_id: string | null
@@ -934,6 +935,7 @@ export type Database = {
           fecha_entrega?: string | null
           id?: string
           nombre_proyecto: string
+          numero_intelisis?: string | null
           observaciones?: string | null
           updated_at?: string
           vendedor_id?: string | null
@@ -949,6 +951,7 @@ export type Database = {
           fecha_entrega?: string | null
           id?: string
           nombre_proyecto?: string
+          numero_intelisis?: string | null
           observaciones?: string | null
           updated_at?: string
           vendedor_id?: string | null
