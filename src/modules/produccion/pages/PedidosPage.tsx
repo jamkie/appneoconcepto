@@ -1,36 +1,50 @@
 import { useEffect, useState } from 'react';
 import { ShoppingCart, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Card, CardContent } from '@/components/ui/card';
 import { EstadoBadge } from '../components/StatusBadge';
 import { usePedidos } from '../hooks/usePedidos';
+import { useClientes } from '@/modules/clientes/hooks/useClientes';
 import { useSubmodulePermissions } from '@/hooks/useSubmodulePermissions';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Loader2 } from 'lucide-react';
 import { PedidoEstado } from '../types';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function PedidosPage() {
   const { pedidos, loading, fetchPedidos, createPedido, updatePedidoEstado } = usePedidos();
+  const { clientes, fetchClientes } = useClientes();
   const { canCreate, canUpdate } = useSubmodulePermissions('produccion', 'pedidos');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [filterEstado, setFilterEstado] = useState<string>('todos');
-  const [form, setForm] = useState({ cliente: '', nombre_proyecto: '', fecha_entrega: '', observaciones: '' });
+  const [form, setForm] = useState({ cliente_id: '', nombre_proyecto: '', fecha_entrega: '', observaciones: '' });
 
-  useEffect(() => { fetchPedidos(); }, []);
+  useEffect(() => {
+    fetchPedidos();
+    fetchClientes();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const result = await createPedido(form);
+    const selectedCliente = clientes.find(c => c.id === form.cliente_id);
+    if (!selectedCliente) return;
+
+    const result = await createPedido({
+      cliente: selectedCliente.nombre,
+      cliente_id: selectedCliente.id,
+      nombre_proyecto: form.nombre_proyecto,
+      fecha_entrega: form.fecha_entrega,
+      observaciones: form.observaciones,
+    });
     if (result) {
       setDialogOpen(false);
-      setForm({ cliente: '', nombre_proyecto: '', fecha_entrega: '', observaciones: '' });
+      setForm({ cliente_id: '', nombre_proyecto: '', fecha_entrega: '', observaciones: '' });
     }
   };
 
@@ -70,11 +84,21 @@ export default function PedidosPage() {
               <DialogContent>
                 <DialogHeader><DialogTitle>Nuevo Pedido</DialogTitle></DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
-                  <div><Label>Cliente *</Label><Input required value={form.cliente} onChange={(e) => setForm(f => ({ ...f, cliente: e.target.value }))} /></div>
+                  <div>
+                    <Label>Cliente *</Label>
+                    <Select value={form.cliente_id} onValueChange={(val) => setForm(f => ({ ...f, cliente_id: val }))}>
+                      <SelectTrigger><SelectValue placeholder="Seleccionar cliente" /></SelectTrigger>
+                      <SelectContent>
+                        {clientes.filter(c => c.activo).map(c => (
+                          <SelectItem key={c.id} value={c.id}>{c.nombre}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div><Label>Nombre del Proyecto *</Label><Input required value={form.nombre_proyecto} onChange={(e) => setForm(f => ({ ...f, nombre_proyecto: e.target.value }))} /></div>
                   <div><Label>Fecha de Entrega</Label><Input type="date" value={form.fecha_entrega} onChange={(e) => setForm(f => ({ ...f, fecha_entrega: e.target.value }))} /></div>
                   <div><Label>Observaciones</Label><Textarea value={form.observaciones} onChange={(e) => setForm(f => ({ ...f, observaciones: e.target.value }))} /></div>
-                  <Button type="submit" className="w-full">Crear Pedido</Button>
+                  <Button type="submit" className="w-full" disabled={!form.cliente_id}>Crear Pedido</Button>
                 </form>
               </DialogContent>
             </Dialog>

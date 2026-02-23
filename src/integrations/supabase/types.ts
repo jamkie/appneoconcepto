@@ -253,6 +253,45 @@ export type Database = {
           },
         ]
       }
+      clientes: {
+        Row: {
+          activo: boolean
+          contacto: string | null
+          created_at: string
+          direccion: string | null
+          email: string | null
+          id: string
+          nombre: string
+          notas: string | null
+          telefono: string | null
+          updated_at: string
+        }
+        Insert: {
+          activo?: boolean
+          contacto?: string | null
+          created_at?: string
+          direccion?: string | null
+          email?: string | null
+          id?: string
+          nombre: string
+          notas?: string | null
+          telefono?: string | null
+          updated_at?: string
+        }
+        Update: {
+          activo?: boolean
+          contacto?: string | null
+          created_at?: string
+          direccion?: string | null
+          email?: string | null
+          id?: string
+          nombre?: string
+          notas?: string | null
+          telefono?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       corte_instaladores: {
         Row: {
           corte_id: string
@@ -871,6 +910,7 @@ export type Database = {
       pedidos: {
         Row: {
           cliente: string
+          cliente_id: string | null
           creado_por: string
           created_at: string
           estado: Database["public"]["Enums"]["pedido_estado"]
@@ -883,6 +923,7 @@ export type Database = {
         }
         Insert: {
           cliente: string
+          cliente_id?: string | null
           creado_por: string
           created_at?: string
           estado?: Database["public"]["Enums"]["pedido_estado"]
@@ -895,6 +936,7 @@ export type Database = {
         }
         Update: {
           cliente?: string
+          cliente_id?: string | null
           creado_por?: string
           created_at?: string
           estado?: Database["public"]["Enums"]["pedido_estado"]
@@ -905,7 +947,15 @@ export type Database = {
           observaciones?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "pedidos_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
