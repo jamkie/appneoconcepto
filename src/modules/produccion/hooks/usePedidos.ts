@@ -25,12 +25,13 @@ export function usePedidos() {
     setLoading(false);
   }, [toast]);
 
-  const createPedido = async (data: { cliente: string; nombre_proyecto: string; fecha_entrega?: string; observaciones?: string }) => {
+  const createPedido = async (data: { cliente: string; cliente_id?: string; nombre_proyecto: string; fecha_entrega?: string; observaciones?: string }) => {
     if (!user) return null;
     const { data: newPedido, error } = await supabase
       .from('pedidos')
       .insert({
         cliente: data.cliente,
+        cliente_id: data.cliente_id || null,
         nombre_proyecto: data.nombre_proyecto,
         fecha_entrega: data.fecha_entrega || null,
         observaciones: data.observaciones || null,

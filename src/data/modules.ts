@@ -63,6 +63,18 @@ export const modulesWithSubmodules: ModuleWithSubmodules[] = [
     ],
   },
   {
+    id: 'clientes',
+    title: 'Clientes',
+    description: 'Directorio y gestión de clientes de la empresa.',
+    icon: 'Users',
+    route: '/clientes',
+    status: 'active',
+    requiredPermissions: ['clientes.view'],
+    submodules: [
+      { id: 'clientes', label: 'Clientes' },
+    ],
+  },
+  {
     id: 'mantenimiento',
     title: 'Mantenimiento de Maquinaria',
     description: 'Programación y registro de mantenimiento preventivo y correctivo.',

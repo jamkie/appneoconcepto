@@ -17,6 +17,7 @@ import { ComisionesPage } from "./modules/comisiones";
 import { DestajosPage } from "./modules/destajos";
 import { ServiciosPage } from "./modules/servicios";
 import { ProduccionPage } from "./modules/produccion";
+import { ClientesPage } from "./modules/clientes";
 
 const queryClient = new QueryClient();
 
@@ -81,6 +82,14 @@ const App = () => (
               element={
                 <ModuleRoute moduleId="produccion">
                   <ProduccionPage />
+                </ModuleRoute>
+              }
+            />
+            <Route
+              path="/clientes/*"
+              element={
+                <ModuleRoute moduleId="clientes">
+                  <ClientesPage />
                 </ModuleRoute>
               }
             />
