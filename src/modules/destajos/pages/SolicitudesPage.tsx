@@ -372,7 +372,7 @@ export default function SolicitudesPage() {
         const totalObra = subtotal - montoDescuento;
         const saldoPendiente = totalObra - totalPagado;
         
-        if (montoSolicitud > saldoPendiente) {
+        if (montoEfectivo > saldoPendiente) {
           toast({
             title: 'Error',
             description: `No se puede aprobar. El pago de ${formatCurrency(montoSolicitud)} excede el saldo pendiente de ${formatCurrency(saldoPendiente)}`,
@@ -786,6 +786,8 @@ export default function SolicitudesPage() {
     for (const solicitud of solicitudesAProbar) {
       const isAnticipo = solicitud.tipo === 'anticipo';
       const montoSolicitud = Number(solicitud.total_solicitado);
+      const anticipoAplicadoEnEsta = anticiposAAplicar[solicitud.id] ? Number(anticiposAAplicar[solicitud.id]) : 0;
+      const montoEfectivoBulk = montoSolicitud - anticipoAplicadoEnEsta;
       
       // For non-anticipo, validate obra limits
       if (!isAnticipo) {
@@ -816,7 +818,7 @@ export default function SolicitudesPage() {
           const totalObra = subtotal - montoDescuento;
           const saldoPendiente = totalObra - totalPagado;
           
-          if (montoSolicitud > saldoPendiente) {
+          if (montoEfectivoBulk > saldoPendiente) {
             fallidas.push({
               nombre: `${solicitud.instaladores?.nombre} - ${solicitud.obras?.nombre}`,
               motivo: `Excede saldo (${formatCurrency(saldoPendiente)})`
