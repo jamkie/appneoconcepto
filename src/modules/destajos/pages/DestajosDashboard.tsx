@@ -75,18 +75,30 @@ export default function DestajosDashboard() {
         .select('*', { count: 'exact', head: true })
         .eq('activo', true);
 
-      // Fetch total pagado (ALL payments including corte-based)
+      // Fetch all payments
       const { data: pagosData } = await supabase
         .from('pagos_destajos')
         .select('monto, corte_id, obra_id');
 
-      // Fetch anticipos - only monto_disponible (unapplied advances not yet covered by corte payments)
+      // Fetch anticipos (monto_disponible = unapplied advances)
       const { data: anticiposData } = await supabase
         .from('anticipos')
         .select('obra_id, monto_disponible');
 
+      // Fetch aplicacion_anticipo solicitudes in closed cortes (double-counted in pagos)
+      const { data: aplicacionesAnticipoData } = await supabase
+        .from('solicitudes_pago')
+        .select('obra_id, total_solicitado, corte_id, cortes_semanales(estado)')
+        .eq('tipo', 'aplicacion_anticipo')
+        .eq('estado', 'aprobada');
+
+      const totalAplicacionesAnticipo = (aplicacionesAnticipoData || [])
+        .filter((s: any) => s.cortes_semanales?.estado === 'cerrado')
+        .reduce((sum, s) => sum + Number(s.total_solicitado), 0);
+
       const totalPagado = (pagosData || [])
         .reduce((sum, p) => sum + Number(p.monto), 0)
+        - totalAplicacionesAnticipo
         + (anticiposData || []).reduce((sum, a) => sum + Number(a.monto_disponible), 0);
 
       // Calculate total por pagar from active obras
@@ -120,16 +132,20 @@ export default function DestajosDashboard() {
         const subtotal = subtotalItems + subtotalExtras;
         const montoTotal = subtotal * (1 - (obra.descuento || 0) / 100);
 
-        // Total pagado por obra: todos los pagos + anticipos no aplicados
+        // Total pagado por obra: pagos - aplicaciones anticipo en cortes cerrados + anticipos no aplicados
         const pagosObra = (pagosData || [])
           .filter((p) => p.obra_id === obra.id)
           .reduce((sum, p) => sum + Number(p.monto), 0);
+
+        const aplicacionesObra = (aplicacionesAnticipoData || [])
+          .filter((s: any) => s.obra_id === obra.id && s.cortes_semanales?.estado === 'cerrado')
+          .reduce((sum, s) => sum + Number(s.total_solicitado), 0);
 
         const anticiposNoAplicados = (anticiposData || [])
           .filter((a) => a.obra_id === obra.id)
           .reduce((sum, a) => sum + Number(a.monto_disponible), 0);
 
-        const pagadoObra = pagosObra + anticiposNoAplicados;
+        const pagadoObra = pagosObra - aplicacionesObra + anticiposNoAplicados;
         totalPorPagar += Math.max(0, montoTotal - pagadoObra);
       });
 
