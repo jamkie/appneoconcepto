@@ -65,6 +65,13 @@ export const useExportObrasExcel = () => {
         .from('anticipos')
         .select('obra_id, monto_disponible');
 
+      // Fetch aplicacion_anticipo solicitudes (double-counted in corte pagos)
+      const { data: aplicacionesAnticipoData } = await supabase
+        .from('solicitudes_pago')
+        .select('obra_id, total_solicitado, cortes_semanales(estado)')
+        .eq('tipo', 'aplicacion_anticipo')
+        .eq('estado', 'aprobada');
+
       // Fetch all extras
       const { data: extrasData } = await supabase
         .from('extras')
