@@ -206,7 +206,7 @@ export default function AvancesPage() {
               cantidad_completada,
               obra_items(descripcion, precio_unitario)
             ),
-            solicitudes_pago(id, estado, created_at, total_solicitado, subtotal_piezas, retencion, corte_id, cortes_semanales(estado), pagos_destajos(id), instaladores(nombre)),
+            solicitudes_pago(id, tipo, estado, created_at, total_solicitado, subtotal_piezas, retencion, corte_id, cortes_semanales(estado), pagos_destajos(id), instaladores(nombre)),
             avance_instaladores(id, instalador_id, porcentaje, instaladores(nombre))
           `)
           .order('fecha', { ascending: false }),
