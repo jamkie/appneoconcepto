@@ -819,10 +819,10 @@ export default function SolicitudesPage() {
             supabase.from('obras').select('descuento').eq('id', solicitud.obra_id).single(),
             supabase.from('obra_items').select('cantidad, precio_unitario').eq('obra_id', solicitud.obra_id),
             supabase.from('extras').select('monto').eq('obra_id', solicitud.obra_id).eq('estado', 'aprobado'),
-            // Solo pagos directos (excluir pagos de corte para evitar doble conteo con anticipos)
-            supabase.from('pagos_destajos').select('monto').eq('obra_id', solicitud.obra_id).is('corte_id', null),
-            // Anticipos otorgados (ya pagados a través del sistema de cortes)
-            supabase.from('anticipos').select('monto_original').eq('obra_id', solicitud.obra_id),
+            // Todos los pagos (directos + corte)
+            supabase.from('pagos_destajos').select('monto').eq('obra_id', solicitud.obra_id),
+            // Anticipos no aplicados
+            supabase.from('anticipos').select('monto_disponible').eq('obra_id', solicitud.obra_id),
           ]);
           
           const descuento = Number(obraRes.data?.descuento || 0);
@@ -830,11 +830,11 @@ export default function SolicitudesPage() {
             sum + (Number(item.cantidad) * Number(item.precio_unitario)), 0);
           const totalExtras = (extrasRes.data || []).reduce((sum, extra) => 
             sum + Number(extra.monto), 0);
-          const totalPagadoDirecto = (pagosDirectosRes.data || []).reduce((sum, pago) => 
+          const totalPagos = (pagosDirectosRes.data || []).reduce((sum, pago) => 
             sum + Number(pago.monto), 0);
-          const totalAnticiposOtorgados = (anticiposOtorgadosRes.data || []).reduce((sum, a) => 
-            sum + Number(a.monto_original), 0);
-          const totalPagado = totalPagadoDirecto + totalAnticiposOtorgados;
+          const totalAnticiposNoAplicados = (anticiposOtorgadosRes.data || []).reduce((sum, a) => 
+            sum + Number(a.monto_disponible), 0);
+          const totalPagado = totalPagos + totalAnticiposNoAplicados;
           
           const subtotal = totalItems + totalExtras;
           const montoDescuento = subtotal * (descuento / 100);
