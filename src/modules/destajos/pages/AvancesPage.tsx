@@ -82,7 +82,7 @@ interface AvanceRecord {
     cantidad_completada: number;
     obra_items: { descripcion: string; precio_unitario: number } | null;
   }[];
-  solicitudes_pago: { id: string; estado: string; created_at: string; total_solicitado: number; subtotal_piezas: number; retencion: number; corte_id: string | null; cortes_semanales: { estado: string } | null; pagos_destajos: { id: string }[]; instaladores: { nombre: string } | null }[];
+  solicitudes_pago: { id: string; tipo: string; estado: string; created_at: string; total_solicitado: number; subtotal_piezas: number; retencion: number; corte_id: string | null; cortes_semanales: { estado: string } | null; pagos_destajos: { id: string }[]; instaladores: { nombre: string } | null }[];
   avance_instaladores?: { id: string; instalador_id: string; porcentaje: number; instaladores: { nombre: string } | null }[];
 }
 
@@ -206,7 +206,7 @@ export default function AvancesPage() {
               cantidad_completada,
               obra_items(descripcion, precio_unitario)
             ),
-            solicitudes_pago(id, estado, created_at, total_solicitado, subtotal_piezas, retencion, corte_id, cortes_semanales(estado), pagos_destajos(id), instaladores(nombre)),
+            solicitudes_pago(id, tipo, estado, created_at, total_solicitado, subtotal_piezas, retencion, corte_id, cortes_semanales(estado), pagos_destajos(id), instaladores(nombre)),
             avance_instaladores(id, instalador_id, porcentaje, instaladores(nombre))
           `)
           .order('fecha', { ascending: false }),
@@ -1294,8 +1294,10 @@ export default function AvancesPage() {
                     {(() => {
                       const solicitudes = avance.solicitudes_pago || [];
                       if (solicitudes.length > 0) {
-                        // Sum all solicitudes for total amount (handles multi-installer cases)
-                        const totalMonto = solicitudes.reduce((acc, sol) => acc + sol.total_solicitado, 0);
+                        // Sum only avance/extra solicitudes, subtract aplicacion_anticipo
+                        const totalAvance = solicitudes.filter(s => s.tipo !== 'aplicacion_anticipo').reduce((acc, sol) => acc + sol.total_solicitado, 0);
+                        const totalAnticipos = solicitudes.filter(s => s.tipo === 'aplicacion_anticipo').reduce((acc, sol) => acc + sol.total_solicitado, 0);
+                        const totalMonto = totalAvance - totalAnticipos;
                         const descuento = avance.obras?.descuento || 0;
                         return (
                           <div className="space-y-0.5">
@@ -1488,7 +1490,9 @@ export default function AvancesPage() {
                   {(() => {
                     const solicitudes = viewingAvance.solicitudes_pago || [];
                     if (solicitudes.length > 0) {
-                      const totalMonto = solicitudes.reduce((acc, sol) => acc + sol.total_solicitado, 0);
+                      const totalAvance = solicitudes.filter(s => s.tipo !== 'aplicacion_anticipo').reduce((acc, sol) => acc + sol.total_solicitado, 0);
+                      const totalAnticipos = solicitudes.filter(s => s.tipo === 'aplicacion_anticipo').reduce((acc, sol) => acc + sol.total_solicitado, 0);
+                      const totalMonto = totalAvance - totalAnticipos;
                       return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(totalMonto);
                     }
                     const subtotal = viewingAvance.avance_items.reduce((acc, item) => {
