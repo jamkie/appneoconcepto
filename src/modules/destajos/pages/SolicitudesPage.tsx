@@ -355,15 +355,22 @@ export default function SolicitudesPage() {
             .select('monto')
             .eq('obra_id', solicitud.obra_id)
             .eq('estado', 'aprobado'),
-          // Todos los pagos (directos + corte) representan valor completo del destajo
+          // All payments
           supabase
             .from('pagos_destajos')
             .select('monto')
             .eq('obra_id', solicitud.obra_id),
-          // Anticipos no aplicados (dinero entregado pero no cubierto por pagos de corte aún)
+          // Unapplied anticipos
           supabase
             .from('anticipos')
             .select('monto_disponible')
+            .eq('obra_id', solicitud.obra_id),
+          // Aplicaciones de anticipo en cortes cerrados (double-counted in pagos)
+          supabase
+            .from('solicitudes_pago')
+            .select('total_solicitado, cortes_semanales(estado)')
+            .eq('tipo', 'aplicacion_anticipo')
+            .eq('estado', 'aprobada')
             .eq('obra_id', solicitud.obra_id),
         ]);
         
@@ -376,7 +383,10 @@ export default function SolicitudesPage() {
           sum + Number(pago.monto), 0);
         const totalAnticiposNoAplicados = (anticiposOtorgadosRes.data || []).reduce((sum, a) => 
           sum + Number(a.monto_disponible), 0);
-        const totalPagado = totalPagos + totalAnticiposNoAplicados;
+        const totalAplicacionesAnticipo = (aplicacionesAnticipoData?.data || [])
+          .filter((s: any) => s.cortes_semanales?.estado === 'cerrado')
+          .reduce((sum: number, s: any) => sum + Number(s.total_solicitado), 0);
+        const totalPagado = totalPagos - totalAplicacionesAnticipo + totalAnticiposNoAplicados;
         
         const subtotal = totalItems + totalExtras;
         const montoDescuento = subtotal * (descuento / 100);

@@ -132,16 +132,20 @@ export default function DestajosDashboard() {
         const subtotal = subtotalItems + subtotalExtras;
         const montoTotal = subtotal * (1 - (obra.descuento || 0) / 100);
 
-        // Total pagado por obra: todos los pagos + anticipos no aplicados
+        // Total pagado por obra: pagos - aplicaciones anticipo en cortes cerrados + anticipos no aplicados
         const pagosObra = (pagosData || [])
           .filter((p) => p.obra_id === obra.id)
           .reduce((sum, p) => sum + Number(p.monto), 0);
+
+        const aplicacionesObra = (aplicacionesAnticipoData || [])
+          .filter((s: any) => s.obra_id === obra.id && s.cortes_semanales?.estado === 'cerrado')
+          .reduce((sum, s) => sum + Number(s.total_solicitado), 0);
 
         const anticiposNoAplicados = (anticiposData || [])
           .filter((a) => a.obra_id === obra.id)
           .reduce((sum, a) => sum + Number(a.monto_disponible), 0);
 
-        const pagadoObra = pagosObra + anticiposNoAplicados;
+        const pagadoObra = pagosObra - aplicacionesObra + anticiposNoAplicados;
         totalPorPagar += Math.max(0, montoTotal - pagadoObra);
       });
 
