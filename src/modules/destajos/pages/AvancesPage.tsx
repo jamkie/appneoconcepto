@@ -1294,8 +1294,10 @@ export default function AvancesPage() {
                     {(() => {
                       const solicitudes = avance.solicitudes_pago || [];
                       if (solicitudes.length > 0) {
-                        // Sum all solicitudes for total amount (handles multi-installer cases)
-                        const totalMonto = solicitudes.reduce((acc, sol) => acc + sol.total_solicitado, 0);
+                        // Sum only avance/extra solicitudes, subtract aplicacion_anticipo
+                        const totalAvance = solicitudes.filter(s => s.tipo !== 'aplicacion_anticipo').reduce((acc, sol) => acc + sol.total_solicitado, 0);
+                        const totalAnticipos = solicitudes.filter(s => s.tipo === 'aplicacion_anticipo').reduce((acc, sol) => acc + sol.total_solicitado, 0);
+                        const totalMonto = totalAvance - totalAnticipos;
                         const descuento = avance.obras?.descuento || 0;
                         return (
                           <div className="space-y-0.5">
