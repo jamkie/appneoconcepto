@@ -1490,7 +1490,9 @@ export default function AvancesPage() {
                   {(() => {
                     const solicitudes = viewingAvance.solicitudes_pago || [];
                     if (solicitudes.length > 0) {
-                      const totalMonto = solicitudes.reduce((acc, sol) => acc + sol.total_solicitado, 0);
+                      const totalAvance = solicitudes.filter(s => s.tipo !== 'aplicacion_anticipo').reduce((acc, sol) => acc + sol.total_solicitado, 0);
+                      const totalAnticipos = solicitudes.filter(s => s.tipo === 'aplicacion_anticipo').reduce((acc, sol) => acc + sol.total_solicitado, 0);
+                      const totalMonto = totalAvance - totalAnticipos;
                       return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(totalMonto);
                     }
                     const subtotal = viewingAvance.avance_items.reduce((acc, item) => {
