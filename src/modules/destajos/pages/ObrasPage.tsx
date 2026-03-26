@@ -200,6 +200,13 @@ export default function ObrasPage() {
         .from('anticipos')
         .select('id, obra_id, instalador_id, monto_original, monto_disponible, observaciones, created_at');
 
+      // Fetch aplicacion_anticipo solicitudes in closed cortes (these amounts are double-counted in pagos)
+      const { data: aplicacionesAnticipoData } = await supabase
+        .from('solicitudes_pago')
+        .select('obra_id, total_solicitado, corte_id, cortes_semanales(estado)')
+        .eq('tipo', 'aplicacion_anticipo')
+        .eq('estado', 'aprobada');
+
       // Build the enriched obras
       const enrichedObras: ObraWithItems[] = (obrasData as any[] || []).map((obra) => {
         const items = (itemsData || []).filter((item) => item.obra_id === obra.id).map((item) => ({
@@ -235,18 +242,22 @@ export default function ObrasPage() {
             };
           });
 
-        // Total Pagado: suma de TODOS los pagos (directos + corte) + anticipos no aplicados aún.
-        // Los pagos de corte representan el valor COMPLETO del destajo por proyecto.
-        // Los anticipos con monto_disponible > 0 representan dinero ya entregado pero aún no
-        // cubierto por un pago de corte (se descontarán cuando se apliquen).
+        // Total Pagado = todos los pagos - aplicaciones de anticipo en cortes cerrados + anticipos no aplicados
+        // Los pagos de corte incluyen las aplicaciones de anticipo (doble conteo), hay que restarlas.
+        // Los anticipos con monto_disponible > 0 son dinero ya entregado pero no cubierto por un pago.
         const totalPagosAll = (pagosData || [])
           .filter((p) => p.obra_id === obra.id)
           .reduce((sum, p) => sum + Number(p.monto), 0);
 
+        // Restar aplicaciones de anticipo en cortes cerrados (ya incluidas en los pagos del corte)
+        const totalAplicacionesAnticipo = (aplicacionesAnticipoData || [])
+          .filter((s: any) => s.obra_id === obra.id && s.cortes_semanales?.estado === 'cerrado')
+          .reduce((sum, s) => sum + Number(s.total_solicitado), 0);
+
         const totalAnticiposNoAplicados = obraAnticiposRaw
           .reduce((sum, a) => sum + Number(a.monto_disponible), 0);
 
-        const totalPagado = totalPagosAll + totalAnticiposNoAplicados;
+        const totalPagado = totalPagosAll - totalAplicacionesAnticipo + totalAnticiposNoAplicados;
 
         // Get extras for this obra with rejected status from solicitudes
         const rejectedExtraIds = (solicitudesRechazadas || [])
