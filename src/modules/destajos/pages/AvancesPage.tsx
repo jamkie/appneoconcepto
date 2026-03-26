@@ -82,7 +82,7 @@ interface AvanceRecord {
     cantidad_completada: number;
     obra_items: { descripcion: string; precio_unitario: number } | null;
   }[];
-  solicitudes_pago: { id: string; estado: string; created_at: string; total_solicitado: number; subtotal_piezas: number; retencion: number; corte_id: string | null; cortes_semanales: { estado: string } | null; pagos_destajos: { id: string }[]; instaladores: { nombre: string } | null }[];
+  solicitudes_pago: { id: string; tipo: string; estado: string; created_at: string; total_solicitado: number; subtotal_piezas: number; retencion: number; corte_id: string | null; cortes_semanales: { estado: string } | null; pagos_destajos: { id: string }[]; instaladores: { nombre: string } | null }[];
   avance_instaladores?: { id: string; instalador_id: string; porcentaje: number; instaladores: { nombre: string } | null }[];
 }
 
