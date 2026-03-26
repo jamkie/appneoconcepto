@@ -75,20 +75,19 @@ export default function DestajosDashboard() {
         .select('*', { count: 'exact', head: true })
         .eq('activo', true);
 
-      // Fetch total pagado (only direct payments, excluding corte-based)
+      // Fetch total pagado (ALL payments including corte-based)
       const { data: pagosData } = await supabase
         .from('pagos_destajos')
         .select('monto, corte_id, obra_id');
 
-      // Fetch anticipos for accurate totals
+      // Fetch anticipos - only monto_disponible (unapplied advances not yet covered by corte payments)
       const { data: anticiposData } = await supabase
         .from('anticipos')
-        .select('obra_id, monto_original');
+        .select('obra_id, monto_disponible');
 
       const totalPagado = (pagosData || [])
-        .filter((p) => !p.corte_id)
         .reduce((sum, p) => sum + Number(p.monto), 0)
-        + (anticiposData || []).reduce((sum, a) => sum + Number(a.monto_original), 0);
+        + (anticiposData || []).reduce((sum, a) => sum + Number(a.monto_disponible), 0);
 
       // Calculate total por pagar from active obras
       const { data: obrasActivas } = await supabase
@@ -121,16 +120,16 @@ export default function DestajosDashboard() {
         const subtotal = subtotalItems + subtotalExtras;
         const montoTotal = subtotal * (1 - (obra.descuento || 0) / 100);
 
-        // Pagos directos (sin corte_id) + anticipos
-        const pagosDirectos = (pagosData || [])
-          .filter((p) => p.obra_id === obra.id && !p.corte_id)
+        // Total pagado por obra: todos los pagos + anticipos no aplicados
+        const pagosObra = (pagosData || [])
+          .filter((p) => p.obra_id === obra.id)
           .reduce((sum, p) => sum + Number(p.monto), 0);
 
-        const anticiposObra = (anticiposData || [])
+        const anticiposNoAplicados = (anticiposData || [])
           .filter((a) => a.obra_id === obra.id)
-          .reduce((sum, a) => sum + Number(a.monto_original), 0);
+          .reduce((sum, a) => sum + Number(a.monto_disponible), 0);
 
-        const pagadoObra = pagosDirectos + anticiposObra;
+        const pagadoObra = pagosObra + anticiposNoAplicados;
         totalPorPagar += Math.max(0, montoTotal - pagadoObra);
       });
 

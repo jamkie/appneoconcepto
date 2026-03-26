@@ -221,50 +221,32 @@ export default function ObrasPage() {
         const obraAnticiposRaw = (anticiposData || [])
           .filter((a) => a.obra_id === obra.id);
 
-        // Get pagos for this obra with instalador info
-        // Filter out payments that correspond to anticipos that haven't been applied yet
+        // Get pagos for this obra with instalador info (include all payments)
         const obraPagos = (pagosData || [])
           .filter((p) => p.obra_id === obra.id)
-          .filter((p) => !p.corte_id) // Excluir pagos de corte (ya representados por anticipos)
           .map((p) => {
             const instalador = (instaladoresData || []).find((i) => i.id === p.instalador_id);
-            const matchingAnticipo = obraAnticiposRaw.find((a) => 
-              a.instalador_id === p.instalador_id && 
-              Math.abs(Number(a.monto_original) - Number(p.monto)) < 0.01 &&
-              new Date(a.created_at).toDateString() === new Date(p.created_at).toDateString()
-            );
             return {
               id: p.id,
               fecha: p.fecha,
               monto: Number(p.monto),
               instalador_nombre: instalador?.nombre || 'Desconocido',
               metodo_pago: p.metodo_pago,
-              esDeAnticipo: !!matchingAnticipo,
-              anticipoAplicado: matchingAnticipo ? Number(matchingAnticipo.monto_disponible) < Number(matchingAnticipo.monto_original) : false,
             };
-          })
-          .filter((p) => !p.esDeAnticipo || p.anticipoAplicado);
+          });
 
-        // Total Pagado (Obras): contar pagos normales + anticipos aprobados.
-        // Importante: si existe un pago que coincide con un anticipo, lo excluimos del total de pagos
-        // para evitar duplicar (se contará por el anticipo).
-        const totalAnticiposOtorgados = obraAnticiposRaw
-          .reduce((sum, a) => sum + Number(a.monto_original), 0);
-
-        const totalPagosSinAnticipos = (pagosData || [])
+        // Total Pagado: suma de TODOS los pagos (directos + corte) + anticipos no aplicados aún.
+        // Los pagos de corte representan el valor COMPLETO del destajo por proyecto.
+        // Los anticipos con monto_disponible > 0 representan dinero ya entregado pero aún no
+        // cubierto por un pago de corte (se descontarán cuando se apliquen).
+        const totalPagosAll = (pagosData || [])
           .filter((p) => p.obra_id === obra.id)
-          .filter((p) => !p.corte_id) // Excluir pagos de corte
-          .filter((p) => {
-            const matched = obraAnticiposRaw.some((a) =>
-              a.instalador_id === p.instalador_id &&
-              Math.abs(Number(a.monto_original) - Number(p.monto)) < 0.01 &&
-              new Date(a.created_at).toDateString() === new Date(p.created_at).toDateString()
-            );
-            return !matched;
-          })
           .reduce((sum, p) => sum + Number(p.monto), 0);
 
-        const totalPagado = totalPagosSinAnticipos + totalAnticiposOtorgados;
+        const totalAnticiposNoAplicados = obraAnticiposRaw
+          .reduce((sum, a) => sum + Number(a.monto_disponible), 0);
+
+        const totalPagado = totalPagosAll + totalAnticiposNoAplicados;
 
         // Get extras for this obra with rejected status from solicitudes
         const rejectedExtraIds = (solicitudesRechazadas || [])
