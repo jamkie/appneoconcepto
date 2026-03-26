@@ -221,29 +221,19 @@ export default function ObrasPage() {
         const obraAnticiposRaw = (anticiposData || [])
           .filter((a) => a.obra_id === obra.id);
 
-        // Get pagos for this obra with instalador info
-        // Filter out payments that correspond to anticipos that haven't been applied yet
+        // Get pagos for this obra with instalador info (include all payments)
         const obraPagos = (pagosData || [])
           .filter((p) => p.obra_id === obra.id)
-          .filter((p) => !p.corte_id) // Excluir pagos de corte (ya representados por anticipos)
           .map((p) => {
             const instalador = (instaladoresData || []).find((i) => i.id === p.instalador_id);
-            const matchingAnticipo = obraAnticiposRaw.find((a) => 
-              a.instalador_id === p.instalador_id && 
-              Math.abs(Number(a.monto_original) - Number(p.monto)) < 0.01 &&
-              new Date(a.created_at).toDateString() === new Date(p.created_at).toDateString()
-            );
             return {
               id: p.id,
               fecha: p.fecha,
               monto: Number(p.monto),
               instalador_nombre: instalador?.nombre || 'Desconocido',
               metodo_pago: p.metodo_pago,
-              esDeAnticipo: !!matchingAnticipo,
-              anticipoAplicado: matchingAnticipo ? Number(matchingAnticipo.monto_disponible) < Number(matchingAnticipo.monto_original) : false,
             };
-          })
-          .filter((p) => !p.esDeAnticipo || p.anticipoAplicado);
+          });
 
         // Total Pagado: suma de TODOS los pagos (directos + corte) + anticipos no aplicados aún.
         // Los pagos de corte representan el valor COMPLETO del destajo por proyecto.
