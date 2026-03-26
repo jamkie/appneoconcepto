@@ -323,7 +323,19 @@ export default function SolicitudesPage() {
     const isAnticipo = solicitud.tipo === 'anticipo';
     const montoSolicitud = Number(solicitud.total_solicitado);
     const totalAnticiposAplicados = Object.values(anticiposAAplicar).reduce((sum, val) => sum + val, 0);
-    const montoEfectivo = montoSolicitud - totalAnticiposAplicados;
+    
+    // Also check for anticipos already applied during avance registration
+    let anticiposYaAplicados = 0;
+    if (solicitud.avance_id && totalAnticiposAplicados === 0) {
+      const { data: aplicacionesExistentes } = await supabase
+        .from('solicitudes_pago')
+        .select('total_solicitado')
+        .eq('avance_id', solicitud.avance_id)
+        .eq('tipo', 'aplicacion_anticipo');
+      anticiposYaAplicados = (aplicacionesExistentes || []).reduce((sum, a) => sum + Number(a.total_solicitado), 0);
+    }
+    
+    const montoEfectivo = montoSolicitud - totalAnticiposAplicados - anticiposYaAplicados;
     
     // For non-anticipo, validate obra limits
     if (!isAnticipo) {
