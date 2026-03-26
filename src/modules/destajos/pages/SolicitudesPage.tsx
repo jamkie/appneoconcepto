@@ -340,7 +340,7 @@ export default function SolicitudesPage() {
     // For non-anticipo, validate obra limits
     if (!isAnticipo) {
       try {
-      const [obraRes, itemsRes, extrasRes, pagosDirectosRes, anticiposOtorgadosRes] = await Promise.all([
+      const [obraRes, itemsRes, extrasRes, pagosDirectosRes, anticiposOtorgadosRes, aplicacionesAnticipoRes] = await Promise.all([
           supabase
             .from('obras')
             .select('descuento')
@@ -355,17 +355,14 @@ export default function SolicitudesPage() {
             .select('monto')
             .eq('obra_id', solicitud.obra_id)
             .eq('estado', 'aprobado'),
-          // All payments
           supabase
             .from('pagos_destajos')
             .select('monto')
             .eq('obra_id', solicitud.obra_id),
-          // Unapplied anticipos
           supabase
             .from('anticipos')
             .select('monto_disponible')
             .eq('obra_id', solicitud.obra_id),
-          // Aplicaciones de anticipo en cortes cerrados (double-counted in pagos)
           supabase
             .from('solicitudes_pago')
             .select('total_solicitado, cortes_semanales(estado)')
@@ -383,7 +380,7 @@ export default function SolicitudesPage() {
           sum + Number(pago.monto), 0);
         const totalAnticiposNoAplicados = (anticiposOtorgadosRes.data || []).reduce((sum, a) => 
           sum + Number(a.monto_disponible), 0);
-        const totalAplicacionesAnticipo = (aplicacionesAnticipoData?.data || [])
+        const totalAplicacionesAnticipo = (aplicacionesAnticipoRes.data || [])
           .filter((s: any) => s.cortes_semanales?.estado === 'cerrado')
           .reduce((sum: number, s: any) => sum + Number(s.total_solicitado), 0);
         const totalPagado = totalPagos - totalAplicacionesAnticipo + totalAnticiposNoAplicados;
