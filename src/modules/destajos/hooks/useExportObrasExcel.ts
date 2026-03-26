@@ -63,7 +63,7 @@ export const useExportObrasExcel = () => {
       // Fetch all anticipos
       const { data: anticiposData } = await supabase
         .from('anticipos')
-        .select('obra_id, monto_original');
+        .select('obra_id, monto_disponible');
 
       // Fetch all extras
       const { data: extrasData } = await supabase
