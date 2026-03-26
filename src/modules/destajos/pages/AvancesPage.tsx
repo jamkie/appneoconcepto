@@ -598,6 +598,52 @@ export default function AvancesPage() {
           await supabase.from('avance_instaladores').insert(avanceInstaladoresInsert);
         }
 
+        // Clean up any orphaned solicitudes for these instaladores/obra
+        // This prevents duplicates if the user re-creates the same avance
+        for (const inst of selectedInstaladores) {
+          // Find and clean orphaned aplicacion_anticipo solicitudes (no avance_id or avance deleted)
+          const { data: orphanedApps } = await supabase
+            .from('solicitudes_pago')
+            .select('id, total_solicitado')
+            .eq('obra_id', selectedObraId)
+            .eq('instalador_id', inst.instalador_id)
+            .eq('tipo', 'aplicacion_anticipo')
+            .is('avance_id', null);
+
+          for (const orphan of orphanedApps || []) {
+            // Restore anticipo monto_disponible before deleting orphan
+            const montoRestaurar = Number(orphan.total_solicitado);
+            if (montoRestaurar > 0) {
+              const { data: anticipoData } = await supabase
+                .from('anticipos')
+                .select('id, monto_disponible')
+                .eq('instalador_id', inst.instalador_id)
+                .eq('obra_id', selectedObraId)
+                .order('created_at', { ascending: true })
+                .limit(1)
+                .single();
+
+              if (anticipoData) {
+                await supabase
+                  .from('anticipos')
+                  .update({ monto_disponible: Number(anticipoData.monto_disponible) + montoRestaurar })
+                  .eq('id', anticipoData.id);
+              }
+            }
+            await supabase.from('solicitudes_pago').delete().eq('id', orphan.id);
+          }
+
+          // Also clean orphaned avance solicitudes without avance_id
+          await supabase
+            .from('solicitudes_pago')
+            .delete()
+            .eq('obra_id', selectedObraId)
+            .eq('instalador_id', inst.instalador_id)
+            .eq('tipo', 'avance')
+            .eq('estado', 'pendiente')
+            .is('avance_id', null);
+        }
+
         // Create solicitudes for each instalador
         let solicitudSuccess = true;
         for (const inst of selectedInstaladores) {
