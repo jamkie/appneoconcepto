@@ -141,17 +141,20 @@ export const useExportObrasExcel = () => {
         });
         const porcentajeAvance = totalPiezas > 0 ? (totalInstaladas / totalPiezas) * 100 : 0;
 
-        // Calculate total pagado (all payments + unapplied anticipos)
+        // Total Pagado = all pagos - aplicaciones anticipo en cortes cerrados + anticipos no aplicados
         const totalPagos = (pagosData || [])
           .filter((p) => p.obra_id === obra.id)
           .reduce((sum, p) => sum + Number(p.monto), 0);
 
-        // Add unapplied anticipos (money given but not yet covered by corte payments)
+        const totalAplicacionesAnticipo = (aplicacionesAnticipoData || [])
+          .filter((s: any) => s.obra_id === obra.id && s.cortes_semanales?.estado === 'cerrado')
+          .reduce((sum, s) => sum + Number(s.total_solicitado), 0);
+
         const totalAnticiposNoAplicados = (anticiposData || [])
           .filter((a) => a.obra_id === obra.id)
           .reduce((sum, a) => sum + Number(a.monto_disponible), 0);
 
-        const totalPagado = totalPagos + totalAnticiposNoAplicados;
+        const totalPagado = totalPagos - totalAplicacionesAnticipo + totalAnticiposNoAplicados;
 
         // Calculate total extras (only aprobados)
         const obraExtras = (extrasData || []).filter((e) => e.obra_id === obra.id && e.estado === 'aprobado');
